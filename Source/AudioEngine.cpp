@@ -2,6 +2,18 @@
 
 namespace tf
 {
+namespace
+{
+    juce::Array<juce::MidiDeviceInfo> availableInputs()  { return juce::MidiInput::getAvailableDevices(); }
+    juce::Array<juce::MidiDeviceInfo> availableOutputs() { return juce::MidiOutput::getAvailableDevices(); }
+
+    bool contains (const juce::Array<juce::MidiDeviceInfo>& list, const juce::String& id)
+    {
+        for (auto& d : list) if (d.identifier == id) return true;
+        return false;
+    }
+}
+
 AudioEngine::AudioEngine (juce::PropertiesFile& settings)
     : props (settings)
 {
@@ -20,8 +32,21 @@ AudioEngine::AudioEngine (juce::PropertiesFile& settings)
     mixL.assign ((size_t) maxBlock, 0.0f);
     mixR.assign ((size_t) maxBlock, 0.0f);
     instBuffer.setSize (2, maxBlock);
-    midiIn.ensureSize (8192);
+    anyMidi.ensureSize (8192);
     trackMidi.ensureSize (8192);
+
+    // All MIDI slots exist from the start, so the audio thread never sees one appear or vanish.
+    for (int k = 0; k < maxMidiPorts; ++k)
+    {
+        midiPorts[k] = std::make_unique<MidiPort>();
+        midiPorts[k]->buffer.ensureSize (4096);
+        midiPorts[k]->collector.reset (48000.0);
+        midiOuts[k] = std::make_unique<MidiOutPort>();
+        midiOuts[k]->buffer.ensureSize (4096);
+    }
+    midiPorts[computerKeyboardPort]->id = "computer-keyboard";
+    midiPorts[computerKeyboardPort]->name = "Computer keyboard (A-K)";
+    midiPorts[computerKeyboardPort]->active = true;
 
     auto saved = props.getXmlValue ("audioDevice");
     deviceManager.initialise (8, 8, saved.get(), true);
@@ -72,17 +97,36 @@ AudioEngine::AudioEngine (juce::PropertiesFile& settings)
             setup.outputChannels.setRange (0, std::min (16, dev->getOutputChannelNames().size()), true);
             deviceManager.setAudioDeviceSetup (setup, true);
         }
-
-        for (auto& d : juce::MidiInput::getAvailableDevices())
-            deviceManager.setMidiInputDeviceEnabled (d.identifier, true);
     }
 
-    deviceManager.addMidiInputDeviceCallback ({}, &midiCollector);
-    restoreSettings();
+    recallDeckWithTape = props.getBoolValue ("recallDeckWithTape", false);
+    restoreAll();
     stateAtStartup = deviceManager.createStateXml();
     deviceManager.addChangeListener (this);
     deviceManager.addAudioCallback (this);
+    startingUp = false;
     saveSettings();
+}
+
+AudioEngine::~AudioEngine()
+{
+    deviceManager.removeChangeListener (this);
+    deviceManager.removeAudioCallback (this);
+
+    for (auto& p : midiPorts)
+        if (p->registered)
+            deviceManager.removeMidiInputDeviceCallback (p->id, &p->collector);
+
+    for (auto& o : midiOuts)
+    {
+        if (o->out != nullptr)
+            for (int ch = 1; ch <= 16; ++ch)
+                o->out->sendMessageNow (juce::MidiMessage::allNotesOff (ch));
+        o->out.reset();
+    }
+
+    for (auto& s : slots)
+        s.inst.reset();
 }
 
 void AudioEngine::changeListenerCallback (juce::ChangeBroadcaster*)
@@ -107,18 +151,199 @@ void AudioEngine::saveDeviceState()
         props.setValue ("audioDevice", dev.get());
 }
 
-void AudioEngine::setMidiInputEnabled (const juce::String& id, bool enabled)
+//==============================================================================
+// MIDI controllers in, hardware synths out
+//==============================================================================
+bool AudioEngine::looksLikeMpeController (const juce::String& name)
 {
-    deviceManager.setMidiInputDeviceEnabled (id, enabled);
+    for (auto* key : { "osmose", "seaboard", "linnstrument", "continuum", "erae", "lumi", "sensel", "roli", "joue", "striso" })
+        if (name.containsIgnoreCase (key)) return true;
+    return false;
+}
+
+int AudioEngine::findOrCreateInputSlot (const juce::String& id, const juce::String& name)
+{
+    for (int k = 1; k < maxMidiPorts; ++k)
+        if (id.isNotEmpty() && midiPorts[k]->id == id) return k;
+    for (int k = 1; k < maxMidiPorts; ++k)
+        if (name.isNotEmpty() && midiPorts[k]->name == name)
+        {
+            if (id.isNotEmpty()) midiPorts[k]->id = id;   // same device, new identifier
+            return k;
+        }
+    for (int k = 1; k < maxMidiPorts; ++k)
+        if (midiPorts[k]->id.isEmpty())
+        {
+            midiPorts[k]->id = id.isNotEmpty() ? id : name;
+            midiPorts[k]->name = name;
+            midiPorts[k]->mpe = looksLikeMpeController (name);
+            midiPorts[k]->bendRange = 48;
+            return k;
+        }
+    return -1;
+}
+
+int AudioEngine::findOrCreateOutputSlot (const juce::String& id, const juce::String& name)
+{
+    for (int k = 0; k < maxMidiPorts; ++k)
+        if (midiOuts[k]->id.isNotEmpty() && midiOuts[k]->id == id) return k;
+    for (int k = 0; k < maxMidiPorts; ++k)
+        if (midiOuts[k]->name == name && name.isNotEmpty()) { midiOuts[k]->id = id; return k; }
+    for (int k = 0; k < maxMidiPorts; ++k)
+        if (midiOuts[k]->id.isEmpty())
+        {
+            midiOuts[k]->id = id;
+            midiOuts[k]->name = name;
+            return k;
+        }
+    return -1;
+}
+
+void AudioEngine::refreshMidiDevices()
+{
+    auto ins = availableInputs();
+    for (int k = 1; k < maxMidiPorts; ++k)
+    {
+        auto& p = *midiPorts[k];
+        if (p.id.isEmpty()) continue;
+        bool want = p.active.load() && contains (ins, p.id);
+        if (want)
+        {
+            deviceManager.setMidiInputDeviceEnabled (p.id, true);
+            if (! p.registered)
+            {
+                p.collector.reset (sampleRate > 0 ? sampleRate : 48000.0);
+                deviceManager.addMidiInputDeviceCallback (p.id, &p.collector);
+                p.registered = true;
+            }
+        }
+        else
+        {
+            if (p.registered)
+            {
+                deviceManager.removeMidiInputDeviceCallback (p.id, &p.collector);
+                p.registered = false;
+            }
+            if (contains (ins, p.id))
+                deviceManager.setMidiInputDeviceEnabled (p.id, false);
+        }
+    }
+
+    auto outs = availableOutputs();
+    for (auto& op : midiOuts)
+    {
+        auto& o = *op;
+        if (o.id.isEmpty()) continue;
+        bool want = o.active.load() && contains (outs, o.id);
+        if (want && o.out == nullptr)
+        {
+            auto opened = juce::MidiOutput::openDevice (o.id);
+            const juce::SpinLock::ScopedLockType sl (o.lock);
+            o.out = std::move (opened);
+        }
+        else if (! want && o.out != nullptr)
+        {
+            std::unique_ptr<juce::MidiOutput> closing;
+            {
+                const juce::SpinLock::ScopedLockType sl (o.lock);
+                closing = std::move (o.out);
+            }
+            for (int ch = 1; ch <= 16; ++ch)
+                closing->sendMessageNow (juce::MidiMessage::allNotesOff (ch));
+        }
+    }
+}
+
+std::vector<AudioEngine::MidiInputInfo> AudioEngine::getMidiInputs() const
+{
+    // Make sure every connected controller has a slot.
+    auto ins = availableInputs();
+    for (auto& d : ins)
+        const_cast<AudioEngine*> (this)->findOrCreateInputSlot (d.identifier, d.name);
+
+    std::vector<MidiInputInfo> out;
+    for (int k = 0; k < maxMidiPorts; ++k)
+    {
+        auto& p = *midiPorts[k];
+        if (p.id.isEmpty()) continue;
+        out.push_back ({ k, p.id, p.name, k == computerKeyboardPort || contains (ins, p.id),
+                         p.active.load(), p.mpe.load(), p.bendRange.load() });
+    }
+    return out;
+}
+
+void AudioEngine::setMidiInputActive (int slot, bool active)
+{
+    if (! juce::isPositiveAndBelow (slot, maxMidiPorts)) return;
+    midiPorts[slot]->active = active;
+    refreshMidiDevices();
+    for (int t = 0; t < numTracks; ++t) mpeConfigPending[t] = true;
     saveSettings();
 }
 
-void AudioEngine::setMpe (bool enabled, int bendRange)
+void AudioEngine::setMidiInputMpe (int slot, bool mpe, int bendRange)
 {
-    mpeEnabled = enabled;
-    mpeBendRange = juce::jlimit (1, 96, bendRange);
-    for (auto& p : mpeConfigPending) p = true;
+    if (! juce::isPositiveAndBelow (slot, maxMidiPorts)) return;
+    midiPorts[slot]->mpe = mpe;
+    midiPorts[slot]->bendRange = juce::jlimit (1, 96, bendRange);
+    for (int t = 0; t < numTracks; ++t) mpeConfigPending[t] = true;
     saveSettings();
+}
+
+juce::String AudioEngine::midiPortLabel (int port) const
+{
+    if (port == midiAnyWhenArmed) return "ANY (ARMED)";
+    if (port == midiNone || ! juce::isPositiveAndBelow (port, maxMidiPorts) || midiPorts[port]->id.isEmpty()) return "NONE";
+    if (port == computerKeyboardPort) return "COMPUTER KEYS";
+    return midiPorts[port]->name.toUpperCase();
+}
+
+bool AudioEngine::isMidiPortMpe (int port) const
+{
+    if (port == midiAnyWhenArmed)
+    {
+        for (auto& p : midiPorts) if (p->active.load() && p->mpe.load()) return true;
+        return false;
+    }
+    return juce::isPositiveAndBelow (port, maxMidiPorts) && midiPorts[port]->mpe.load();
+}
+
+std::vector<AudioEngine::MidiOutputInfo> AudioEngine::getMidiOutputs() const
+{
+    auto outs = availableOutputs();
+    for (auto& d : outs)
+        const_cast<AudioEngine*> (this)->findOrCreateOutputSlot (d.identifier, d.name);
+
+    std::vector<MidiOutputInfo> result;
+    for (int k = 0; k < maxMidiPorts; ++k)
+    {
+        auto& o = *midiOuts[k];
+        if (o.id.isEmpty()) continue;
+        result.push_back ({ k, o.id, o.name, o.alias, contains (outs, o.id), o.active.load() });
+    }
+    return result;
+}
+
+void AudioEngine::setMidiOutputActive (int slot, bool active)
+{
+    if (! juce::isPositiveAndBelow (slot, maxMidiPorts)) return;
+    midiOuts[slot]->active = active;
+    refreshMidiDevices();
+    saveSettings();
+}
+
+void AudioEngine::setMidiOutputAlias (int slot, const juce::String& alias)
+{
+    if (! juce::isPositiveAndBelow (slot, maxMidiPorts)) return;
+    midiOuts[slot]->alias = alias.trim();
+    saveSettings();
+}
+
+juce::String AudioEngine::midiOutputLabel (int slot) const
+{
+    if (! juce::isPositiveAndBelow (slot, maxMidiPorts) || midiOuts[slot]->id.isEmpty()) return "NO MIDI OUT";
+    auto& o = *midiOuts[slot];
+    return (o.alias.isNotEmpty() ? o.alias : o.name).toUpperCase();
 }
 
 void AudioEngine::addMpeConfiguration (juce::MidiBuffer& b, bool on, int bendRange)
@@ -134,15 +359,32 @@ void AudioEngine::addMpeConfiguration (juce::MidiBuffer& b, bool on, int bendRan
     }
 }
 
-AudioEngine::~AudioEngine()
+int AudioEngine::addVirtualMidiInput (const juce::String& name)
 {
-    deviceManager.removeChangeListener (this);
-    deviceManager.removeAudioCallback (this);
-    deviceManager.removeMidiInputDeviceCallback ({}, &midiCollector);
-    for (auto& s : slots)
-        s.inst.reset();
+    auto slot = findOrCreateInputSlot ("virtual:" + name, name);
+    if (slot >= 0) midiPorts[slot]->active = true;
+    return slot;
 }
 
+int AudioEngine::addVirtualMidiOutput (const juce::String& name)
+{
+    auto slot = findOrCreateOutputSlot ("virtual:" + name, name);
+    if (slot >= 0) midiOuts[slot]->active = true;
+    return slot;
+}
+
+void AudioEngine::injectMidi (const juce::MidiMessage& m, int port)
+{
+    if (! juce::isPositiveAndBelow (port, maxMidiPorts)) return;
+    auto& p = *midiPorts[port];
+    if (sampleRate <= 0 || ! p.active.load()) return;
+    auto msg = m;
+    msg.setTimeStamp (juce::Time::getMillisecondCounterHiRes() * 0.001);
+    p.collector.addMessageToQueue (msg);
+}
+
+//==============================================================================
+// Sources
 //==============================================================================
 std::unique_ptr<Tape> AudioEngine::swapTape (std::unique_ptr<Tape> newTape)
 {
@@ -153,12 +395,30 @@ std::unique_ptr<Tape> AudioEngine::swapTape (std::unique_ptr<Tape> newTape)
     return old;
 }
 
-void AudioEngine::setAudioSource (int t, int inputChannel)
+void AudioEngine::setAudioSource (int t, int inputChannel, bool pair)
 {
-    pendingInstrument[t].reset();
-    pluginMissing[t] = false;
+    setInstrument (t, nullptr);
     track[t].inputChannel = inputChannel;
+    track[t].inputPair = pair;
     track[t].source = (int) Source::audio;
+}
+
+void AudioEngine::setHardwareSource (int t)
+{
+    setInstrument (t, nullptr);
+    track[t].source = (int) Source::hardware;
+}
+
+void AudioEngine::unplug (int t)
+{
+    setInstrument (t, nullptr);
+    track[t].source = (int) Source::none;
+}
+
+void AudioEngine::setTrackMidiPort (int t, int port)
+{
+    track[t].midiPort = port;
+    mpeConfigPending[t] = true;
 }
 
 void AudioEngine::setInstrument (int t, std::unique_ptr<Instrument> inst)
@@ -212,12 +472,18 @@ void AudioEngine::loadPlugin (int t, const juce::PluginDescription& desc, const 
 void AudioEngine::toggleBounceSource (int t, int sourceTrack)
 {
     if (sourceTrack == t) return;
-    pendingInstrument[t].reset();
-    pluginMissing[t] = false;
-    auto mask = track[t].source.load() == (int) Source::bounce ? track[t].bounceMask.load() : 0;
+    auto wasBounce = track[t].source.load() == (int) Source::bounce;
+    if (! wasBounce) setInstrument (t, nullptr);
+    auto mask = wasBounce ? track[t].bounceMask.load() : 0;
     mask ^= (1 << sourceTrack);
     track[t].bounceMask = mask;
     track[t].source = (int) Source::bounce;
+}
+
+juce::String AudioEngine::describeInput (int t) const
+{
+    auto ch = track[t].inputChannel.load() + 1;
+    return "IN " + juce::String (ch) + (track[t].inputPair.load() ? "+" + juce::String (ch + 1) : juce::String());
 }
 
 juce::String AudioEngine::describeSource (int t) const
@@ -225,7 +491,9 @@ juce::String AudioEngine::describeSource (int t) const
     switch ((Source) track[t].source.load())
     {
         case Source::audio:
-            return "ASIO IN " + juce::String (track[t].inputChannel.load() + 1);
+            return "ASIO " + describeInput (t);
+        case Source::hardware:
+            return midiOutputLabel (track[t].midiOutPort.load());
         case Source::instrument:
             if (slots[t].inst != nullptr) return slots[t].inst->getName().toUpperCase();
             if (pendingInstrument[t] != nullptr)
@@ -286,37 +554,29 @@ juce::StringArray AudioEngine::getOutputPairNames() const
         for (int i = 0; i < names.size(); ++i)
             if (active[i])
                 act.add (names[i]);
-        for (int i = 0; i + 1 < act.size() || i < act.size(); i += 2)
+        for (int i = 0; i < act.size(); i += 2)
             out.add ("OUT " + juce::String (i + 1) + (i + 1 < act.size() ? "/" + juce::String (i + 2) : juce::String())
                      + "  (" + act[i] + ")");
     }
     return out;
 }
 
-void AudioEngine::injectMidi (const juce::MidiMessage& m)
-{
-    if (sampleRate <= 0) return;
-    auto msg = m;
-    msg.setTimeStamp (juce::Time::getMillisecondCounterHiRes() * 0.001);
-    midiCollector.addMessageToQueue (msg);
-}
-
 //==============================================================================
-void AudioEngine::saveSettings()
+// Deck state and settings
+//==============================================================================
+std::unique_ptr<juce::XmlElement> AudioEngine::createDeckState() const
 {
-    saveDeviceState();
+    auto deck = std::make_unique<juce::XmlElement> ("DECK");
+    deck->setAttribute ("version", 2);
 
-    if (auto known = knownPlugins.createXml())
-        props.setValue ("knownPlugins", known.get());
-
-    juce::XmlElement deck ("DECK");
     for (int t = 0; t < numTracks; ++t)
     {
         auto& p = track[t];
-        auto* x = deck.createNewChildElement ("TRACK");
+        auto* x = deck->createNewChildElement ("TRACK");
         x->setAttribute ("index", t);
         x->setAttribute ("source", p.source.load());
         x->setAttribute ("input", p.inputChannel.load());
+        x->setAttribute ("pair", p.inputPair.load());
         x->setAttribute ("gain", p.gain.load());
         x->setAttribute ("high", p.high.load());
         x->setAttribute ("mid", p.mid.load());
@@ -324,33 +584,33 @@ void AudioEngine::saveSettings()
         x->setAttribute ("pan", p.pan.load());
         x->setAttribute ("fader", p.fader.load());
         x->setAttribute ("bounce", p.bounceMask.load());
+
+        auto port = p.midiPort.load();
+        if (port == midiAnyWhenArmed)      x->setAttribute ("midiIn", "any");
+        else if (! juce::isPositiveAndBelow (port, maxMidiPorts) || midiPorts[port]->id.isEmpty()) x->setAttribute ("midiIn", "none");
+        else { x->setAttribute ("midiIn", "port"); x->setAttribute ("midiInId", midiPorts[port]->id); x->setAttribute ("midiInName", midiPorts[port]->name); }
+
+        auto outPort = p.midiOutPort.load();
+        if (juce::isPositiveAndBelow (outPort, maxMidiPorts) && midiOuts[outPort]->id.isNotEmpty())
+        {
+            x->setAttribute ("midiOutId", midiOuts[outPort]->id);
+            x->setAttribute ("midiOutName", midiOuts[outPort]->name);
+        }
+        x->setAttribute ("midiOutChannel", p.midiOutChannel.load());
+
         if (slots[t].inst != nullptr)
             x->addChildElement (slots[t].inst->saveState().release());
         else if (pendingInstrument[t] != nullptr)
             x->addChildElement (new juce::XmlElement (*pendingInstrument[t]));
     }
 
-    auto* m = deck.createNewChildElement ("MASTER");
+    auto* m = deck->createNewChildElement ("MASTER");
     m->setAttribute ("fader", masterFader.load());
     m->setAttribute ("phones", phones.load());
-    m->setAttribute ("mainOut", mainOutPair.load());
-    m->setAttribute ("phonesOut", phonesPair.load());
     m->setAttribute ("monitor", monitorMode.load());
-    m->setAttribute ("followArm", followArm.load());
-    m->setAttribute ("mpe", mpeEnabled.load());
-    m->setAttribute ("mpeBendRange", mpeBendRange.load());
-
-    auto* midi = deck.createNewChildElement ("MIDI_INPUTS");
-    for (auto& d : juce::MidiInput::getAvailableDevices())
-    {
-        auto* x = midi->createNewChildElement ("INPUT");
-        x->setAttribute ("id", d.identifier);
-        x->setAttribute ("name", d.name);
-        x->setAttribute ("enabled", deviceManager.isMidiInputDeviceEnabled (d.identifier));
-    }
 
     auto& tp = tapeEngine.params;
-    auto* x = deck.createNewChildElement ("TAPE_DECK");
+    auto* x = deck->createNewChildElement ("TAPE_DECK");
     x->setAttribute ("speed", tp.speedSel.load());
     x->setAttribute ("pitch", tp.pitchStep.load());
     x->setAttribute ("nr", tp.nrOn.load());
@@ -364,32 +624,18 @@ void AudioEngine::saveSettings()
     x->setAttribute ("xtalk", tp.xtalk.load());
     x->setAttribute ("drop", tp.drop.load());
     x->setAttribute ("drift", tp.drift.load());
-    x->setAttribute ("latencyOffsetMs", tp.latencyOffsetMs.load());
-
-    props.setValue ("deck", &deck);
-    props.saveIfNeeded();
+    return deck;
 }
 
-void AudioEngine::restoreSettings()
+void AudioEngine::applyDeckState (const juce::XmlElement& deck)
 {
-    auto deck = props.getXmlValue ("deck");
-
-    if (deck == nullptr)
-    {
-        // Factory setup: two built-in instruments and two audio inputs.
-        setInstrument (0, BuiltIn::create (BuiltIn::poly));
-        setInstrument (1, BuiltIn::create (BuiltIn::epiano));
-        setAudioSource (2, 0);
-        setAudioSource (3, 1);
-        return;
-    }
-
-    for (auto* x : deck->getChildWithTagNameIterator ("TRACK"))
+    for (auto* x : deck.getChildWithTagNameIterator ("TRACK"))
     {
         auto t = x->getIntAttribute ("index", -1);
         if (t < 0 || t >= numTracks) continue;
         auto& p = track[t];
         p.inputChannel = x->getIntAttribute ("input", t);
+        p.inputPair = x->getBoolAttribute ("pair");
         p.gain  = (float) x->getDoubleAttribute ("gain", 1.0 / 3.0);
         p.high  = (float) x->getDoubleAttribute ("high");
         p.mid   = (float) x->getDoubleAttribute ("mid");
@@ -397,8 +643,23 @@ void AudioEngine::restoreSettings()
         p.pan   = (float) x->getDoubleAttribute ("pan");
         p.fader = (float) x->getDoubleAttribute ("fader", 0.75);
         p.bounceMask = x->getIntAttribute ("bounce");
-        auto source = x->getIntAttribute ("source");
 
+        auto midiIn = x->getStringAttribute ("midiIn", "any");
+        if (midiIn == "none") p.midiPort = midiNone;
+        else if (midiIn == "port")
+        {
+            auto slot = findOrCreateInputSlot (x->getStringAttribute ("midiInId"), x->getStringAttribute ("midiInName"));
+            p.midiPort = slot >= 0 ? slot : midiNone;
+        }
+        else p.midiPort = midiAnyWhenArmed;
+
+        if (x->hasAttribute ("midiOutId"))
+            p.midiOutPort = findOrCreateOutputSlot (x->getStringAttribute ("midiOutId"), x->getStringAttribute ("midiOutName"));
+        else
+            p.midiOutPort = -1;
+        p.midiOutChannel = juce::jlimit (0, 16, x->getIntAttribute ("midiOutChannel", 1));
+
+        auto source = x->getIntAttribute ("source");
         if (source == (int) Source::instrument)
         {
             if (auto* ix = x->getChildByName ("INSTRUMENT"))
@@ -412,6 +673,7 @@ void AudioEngine::restoreSettings()
                     juce::PluginDescription desc;
                     if (desc.loadFromXml (*dx))
                     {
+                        setInstrument (t, nullptr);
                         p.source = (int) Source::instrument;
                         pendingInstrument[t] = std::make_unique<juce::XmlElement> (*ix);
                         loadPlugin (t, desc, ix->getStringAttribute ("state"), nullptr);
@@ -421,36 +683,20 @@ void AudioEngine::restoreSettings()
         }
         else
         {
+            setInstrument (t, nullptr);
             p.source = source;
         }
+        mpeConfigPending[t] = true;
     }
 
-    if (auto* m = deck->getChildByName ("MASTER"))
+    if (auto* m = deck.getChildByName ("MASTER"))
     {
         masterFader = (float) m->getDoubleAttribute ("fader", 0.75);
         phones      = (float) m->getDoubleAttribute ("phones", 0.6);
-        mainOutPair = m->getIntAttribute ("mainOut");
-        phonesPair  = m->getIntAttribute ("phonesOut", -1);
         monitorMode = m->getIntAttribute ("monitor");
-        followArm   = m->getBoolAttribute ("followArm", true);
-        mpeEnabled  = m->getBoolAttribute ("mpe", true);
-        mpeBendRange = juce::jlimit (1, 96, m->getIntAttribute ("mpeBendRange", 48));
     }
 
-    // MIDI inputs: exactly the ones that were chosen last time. Devices never seen before stay off.
-    if (auto* midi = deck->getChildByName ("MIDI_INPUTS"))
-    {
-        for (auto& d : juce::MidiInput::getAvailableDevices())
-        {
-            bool enabled = false;
-            for (auto* x : midi->getChildWithTagNameIterator ("INPUT"))
-                if (x->getStringAttribute ("id") == d.identifier || x->getStringAttribute ("name") == d.name)
-                    enabled = x->getBoolAttribute ("enabled");
-            deviceManager.setMidiInputDeviceEnabled (d.identifier, enabled);
-        }
-    }
-
-    if (auto* x = deck->getChildByName ("TAPE_DECK"))
+    if (auto* x = deck.getChildByName ("TAPE_DECK"))
     {
         auto& tp = tapeEngine.params;
         tp.speedSel    = x->getIntAttribute ("speed", 1);
@@ -466,10 +712,147 @@ void AudioEngine::restoreSettings()
         tp.xtalk   = (float) x->getDoubleAttribute ("xtalk", 0.30);
         tp.drop    = (float) x->getDoubleAttribute ("drop", 0.10);
         tp.drift   = (float) x->getDoubleAttribute ("drift", 0.20);
-        tp.latencyOffsetMs = x->getIntAttribute ("latencyOffsetMs");
     }
+
+    if (onDeckStateApplied) onDeckStateApplied();
 }
 
+std::unique_ptr<juce::XmlElement> AudioEngine::createHardwareState() const
+{
+    auto hw = std::make_unique<juce::XmlElement> ("HARDWARE");
+    hw->setAttribute ("mainOut", mainOutPair.load());
+    hw->setAttribute ("phonesOut", phonesPair.load());
+    hw->setAttribute ("latencyOffsetMs", tapeEngine.params.latencyOffsetMs.load());
+
+    for (int k = 0; k < maxMidiPorts; ++k)
+    {
+        auto& p = *midiPorts[k];
+        if (p.id.isEmpty()) continue;
+        auto* x = hw->createNewChildElement ("MIDI_IN");
+        x->setAttribute ("slot", k);
+        x->setAttribute ("id", p.id);
+        x->setAttribute ("name", p.name);
+        x->setAttribute ("active", p.active.load());
+        x->setAttribute ("mpe", p.mpe.load());
+        x->setAttribute ("bend", p.bendRange.load());
+    }
+    for (int k = 0; k < maxMidiPorts; ++k)
+    {
+        auto& o = *midiOuts[k];
+        if (o.id.isEmpty()) continue;
+        auto* x = hw->createNewChildElement ("MIDI_OUT");
+        x->setAttribute ("slot", k);
+        x->setAttribute ("id", o.id);
+        x->setAttribute ("name", o.name);
+        x->setAttribute ("alias", o.alias);
+        x->setAttribute ("active", o.active.load());
+    }
+    return hw;
+}
+
+void AudioEngine::restoreHardware (const juce::XmlElement* hw, const juce::XmlElement* legacyDeck)
+{
+    if (hw != nullptr)
+    {
+        mainOutPair = hw->getIntAttribute ("mainOut");
+        phonesPair  = hw->getIntAttribute ("phonesOut", -1);
+        tapeEngine.params.latencyOffsetMs = hw->getIntAttribute ("latencyOffsetMs");
+
+        for (auto* x : hw->getChildWithTagNameIterator ("MIDI_IN"))
+        {
+            auto k = x->getIntAttribute ("slot", -1);
+            if (! juce::isPositiveAndBelow (k, maxMidiPorts)) continue;
+            auto& p = *midiPorts[k];
+            if (k != computerKeyboardPort)
+            {
+                p.id = x->getStringAttribute ("id");
+                p.name = x->getStringAttribute ("name");
+            }
+            p.active = x->getBoolAttribute ("active");
+            p.mpe = x->getBoolAttribute ("mpe");
+            p.bendRange = juce::jlimit (1, 96, x->getIntAttribute ("bend", 48));
+        }
+        for (auto* x : hw->getChildWithTagNameIterator ("MIDI_OUT"))
+        {
+            auto k = x->getIntAttribute ("slot", -1);
+            if (! juce::isPositiveAndBelow (k, maxMidiPorts)) continue;
+            auto& o = *midiOuts[k];
+            o.id = x->getStringAttribute ("id");
+            o.name = x->getStringAttribute ("name");
+            o.alias = x->getStringAttribute ("alias");
+            o.active = x->getBoolAttribute ("active");
+        }
+        // Controllers plugged in for the first time stay off until ticked.
+        for (auto& d : availableInputs())  findOrCreateInputSlot (d.identifier, d.name);
+        for (auto& d : availableOutputs()) findOrCreateOutputSlot (d.identifier, d.name);
+    }
+    else
+    {
+        // First run, or settings from before per-track MIDI: carry over what was enabled.
+        const juce::XmlElement* legacyMidi = legacyDeck != nullptr ? legacyDeck->getChildByName ("MIDI_INPUTS") : nullptr;
+        for (auto& d : availableInputs())
+        {
+            auto k = findOrCreateInputSlot (d.identifier, d.name);
+            if (k < 0) continue;
+            bool on = legacyMidi == nullptr;
+            if (legacyMidi != nullptr)
+                for (auto* x : legacyMidi->getChildWithTagNameIterator ("INPUT"))
+                    if (x->getStringAttribute ("id") == d.identifier || x->getStringAttribute ("name") == d.name)
+                        on = x->getBoolAttribute ("enabled");
+            midiPorts[k]->active = on;
+        }
+        for (auto& d : availableOutputs())
+            findOrCreateOutputSlot (d.identifier, d.name);
+
+        if (legacyDeck != nullptr)
+        {
+            if (auto* m = legacyDeck->getChildByName ("MASTER"))
+            {
+                mainOutPair = m->getIntAttribute ("mainOut");
+                phonesPair  = m->getIntAttribute ("phonesOut", -1);
+            }
+            if (auto* x = legacyDeck->getChildByName ("TAPE_DECK"))
+                tapeEngine.params.latencyOffsetMs = x->getIntAttribute ("latencyOffsetMs");
+        }
+    }
+    refreshMidiDevices();
+}
+
+void AudioEngine::restoreAll()
+{
+    auto hw = props.getXmlValue ("hardware");
+    auto deck = props.getXmlValue ("deck");
+    restoreHardware (hw.get(), deck.get());
+
+    if (deck != nullptr)
+    {
+        applyDeckState (*deck);
+        return;
+    }
+
+    // Factory setup: two built-in instruments and two audio inputs.
+    setInstrument (0, BuiltIn::create (BuiltIn::poly));
+    setInstrument (1, BuiltIn::create (BuiltIn::epiano));
+    setAudioSource (2, 0);
+    setAudioSource (3, 1);
+}
+
+void AudioEngine::saveSettings()
+{
+    if (startingUp) return;
+    saveDeviceState();
+
+    if (auto known = knownPlugins.createXml())
+        props.setValue ("knownPlugins", known.get());
+
+    if (auto deck = createDeckState()) props.setValue ("deck", deck.get());
+    if (auto hw = createHardwareState()) props.setValue ("hardware", hw.get());
+    props.setValue ("recallDeckWithTape", recallDeckWithTape.load());
+    props.saveIfNeeded();
+}
+
+//==============================================================================
+// Audio
 //==============================================================================
 void AudioEngine::audioDeviceAboutToStart (juce::AudioIODevice* dev)
 {
@@ -498,7 +881,7 @@ void AudioEngine::audioDeviceAboutToStart (juce::AudioIODevice* dev)
         tapeEngine.prepare (sampleRate, maxBlock);
         tapeEngine.setTape (tape.get());
     }
-    midiCollector.reset (sampleRate);
+    for (auto& p : midiPorts) p->collector.reset (sampleRate);
     for (auto& p : mpeConfigPending) p = true;
 
     for (int t = 0; t < numTracks; ++t)
@@ -536,10 +919,24 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputs, 
 
     juce::ScopedNoDenormals noDenormals;
 
-    midiIn.clear();
-    midiCollector.removeNextBlockOfMessages (midiIn, n);
-    if (! midiIn.isEmpty())
-        midiFlash = true;
+    // ---- gather each controller's MIDI ----
+    anyMidi.clear();
+    bool anyMpe = false;
+    int anyBend = 48;
+    for (auto& pp : midiPorts)
+    {
+        auto& p = *pp;
+        p.buffer.clear();
+        if (! p.active.load()) continue;
+        p.collector.removeNextBlockOfMessages (p.buffer, n);
+        if (! p.buffer.isEmpty())
+        {
+            anyMidi.addEvents (p.buffer, 0, n, 0);
+            midiFlash = true;
+        }
+        if (p.mpe.load() && ! anyMpe) { anyMpe = true; anyBend = p.bendRange.load(); }
+    }
+    for (auto& o : midiOuts) o->buffer.clear();
 
     bool armed[numTracks];
     int source[numTracks];
@@ -564,27 +961,36 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputs, 
 
     const auto mode = haveTape ? tapeEngine.getMode() : Mode::stop;
 
-    // ---- who hears the keyboard ----
-    bool receives[numTracks] {};
-    const bool mpeOn = mpeEnabled.load();
-    const int bendRange = mpeBendRange.load();
-    // MPE spreads one keyboard across 15 channels, so it always goes to the armed track.
-    const bool follow = followArm.load() || mpeOn;
-    if (follow)
+    // Which controller plays this track, and whether it speaks MPE.
+    auto controllerFor = [&] (int t, bool& mpe, int& bend) -> const juce::MidiBuffer*
     {
-        bool any = false;
-        for (int t = 0; t < numTracks; ++t)
-            if (armed[t] && source[t] == (int) Source::instrument) { receives[t] = true; any = true; }
+        auto port = track[t].midiPort.load();
+        if (port == midiAnyWhenArmed)
+        {
+            mpe = anyMpe; bend = anyBend;
+            return armed[t] ? &anyMidi : nullptr;
+        }
+        if (juce::isPositiveAndBelow (port, maxMidiPorts) && midiPorts[(size_t) port]->active.load())
+        {
+            mpe = midiPorts[(size_t) port]->mpe.load();
+            bend = midiPorts[(size_t) port]->bendRange.load();
+            return &midiPorts[(size_t) port]->buffer;
+        }
+        mpe = false; bend = 48;
+        return nullptr;
+    };
 
-        auto f = focusedTrack.load();
-        if (! any && f >= 0 && f < numTracks && source[f] == (int) Source::instrument)
-            receives[f] = true;
-    }
-    else
+    auto copyInput = [&] (int t, float* s)
     {
-        for (int t = 0; t < numTracks; ++t)
-            receives[t] = source[t] == (int) Source::instrument;
-    }
+        auto ch = track[t].inputChannel.load();
+        if (ch < 0 || ch >= numInputs || inputs[ch] == nullptr) return;
+        juce::FloatVectorOperations::copy (s, inputs[ch], n);
+        if (track[t].inputPair.load() && ch + 1 < numInputs && inputs[ch + 1] != nullptr)
+        {
+            juce::FloatVectorOperations::add (s, inputs[ch + 1], n);
+            juce::FloatVectorOperations::multiply (s, 0.5f, n);   // mono sum
+        }
+    };
 
     // ---- what is plugged into each track ----
     for (int t = 0; t < numTracks; ++t)
@@ -592,35 +998,67 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputs, 
         auto* s = src[t].data();
         std::fill_n (s, n, 0.0f);
 
+        bool mpe = false;
+        int bend = 48;
+        const auto* midi = controllerFor (t, mpe, bend);
+        const bool receives = midi != nullptr;
+
+        // Hardware synth: forward the controller to its MIDI output, notes-off when the route changes.
+        int route = -1;
+        if (source[t] == (int) Source::hardware)
+        {
+            auto outPort = track[t].midiOutPort.load();
+            if (juce::isPositiveAndBelow (outPort, maxMidiPorts) && midiOuts[(size_t) outPort]->active.load())
+                route = outPort * 17 + track[t].midiOutChannel.load();
+        }
+        if (route != lastOutRoute[t] || (wasReceiving[t] && ! receives))
+        {
+            if (lastOutRoute[t] >= 0)
+                for (int ch = 1; ch <= 16; ++ch)
+                    midiOuts[(size_t) (lastOutRoute[t] / 17)]->buffer.addEvent (juce::MidiMessage::allNotesOff (ch), 0);
+            lastOutRoute[t] = route;
+        }
+
         if (source[t] == (int) Source::audio)
         {
-            auto ch = track[t].inputChannel.load();
-            if (ch >= 0 && ch < numInputs && inputs[ch] != nullptr)
-                juce::FloatVectorOperations::copy (s, inputs[ch], n);
+            copyInput (t, s);
+        }
+        else if (source[t] == (int) Source::hardware)
+        {
+            copyInput (t, s);
+            if (route >= 0 && receives)
+            {
+                auto& out = midiOuts[(size_t) (route / 17)]->buffer;
+                auto ch = track[t].midiOutChannel.load();
+                for (const auto meta : *midi)
+                {
+                    auto msg = meta.getMessage();
+                    // MPE needs every note on its own channel, so it passes through untouched.
+                    if (! mpe && ch >= 1 && msg.getChannel() > 0)
+                        msg.setChannel (ch);
+                    out.addEvent (msg, meta.samplePosition);
+                }
+                if (! midi->isEmpty()) track[t].midiActivity = true;
+            }
         }
         else if (source[t] == (int) Source::instrument)
         {
             trackMidi.clear();
-            if (mpeConfigPending[t].exchange (false))
-                addMpeConfiguration (trackMidi, mpeOn, bendRange);
-            if (receives[t])
+            if (mpe != lastMpe[t] || bend != lastBend[t])
             {
-                if (follow)
-                    trackMidi.addEvents (midiIn, 0, n, 0);
-                else
-                    for (const auto meta : midiIn)
-                    {
-                        auto msg = meta.getMessage();
-                        if (msg.getChannel() == t + 1)
-                            trackMidi.addEvent (msg, meta.samplePosition);
-                    }
+                lastMpe[t] = mpe;
+                lastBend[t] = bend;
+                mpeConfigPending[t] = true;
             }
-            if (wasReceiving[t] && ! receives[t])
+            if (mpeConfigPending[t].exchange (false))
+                addMpeConfiguration (trackMidi, mpe, bend);
+            if (receives)
+                trackMidi.addEvents (*midi, 0, n, 0);
+            if (wasReceiving[t] && ! receives)
                 for (int ch = 1; ch <= 16; ++ch)
                     trackMidi.addEvent (juce::MidiMessage::allNotesOff (ch), 0);
-            wasReceiving[t] = receives[t];
 
-            if (receives[t] && ! trackMidi.isEmpty())
+            if (receives && ! midi->isEmpty())
                 track[t].midiActivity = true;
 
             instBuffer.clear (0, n);
@@ -628,7 +1066,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputs, 
                 const juce::SpinLock::ScopedTryLockType sl (slots[t].lock);
                 if (sl.isLocked() && slots[t].inst != nullptr)
                 {
-                    slots[t].inst->applyMpe (mpeOn, bendRange);
+                    slots[t].inst->applyMpe (mpe, bend);
                     slots[t].inst->render (instBuffer, n, trackMidi);
                 }
             }
@@ -636,6 +1074,22 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputs, 
             auto* r = instBuffer.getReadPointer (1);
             for (int i = 0; i < n; ++i)
                 s[i] = (l[i] + r[i]) * 0.5f;
+        }
+
+        wasReceiving[t] = receives;
+    }
+
+    // ---- MIDI out to hardware synths ----
+    for (int k = 0; k < maxMidiPorts; ++k)
+    {
+        auto& o = *midiOuts[k];
+        if (o.buffer.isEmpty()) continue;
+        if (midiOutTap) midiOutTap (k, o.buffer);
+        const juce::SpinLock::ScopedTryLockType sl (o.lock);
+        if (sl.isLocked() && o.out != nullptr)
+        {
+            o.out->sendBlockOfMessagesNow (o.buffer);
+            midiOutFlash = true;
         }
     }
 

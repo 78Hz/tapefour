@@ -5,13 +5,13 @@
 namespace tf
 {
 //==============================================================================
-/** Amber two-line display, clickable. */
+/** Amber display, two or three lines, clickable. */
 class LcdButton : public juce::Button
 {
 public:
-    LcdButton() : juce::Button ("lcd") {}
+    LcdButton() : juce::Button ("lcd") { setWantsKeyboardFocus (false); setMouseClickGrabsKeyboardFocus (false); }
 
-    juce::String top, sub;
+    juce::String top, sub, low;
     bool showLamps = false, nrLamp = false, midiLamp = false;
     juce::Colour nrColour = Pal::amber;
     float topSize = 17.0f;
@@ -49,10 +49,73 @@ public:
             drawLamp (g, lamps.removeFromLeft (12).toFloat().withSizeKeepingCentre (8, 8), midiLamp, Pal::green);
             bottom.removeFromRight (8);
         }
-        g.setFont (lf.mono (13.0f));
         g.setColour (Pal::lcdDim);
-        g.drawFittedText (sub, bottom, juce::Justification::bottomLeft, 1, 0.9f);
+        if (low.isNotEmpty() || showLamps)
+        {
+            // three lines: routing in the middle, audio path at the bottom
+            g.setFont (lf.mono (13.0f));
+            g.drawFittedText (sub, in.withTrimmedTop (std::max (0, in.getHeight() - 16)), juce::Justification::bottomLeft, 1, 0.9f);
+            g.setFont (lf.mono (12.0f));
+            g.drawFittedText (low, bottom, juce::Justification::bottomLeft, 1, 0.9f);
+        }
+        else
+        {
+            g.setFont (lf.mono (13.0f));
+            g.drawFittedText (sub, bottom, juce::Justification::bottomLeft, 1, 0.9f);
+        }
+    }
+};
 
+//==============================================================================
+/** Cream-card choice: dark when chosen, outlined when not. */
+class ChipButton : public juce::Button
+{
+public:
+    explicit ChipButton (const juce::String& text, const juce::String& subText = {})
+        : juce::Button (text), hint (subText) { setWantsKeyboardFocus (false); setMouseClickGrabsKeyboardFocus (false); }
+
+    juce::String hint;
+    bool chosen = false;
+    float textSize = 17.0f;
+
+    int idealWidth() const
+    {
+        auto f = DeckLookAndFeel::get().cond (textSize, true);
+        return (int) juce::GlyphArrangement::getStringWidth (f, getButtonText()) + 30;
+    }
+
+    void paintButton (juce::Graphics& g, bool over, bool down) override
+    {
+        auto& lf = DeckLookAndFeel::get();
+        auto r = getLocalBounds().toFloat().reduced (1.0f);
+        auto ink = juce::Colour (0xff1a1917);
+        if (chosen)
+        {
+            g.setColour (ink);
+            g.fillRoundedRectangle (r, 5.0f);
+        }
+        else
+        {
+            g.setColour (over || down ? juce::Colour (0xfffffaea) : juce::Colour (0xfff6f1e2));
+            g.fillRoundedRectangle (r, 5.0f);
+            g.setColour (ink);
+            g.drawRoundedRectangle (r.reduced (1.0f), 5.0f, 2.0f);
+        }
+
+        g.setColour (chosen ? Pal::lcdText : ink);
+        if (hint.isEmpty())
+        {
+            g.setFont (lf.cond (textSize, true).withExtraKerningFactor (0.04f));
+            g.drawFittedText (getButtonText(), getLocalBounds().reduced (10, 0), juce::Justification::centred, 1, 0.8f);
+        }
+        else
+        {
+            auto in = getLocalBounds().reduced (12, 10);
+            g.setFont (lf.cond (19.0f, true).withExtraKerningFactor (0.05f));
+            g.drawFittedText (getButtonText(), in.removeFromTop (in.getHeight() / 2), juce::Justification::bottomLeft, 1, 0.8f);
+            g.setFont (lf.cond (15.0f));
+            g.drawFittedText (hint, in.withTrimmedTop (4), juce::Justification::topLeft, 1, 0.8f);
+        }
     }
 };
 
@@ -61,7 +124,7 @@ public:
 class FlatButton : public juce::Button
 {
 public:
-    explicit FlatButton (const juce::String& text) : juce::Button (text) {}
+    explicit FlatButton (const juce::String& text) : juce::Button (text) { setWantsKeyboardFocus (false); setMouseClickGrabsKeyboardFocus (false); }
 
     bool pill = false, lamp = false, lampOn = false, pressedLook = false;
     juce::Colour lampColour = Pal::amber, onColour = Pal::orange, face = Pal::button;

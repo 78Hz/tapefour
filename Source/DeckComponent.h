@@ -3,6 +3,8 @@
 #include "StripComponent.h"
 #include "CassetteComponent.h"
 #include "TapeShelf.h"
+#include "PatchCard.h"
+#include "InlayCard.h"
 
 namespace tf
 {
@@ -51,7 +53,11 @@ private:
     void showEjectMenu();
 
     // tracks
-    void showSourceMenu (int track, juce::Component* target);
+    void openPatch (int track);
+    void openInlay();
+    void showOverlay (std::unique_ptr<juce::Component> card, juce::Rectangle<int> cardBounds);
+    void closeOverlay();
+    void deckStateApplied();
     void closePluginWindow (int track);
     void openPluginWindow (int track);
     void openSetup (int tab);
@@ -69,6 +75,7 @@ private:
     // cassette bay
     CassetteComponent cassette;
     FlatButton eject { "EJECT" };
+    InlayThumb inlayThumb;
 
     // transport
     FlatButton resetBtn { "RESET" }, rtzBtn { "RTZ" };
@@ -80,21 +87,19 @@ private:
     FlatButton nrButton { "NOISE REDUCTION" };
     LcdButton nrType;
 
-    // track sheet
-    juce::OwnedArray<juce::TextEditor> sheetLines;
-
     // mixer
     juce::OwnedArray<StripComponent> strips;
     MasterStrip master;
 
     std::unique_ptr<SetupWindow> setupWindow;
     std::unique_ptr<PluginWindow> pluginWindows[numTracks];
+    std::unique_ptr<Overlay> overlay;
 
     juce::String message;
     double messageUntil = 0;
-    int frame = 0, stoppedFrames = 0, midiHold = 0;
+    int frame = 0, stoppedFrames = 0, midiHold = 0, midiOutHold = 0;
     juce::String counterText { "000" };
-    bool recLamp = false, playLamp = false, midiLamp = false;
+    bool recLamp = false, playLamp = false, midiLamp = false, midiOutLamp = false;
 
     // computer keyboard as a MIDI keyboard
     juce::String keyMap { "awsedftgyhujkolp;" };

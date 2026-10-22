@@ -36,7 +36,8 @@ inline constexpr TapeTypeInfo tapeTypes[] { { "C-46", 23, 40.0f },
 inline constexpr int numTapeTypes = 3;
 
 enum class Mode : int { stop = 0, play, rec, ff, rew };
-enum class Source : int { none = 0, audio, instrument, bounce };
+// Values are stored in settings and tapes: only ever append.
+enum class Source : int { none = 0, audio, instrument, bounce, hardware };
 
 inline float dbToGain (float db) noexcept { return std::pow (10.0f, db * 0.05f); }
 

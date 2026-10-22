@@ -4,6 +4,15 @@
 
 namespace tf
 {
+/** Where each field of the cassette inlay lives in Tape::trackSheet. */
+namespace Inlay
+{
+    enum : int { title = 0, songsStart = 1, numSongs = 8, tracksStart = 17, nr = 21, speed = 22, date = 23, numFields = 24 };
+    inline int songCounter (int i) { return songsStart + i * 2; }
+    inline int songName (int i)    { return songsStart + i * 2 + 1; }
+    inline int trackNote (int t)   { return tracksStart + t; }
+}
+
 /**
     One cassette: four mono tracks of tape, plus what was recorded where
     (whether noise reduction was encoding, and at what speed).
@@ -45,7 +54,12 @@ public:
     std::atomic<double> counterZero { 0.0 };
 
     juce::String id, name, created;
+
+    /** The inlay card: fixed fields, see Inlay below. */
     juce::StringArray trackSheet;
+
+    /** The deck as it was when this tape was last saved (faders, patches, plug-in settings...). */
+    std::unique_ptr<juce::XmlElement> deckState;
 
     // ---- persistence (message thread, with the transport stopped) ----
     bool save (const juce::File& folder);

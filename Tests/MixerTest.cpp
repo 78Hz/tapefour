@@ -203,7 +203,7 @@ int main()
     {
         Rig m;
         auto& me = *m.engine;
-        me.setMpe (true, 48);
+        me.setMidiInputMpe (AudioEngine::computerKeyboardPort, true, 48);
         me.setInstrument (0, BuiltIn::create (BuiltIn::epiano));
         me.track[0].armed = true;                  // armed + stopped: you hear the instrument live
         m.run (0.1);
@@ -222,17 +222,131 @@ int main()
         me.injectMidi (juce::MidiMessage::noteOff (3, 64));
 
         // Settings survive a restart.
-        me.mpeBendRange = 24;
+        me.setMidiInputMpe (AudioEngine::computerKeyboardPort, true, 24);
+        me.recallDeckWithTape = true;
         me.track[2].fader = 0.42f;
         me.saveSettings();
         m.engine.reset();
         auto again = std::make_unique<AudioEngine> (*m.props);
-        check (again->mpeEnabled.load() && again->mpeBendRange.load() == 24, "settings: MPE and bend range restored after restart",
-               again->mpeBendRange.load(), 24);
+        bool mpeBack = false; int bendBack = 0;
+        for (auto& in : again->getMidiInputs())
+            if (in.slot == AudioEngine::computerKeyboardPort) { mpeBack = in.mpe; bendBack = in.bendRange; }
+        check (mpeBack && bendBack == 24, "settings: per-controller MPE and bend range restored", bendBack, 24);
+        check (again->recallDeckWithTape.load(), "settings: 'recall the deck with each tape' restored", again->recallDeckWithTape.load(), 1);
         check (std::abs (again->track[2].fader.load() - 0.42f) < 1e-4f, "settings: fader position restored after restart", again->track[2].fader.load(), 0.42);
         check (again->getInstrument (0) != nullptr && again->getInstrument (0)->getName() == BuiltIn::nameOf (BuiltIn::epiano),
                "settings: track 1 instrument restored after restart", 1, 1);
         again.reset();
+    }
+
+
+    // Per-track MIDI: two controllers, two instruments, each plays only its own track.
+    {
+        Rig m;
+        auto& me = *m.engine;
+        auto keysA = me.addVirtualMidiInput ("Keys A"), keysB = me.addVirtualMidiInput ("Keys B");
+        check (keysA > 0 && keysB > 0 && keysA != keysB, "two controllers get their own slots", keysB, keysA + 1);
+        me.setInstrument (0, BuiltIn::create (BuiltIn::poly));
+        me.setInstrument (1, BuiltIn::create (BuiltIn::poly));
+        me.setInstrument (2, BuiltIn::create (BuiltIn::poly));
+        me.setTrackMidiPort (0, keysA);
+        me.setTrackMidiPort (1, keysB);
+        me.setTrackMidiPort (2, AudioEngine::midiAnyWhenArmed);
+        me.track[0].armed = true;  me.track[0].pan = -1.0f;   // left
+        me.track[1].armed = true;  me.track[1].pan =  1.0f;   // right: nothing of it on the left output
+        me.track[2].armed = false; me.track[2].pan = -1.0f;   // "any" but not armed: deaf
+        m.run (0.1);
+        me.injectMidi (juce::MidiMessage::noteOn (1, 69, (juce::uint8) 110), keysA);   // 440
+        me.injectMidi (juce::MidiMessage::noteOn (1, 75, (juce::uint8) 110), keysB);   // 622 Hz, not a harmonic of 440
+        auto left = m.run (0.5);
+        auto a = tone (left, 440, 0.15, 0.45), b = tone (left, juce::MidiMessage::getMidiNoteInHertz (75), 0.15, 0.45);
+        check (a > 0.005, "controller A plays track 1", a, 0.005);
+        check (b < a * 0.05, "controller B does not reach track 1 (or the unarmed 'any' track)", b, 0.0);
+        me.injectMidi (juce::MidiMessage::noteOff (1, 69), keysA);
+        me.injectMidi (juce::MidiMessage::noteOff (1, 75), keysB);
+
+        me.track[1].pan = -1.0f;
+        me.injectMidi (juce::MidiMessage::noteOn (1, 75, (juce::uint8) 110), keysB);
+        auto moved = m.run (0.5);
+        auto bTone = tone (moved, juce::MidiMessage::getMidiNoteInHertz (75), 0.15, 0.45);
+        check (bTone > 0.005, "controller B plays track 2", bTone, 0.005);
+        me.injectMidi (juce::MidiMessage::noteOff (1, 75), keysB);
+        m.run (0.3);
+
+        // Hardware synth on track 3: controller A goes out on channel 5, audio comes back on IN 1.
+        auto synth = me.addVirtualMidiOutput ("Juno");
+        std::vector<juce::MidiMessage> sent;
+        juce::SpinLock sentLock;
+        me.midiOutTap = [&] (int slot, const juce::MidiBuffer& b)
+        {
+            if (slot != synth) return;
+            const juce::SpinLock::ScopedLockType sl (sentLock);
+            for (const auto meta : b) sent.push_back (meta.getMessage());
+        };
+        me.track[0].armed = false;
+        me.track[1].armed = false;
+        me.setAudioSource (2, 0);
+        me.setHardwareSource (2);
+        check (me.getInstrument (2) == nullptr, "hardware synth replaces the track's instrument (never both)", me.getInstrument (2) != nullptr, 0);
+        me.setTrackMidiPort (2, keysA);
+        me.track[2].midiOutPort = synth;
+        me.track[2].midiOutChannel = 5;
+        me.track[2].armed = true;
+        m.f[0] = 500; m.amp[0] = 0.3f;
+        m.run (0.1);
+        sent.clear();
+        me.injectMidi (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100), keysA);
+        me.injectMidi (juce::MidiMessage::noteOn (1, 62, (juce::uint8) 100), keysB);   // B is not routed here
+        auto hw = m.run (0.4);
+        int onsCh5 = 0, others = 0;
+        for (auto& msg : sent)
+            if (msg.isNoteOn()) (msg.getChannel() == 5 && msg.getNoteNumber() == 60 ? onsCh5 : others)++;
+        check (onsCh5 == 1 && others == 0, "hardware: controller A's note goes out on channel 5, B's does not", onsCh5, 1);
+        check (std::abs (tone (hw, 500, 0.1, 0.4) - 0.3) < 0.02, "hardware: the synth's audio comes back on the input", tone (hw, 500, 0.1, 0.4), 0.3);
+        check (std::abs (tone (hw, 440, 0.1, 0.4)) < 0.002 && me.describeSource (2).isNotEmpty(), "hardware: no instrument sounding on that track", tone (hw, 440, 0.1, 0.4), 0.0);
+
+        // Changing the route sends all-notes-off to the old one.
+        sent.clear();
+        me.track[2].midiOutChannel = 7;
+        m.run (0.05);
+        int offs = 0;
+        for (auto& msg : sent) if (msg.isAllNotesOff()) ++offs;
+        check (offs == 16, "hardware: re-routing silences the old route (all notes off, 16 channels)", offs, 16);
+        me.midiOutTap = nullptr;
+
+        // Deck state: everything savable goes out and comes back.
+        me.track[0].fader = 0.31f; me.track[0].pan = 0.4f; me.track[0].high = -0.5f;
+        me.masterFader = 0.6f;
+        me.tapeEngine.params.pitchStep = 2;
+        auto deck = me.createDeckState();
+        me.track[0].fader = 0.9f; me.track[0].pan = -0.8f; me.track[0].high = 0.7f;
+        me.masterFader = 0.2f;
+        me.tapeEngine.params.pitchStep = 0;
+        me.unplug (2);
+        me.setTrackMidiPort (0, AudioEngine::midiNone);
+        me.applyDeckState (*deck);
+        check (std::abs (me.track[0].fader.load() - 0.31f) < 1e-4f && std::abs (me.track[0].pan.load() - 0.4f) < 1e-4f
+               && std::abs (me.track[0].high.load() + 0.5f) < 1e-4f, "deck recall: fader, pan and EQ come back", me.track[0].fader.load(), 0.31);
+        check (std::abs (me.masterFader.load() - 0.6f) < 1e-4f && me.tapeEngine.params.pitchStep.load() == 2,
+               "deck recall: master and pitch come back", me.masterFader.load(), 0.6);
+        check (me.track[2].source.load() == (int) Source::hardware && me.track[2].midiOutPort.load() == synth
+               && me.track[2].midiOutChannel.load() == 7, "deck recall: hardware synth route comes back", me.track[2].midiOutChannel.load(), 7);
+        check (me.track[0].midiPort.load() == keysA && me.track[1].midiPort.load() == keysB, "deck recall: each track's controller comes back",
+               me.track[0].midiPort.load(), keysA);
+        check (me.getInstrument (1) != nullptr && me.getInstrument (1)->getName() == BuiltIn::nameOf (BuiltIn::poly),
+               "deck recall: instruments come back", 1, 1);
+
+        // ...and the deck travels with the tape.
+        auto& tape = *me.getTape();
+        tape.deckState = me.createDeckState();
+        auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("tf_deck_tape");
+        dir.deleteRecursively();
+        dir.createDirectory();
+        tape.save (dir);
+        auto loaded = Tape::load (dir);
+        check (loaded != nullptr && loaded->deckState != nullptr && loaded->deckState->isEquivalentTo (tape.deckState.get(), false),
+               "deck state is saved inside the tape", loaded != nullptr && loaded->deckState != nullptr, 1);
+        dir.deleteRecursively();
     }
 
     std::printf ("\n%s (%d failure%s)\n", failures == 0 ? "ALL PASSED" : "SOME FAILED", failures, failures == 1 ? "" : "s");

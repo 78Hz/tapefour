@@ -22,9 +22,9 @@ PluginWindow::PluginWindow (juce::AudioPluginInstance& plugin, std::function<voi
 namespace
 {
     // design coordinates
-    const juce::Rectangle<int> bayPanel { 24, 76, 560, 360 };
-    const juce::Rectangle<int> transportPanel { 600, 76, 524, 360 };
-    const juce::Rectangle<int> sheetPanel { 1140, 76, 276, 360 };
+    const juce::Rectangle<int> bayPanel { 24, 76, 676, 360 };
+    const juce::Rectangle<int> transportPanel { 716, 76, 700, 360 };
+    enum { audioTab = 0, midiTab = 1, tapeTab = 2, instrumentsTab = 3 };
     constexpr int mixerY = 450, mixerH = 716, stripW = 271, stripGap = 14;
 
     void panelBackground (juce::Graphics& g, juce::Rectangle<int> r, juce::Colour c)
@@ -60,18 +60,27 @@ DeckComponent::DeckComponent (AudioEngine& e, juce::PropertiesFile& settings)
 
     // header
     setupLcd.topSize = 15.0f;
-    setupLcd.onClick = [this] { openSetup (0); };
-    setupLcd.setTooltip ("Audio setup: ASIO driver, sample rate, buffer, MIDI, tape character");
+    setupLcd.onClick = [this] { openSetup (audioTab); };
+    setupLcd.setTooltip ("Setup: ASIO driver, sample rate, buffer, MIDI controllers and synths, tape character");
     addAndMakeVisible (setupLcd);
 
     // cassette bay
     cassette.onNameChanged = [this] (const juce::String& name)
     {
-        if (auto* t = engine.getTape()) { t->name = name; t->markMetaChanged(); }
+        if (auto* t = engine.getTape())
+        {
+            t->name = name;
+            t->trackSheet.set (Inlay::title, name);
+            t->markMetaChanged();
+            inlayThumb.repaint();
+        }
     };
     addAndMakeVisible (cassette);
     eject.onClick = [this] { showEjectMenu(); };
     addAndMakeVisible (eject);
+    inlayThumb.onClick = [this] { openInlay(); };
+    inlayThumb.setTooltip ("The cassette inlay: title, songs, counter numbers and track notes");
+    addAndMakeVisible (inlayThumb);
 
     // transport
     resetBtn.textSize = 13.0f;
@@ -119,36 +128,15 @@ DeckComponent::DeckComponent (AudioEngine& e, juce::PropertiesFile& settings)
     nrButton.onClick = [this] { engine.tapeEngine.params.nrOn = ! engine.tapeEngine.params.nrOn.load(); };
     addAndMakeVisible (nrButton);
     nrType.topSize = 14.0f;
-    nrType.onClick = [this] { openSetup (1); };
+    nrType.onClick = [this] { openSetup (tapeTab); };
     nrType.setTooltip ("Noise reduction type and tape character");
     addAndMakeVisible (nrType);
-
-    // track sheet
-    for (int i = 0; i < 8; ++i)
-    {
-        auto* ed = sheetLines.add (new juce::TextEditor());
-        ed->setFont (DeckLookAndFeel::get().hand (25.0f));
-        ed->setColour (juce::TextEditor::backgroundColourId, juce::Colours::transparentBlack);
-        ed->setColour (juce::TextEditor::outlineColourId, juce::Colours::transparentBlack);
-        ed->setColour (juce::TextEditor::focusedOutlineColourId, juce::Colours::transparentBlack);
-        ed->setColour (juce::TextEditor::textColourId, i == 6 ? Pal::inkRed : Pal::ink);
-        ed->setColour (juce::TextEditor::highlightColourId, Pal::rule);
-        ed->setColour (juce::CaretComponent::caretColourId, Pal::ink);
-        ed->setIndents (2, 4);
-        ed->onTextChange = [this, i, ed]
-        {
-            if (auto* t = engine.getTape()) { t->trackSheet.set (i, ed->getText()); t->markMetaChanged(); }
-        };
-        ed->onReturnKey = [this] { grabKeyboardFocus(); };
-        ed->onEscapeKey = [this] { grabKeyboardFocus(); };
-        addAndMakeVisible (ed);
-    }
 
     // mixer
     for (int t = 0; t < numTracks; ++t)
     {
         auto* s = strips.add (new StripComponent (engine, t));
-        s->onSourceMenu = [this] (int track, juce::Component* target) { showSourceMenu (track, target); };
+        s->onSourceMenu = [this] (int track, juce::Component*) { openPatch (track); };
         addAndMakeVisible (s);
     }
     addAndMakeVisible (master);
@@ -168,6 +156,11 @@ DeckComponent::DeckComponent (AudioEngine& e, juce::PropertiesFile& settings)
     };
     noFocus (*this);
 
+    engine.onDeckStateApplied = [safe = juce::Component::SafePointer<DeckComponent> (this)]
+    {
+        juce::MessageManager::callAsync ([safe] { if (safe != nullptr) safe->deckStateApplied(); });
+    };
+
     loadStartupTape();
     if (engine.getStartupProblem().isNotEmpty())
         say (engine.getStartupProblem() + " - OPEN SETUP", 10.0);
@@ -177,6 +170,8 @@ DeckComponent::DeckComponent (AudioEngine& e, juce::PropertiesFile& settings)
 DeckComponent::~DeckComponent()
 {
     stopTimer();
+    engine.onDeckStateApplied = nullptr;
+    overlay.reset();
     for (int t = 0; t < numTracks; ++t)
         pluginWindows[t].reset();
     setupWindow.reset();
@@ -187,6 +182,7 @@ void DeckComponent::prepareToQuit()
     stopTimer();
     engine.tapeEngine.command (TapeEngine::Command::stop);
     juce::Thread::sleep (60);   // let the audio thread stop the tape
+    overlay.reset();
     saveTape (false);
     if (auto* t = engine.getTape())
         props.setValue ("lastTape", t->id);
@@ -198,36 +194,36 @@ void DeckComponent::prepareToQuit()
 //==============================================================================
 void DeckComponent::resized()
 {
-    setupLcd.setBounds (930, 18, 300, 46);
+    setupLcd.setBounds (800, 18, 300, 46);
 
-    cassette.setBounds (bayPanel.getX() + 80, bayPanel.getY() + 42, 400, 255);
-    eject.setBounds (bayPanel.getX() + 20, bayPanel.getBottom() - 54, 120, 40);
+    cassette.setBounds (bayPanel.getX() + 38, bayPanel.getY() + 42, 400, 255);
+    inlayThumb.setBounds (bayPanel.getX() + 500, bayPanel.getY() + 44, 136, 232);
+    eject.setBounds (bayPanel.getX() + 20, bayPanel.getY() + 310, 120, 40);
 
     auto tp = transportPanel;
     resetBtn.setBounds (tp.getX() + 152, tp.getY() + 36, 70, 26);
     rtzBtn.setBounds (tp.getX() + 152, tp.getY() + 66, 70, 26);
-    status.setBounds (tp.getX() + 238, tp.getY() + 36, 210, 56);
+    status.setBounds (tp.getX() + 238, tp.getY() + 36, 330, 56);
 
-    auto keyRow = juce::Rectangle<int> (tp.getX() + 20, tp.getY() + 110, 484, 112);
-    auto keys = keyRow.reduced (6, 10);
+    auto keys = juce::Rectangle<int> (tp.getX() + 20, tp.getY() + 110, 660, 112).reduced (6, 10);
     for (auto* k : { &recKey, &rewKey, &ffKey, &playKey, &stopKey })
     {
-        k->setBounds (keys.removeFromLeft (88));
-        keys.removeFromLeft (6);
+        k->setBounds (keys.removeFromLeft (116));
+        keys.removeFromLeft (17);
     }
 
     pitch.setBounds (tp.getX() + 4, tp.getY() + 242, 210, 44);
-    speedLo.setBounds (tp.getX() + 240, tp.getY() + 254, 128, 34);
-    speedHi.setBounds (tp.getX() + 376, tp.getY() + 254, 128, 34);
-    nrButton.setBounds (tp.getX() + 20, tp.getY() + 302, 236, 42);
-    nrType.setBounds (tp.getX() + 268, tp.getY() + 300, 236, 46);
-
-    for (int i = 0; i < sheetLines.size(); ++i)
-        sheetLines[i]->setBounds (sheetPanel.getX() + 14, sheetPanel.getY() + 50 + i * 37, sheetPanel.getWidth() - 28, 34);
+    speedLo.setBounds (tp.getX() + 250, tp.getY() + 254, 150, 34);
+    speedHi.setBounds (tp.getX() + 410, tp.getY() + 254, 150, 34);
+    nrButton.setBounds (tp.getX() + 20, tp.getY() + 302, 320, 42);
+    nrType.setBounds (tp.getX() + 356, tp.getY() + 300, 324, 46);
 
     for (int t = 0; t < numTracks; ++t)
         strips[t]->setBounds (24 + t * (stripW + stripGap), mixerY, stripW, mixerH);
     master.setBounds (24 + numTracks * (stripW + stripGap), mixerY, designWidth - 24 - (24 + numTracks * (stripW + stripGap)), mixerH);
+
+    if (overlay != nullptr)
+        overlay->setBounds (getLocalBounds());
 }
 
 void DeckComponent::paint (juce::Graphics& g)
@@ -253,17 +249,21 @@ void DeckComponent::paint (juce::Graphics& g)
         g.setColour (Pal::darker);
         g.fillEllipse (juce::Rectangle<float> (r * 2, r * 2).withCentre (c));
     };
-    drawLamp (g, { 1252, 37, 8, 8 }, midiLamp, Pal::green);
-    jack ({ 1280, 41 }, 12);
-    smallCaps (g, "MIDI IN", { 1300, 30, 70, 24 });
+    drawLamp (g, { 1124, 37, 8, 8 }, midiLamp, Pal::green);
+    jack ({ 1152, 41 }, 12);
+    smallCaps (g, "MIDI IN", { 1172, 30, 62, 24 });
+    drawLamp (g, { 1240, 37, 8, 8 }, midiOutLamp, Pal::green);
+    jack ({ 1268, 41 }, 12);
+    smallCaps (g, "MIDI OUT", { 1288, 30, 72, 24 });
     drawLamp (g, { 1374, 36, 10, 10 }, true, Pal::red);
     smallCaps (g, "POWER", { 1390, 30, 50, 24 });
 
     // ---- cassette bay ----
     panelBackground (g, bayPanel, Pal::panel);
     smallCaps (g, utf ("CASSETTE \xc2\xb7 SIDE A ONLY \xc2\xb7 4 TRACKS ONE DIRECTION"),
-               { bayPanel.getX() + 20, bayPanel.getY() + 12, 520, 20 });
-    auto bay = juce::Rectangle<float> ((float) bayPanel.getX() + 20, (float) bayPanel.getY() + 36, 520, 268);
+               { bayPanel.getX() + 20, bayPanel.getY() + 12, 436, 20 });
+    smallCaps (g, "INLAY", { bayPanel.getX() + 500, bayPanel.getY() + 12, 136, 20 });
+    auto bay = juce::Rectangle<float> ((float) bayPanel.getX() + 20, (float) bayPanel.getY() + 36, 436, 268);
     g.setColour (Pal::bay);
     g.fillRoundedRectangle (bay, 8.0f);
     g.setColour (juce::Colours::black);
@@ -276,7 +276,7 @@ void DeckComponent::paint (juce::Graphics& g)
                     + " @ " + speedLabel() + " IPS";
         g.setFont (lf.mono (16.0f));
         g.setColour (Pal::muted);
-        g.drawText (info, juce::Rectangle<int> (bayPanel.getX() + 160, bayPanel.getBottom() - 54, 380, 40), juce::Justification::centredRight);
+        g.drawText (info, juce::Rectangle<int> (bayPanel.getX() + 160, bayPanel.getY() + 310, 296, 40), juce::Justification::centredRight);
     }
 
     // ---- transport ----
@@ -305,30 +305,14 @@ void DeckComponent::paint (juce::Graphics& g)
         g.drawHorizontalLine ((int) d.getCentreY(), d.getX(), d.getRight());
     }
 
-    drawLamp (g, { (float) tp.getX() + 464, (float) tp.getY() + 44, 12, 12 }, recLamp, Pal::red);
-    smallCaps (g, "REC", { tp.getX() + 482, tp.getY() + 40, 40, 20 });
-    drawLamp (g, { (float) tp.getX() + 464, (float) tp.getY() + 72, 12, 12 }, playLamp, Pal::green);
-    smallCaps (g, "PLAY", { tp.getX() + 482, tp.getY() + 68, 40, 20 });
+    drawLamp (g, { (float) tp.getX() + 590, (float) tp.getY() + 44, 12, 12 }, recLamp, Pal::red);
+    smallCaps (g, "REC", { tp.getX() + 608, tp.getY() + 40, 60, 20 });
+    drawLamp (g, { (float) tp.getX() + 590, (float) tp.getY() + 72, 12, 12 }, playLamp, Pal::green);
+    smallCaps (g, "PLAY", { tp.getX() + 608, tp.getY() + 68, 60, 20 });
 
     g.setColour (Pal::dark);
-    g.fillRoundedRectangle (juce::Rectangle<float> ((float) tp.getX() + 20, (float) tp.getY() + 110, 484, 112), 8.0f);
-    smallCaps (g, "TAPE SPEED", { tp.getX() + 240, tp.getY() + 232, 200, 18 });
-
-    // ---- track sheet ----
-    auto sp = sheetPanel.toFloat();
-    g.setColour (juce::Colours::black.withAlpha (0.45f));
-    g.fillRoundedRectangle (sp.translated (0, 3), 3.0f);
-    g.setColour (Pal::paper);
-    g.fillRoundedRectangle (sp, 3.0f);
-    g.setColour (juce::Colour (0xff1a1917));
-    g.setFont (lf.cond (20.0f, true).withExtraKerningFactor (0.2f));
-    g.drawText ("TRACK SHEET", juce::Rectangle<float> (sp.getX() + 16, sp.getY() + 12, 180, 24), juce::Justification::centredLeft);
-    g.setFont (lf.cond (14.0f, true).withExtraKerningFactor (0.12f));
-    g.drawText ("TF-4", juce::Rectangle<float> (sp.getRight() - 76, sp.getY() + 12, 60, 24), juce::Justification::centredRight);
-    g.fillRect (sp.getX() + 16, sp.getY() + 40, sp.getWidth() - 32, 2.0f);
-    g.setColour (Pal::rule);
-    for (int i = 0; i < 8; ++i)
-        g.fillRect (sp.getX() + 16, sp.getY() + 50 + i * 37 + 34, sp.getWidth() - 32, 1.0f);
+    g.fillRoundedRectangle (juce::Rectangle<float> ((float) tp.getX() + 20, (float) tp.getY() + 110, 660, 112), 8.0f);
+    smallCaps (g, "TAPE SPEED", { tp.getX() + 250, tp.getY() + 232, 200, 18 });
 }
 
 //==============================================================================
@@ -431,6 +415,9 @@ void DeckComponent::timerCallback()
     if (engine.midiFlash.exchange (false)) midiHold = 4;
     midiLamp = midiHold > 0;
     if (midiHold > 0) --midiHold;
+    if (engine.midiOutFlash.exchange (false)) midiOutHold = 4;
+    midiOutLamp = midiOutHold > 0;
+    if (midiOutHold > 0) --midiOutHold;
 
     for (auto* s : strips) s->refresh (blink);
     master.refresh();
@@ -438,12 +425,12 @@ void DeckComponent::timerCallback()
     if (frame % 15 == 1)
     {
         setupLcd.top = engine.getDeviceSummary();
-        setupLcd.sub = utf ("AUDIO SETUP \xe2\x80\xba");
+        setupLcd.sub = utf ("SETUP \xe2\x80\xba");
         setupLcd.repaint();
     }
 
     repaint (transportPanel.getX(), transportPanel.getY(), transportPanel.getWidth(), 100);
-    repaint (1240, 20, 200, 44);
+    repaint (1110, 20, 260, 44);
 
     // Auto-save the tape whenever it has been sitting stopped for a second.
     stoppedFrames = mode == Mode::stop ? stoppedFrames + 1 : 0;
@@ -484,8 +471,8 @@ void DeckComponent::tapeChanged()
 {
     auto* t = engine.getTape();
     cassette.setTapeName (t != nullptr ? t->name : juce::String(), t != nullptr ? juce::String (t->getTypeInfo().name) : juce::String());
-    for (int i = 0; i < sheetLines.size(); ++i)
-        sheetLines[i]->setText (t != nullptr ? t->trackSheet[i] : juce::String(), false);
+    inlayThumb.tape = t;
+    inlayThumb.repaint();
     if (t != nullptr)
         props.setValue ("lastTape", t->id);
     repaint();
@@ -495,6 +482,15 @@ bool DeckComponent::saveTape (bool announce)
 {
     auto* t = engine.getTape();
     if (t == nullptr) return true;
+
+    // The deck as it is now goes with the tape, so it can come back with it.
+    auto deck = engine.createDeckState();
+    if (t->deckState == nullptr || ! t->deckState->isEquivalentTo (deck.get(), false))
+    {
+        t->deckState = std::move (deck);
+        t->markMetaChanged();
+    }
+
     if (! TapeShelf::save (*t))
     {
         say ("COULD NOT SAVE TAPE", 5.0);
@@ -507,6 +503,7 @@ bool DeckComponent::saveTape (bool announce)
 void DeckComponent::insertBlank (int type)
 {
     if (! saveTape (false)) return;
+    closeOverlay();
     auto tape = TapeShelf::createBlank (type);
     TapeShelf::save (*tape);
     auto label = "NEW BLANK " + juce::String (tape->getTypeInfo().name);
@@ -524,8 +521,19 @@ void DeckComponent::loadFromShelf (const juce::String& id)
     auto tape = TapeShelf::load (id);
     if (tape == nullptr) { say ("THAT TAPE WOULD NOT LOAD", 4.0); return; }
     auto label = "LOADED: " + tape->name.toUpperCase();
+    closeOverlay();
     engine.swapTape (std::move (tape));
     tapeChanged();
+
+    auto* loaded = engine.getTape();
+    if (engine.recallDeckWithTape.load() && loaded != nullptr && loaded->deckState != nullptr)
+    {
+        for (int t = 0; t < numTracks; ++t)
+            closePluginWindow (t);
+        auto state = std::make_unique<juce::XmlElement> (*loaded->deckState);
+        engine.applyDeckState (*state);
+        label += "  + DECK";
+    }
     say (label);
 }
 
@@ -583,83 +591,64 @@ void DeckComponent::openPluginWindow (int t)
         }
 }
 
-void DeckComponent::showSourceMenu (int t, juce::Component* target)
+void DeckComponent::showOverlay (std::unique_ptr<juce::Component> card, juce::Rectangle<int> cardBounds)
 {
-    engine.focusedTrack = t;
-    auto& p = engine.track[t];
-    auto source = (Source) p.source.load();
+    overlay = std::make_unique<Overlay> (std::move (card), cardBounds);
+    overlay->onDismiss = [this] { closeOverlay(); };
+    overlay->setBounds (getLocalBounds());
+    addAndMakeVisible (*overlay);
+    overlay->toFront (false);
+}
 
-    juce::PopupMenu m;
-    m.addSectionHeader ("AUDIO IN  -  " + engine.deviceManager.getCurrentAudioDeviceType().toUpperCase());
-    auto inputs = engine.getActiveInputNames();
-    if (inputs.isEmpty())
-        m.addItem ("No inputs active - open Audio Setup", [this] { openSetup (0); });
-    for (int i = 0; i < inputs.size(); ++i)
-        m.addItem ("IN " + juce::String (i + 1) + "   " + inputs[i], true,
-                   source == Source::audio && p.inputChannel.load() == i,
-                   [this, t, i] { closePluginWindow (t); engine.setInstrument (t, nullptr); engine.setAudioSource (t, i); engine.saveSettings(); });
+void DeckComponent::closeOverlay()
+{
+    if (overlay == nullptr) return;
+    overlay->setVisible (false);
+    // Don't delete the card while one of its buttons is still on the call stack.
+    juce::MessageManager::callAsync ([old = std::shared_ptr<Overlay> (overlay.release())] {});
+    engine.saveSettings();
+    grabKeyboardFocus();
+    repaint();
+}
 
-    m.addSeparator();
-    m.addSectionHeader ("MIDI INSTRUMENT");
-    auto* inst = engine.getInstrument (t);
-    for (int k = 0; k < BuiltIn::numKinds; ++k)
+void DeckComponent::openPatch (int t)
+{
+    closeOverlay();
+    auto card = std::make_unique<PatchCard> (engine, t);
+    card->onDone = [this] { closeOverlay(); };
+    card->onShowPluginWindow = [this] (int track) { openPluginWindow (track); };
+    card->onClosePluginWindow = [this] (int track) { closePluginWindow (track); };
+    card->onFindInstruments = [this] { closeOverlay(); openSetup (instrumentsTab); };
+    showOverlay (std::move (card), juce::Rectangle<int> (820, 660).withCentre ({ designWidth / 2, designHeight / 2 }));
+}
+
+void DeckComponent::openInlay()
+{
+    auto* t = engine.getTape();
+    if (t == nullptr) { say ("NO TAPE - PRESS EJECT"); return; }
+    closeOverlay();
+    auto card = std::make_unique<InlayCard> (*t);
+    card->onClose = [this] { closeOverlay(); };
+    card->onTitleChanged = [this] (const juce::String& title)
     {
-        auto name = BuiltIn::nameOf (k);
-        bool ticked = source == Source::instrument && inst != nullptr && inst->getPlugin() == nullptr && inst->getName() == name;
-        m.addItem (name, true, ticked, [this, t, k] { closePluginWindow (t); engine.setInstrument (t, BuiltIn::create (k)); engine.saveSettings(); });
-    }
+        if (auto* tape = engine.getTape())
+            cassette.setTapeName (title, juce::String (tape->getTypeInfo().name));
+        inlayThumb.repaint();
+    };
+    // Centre the card itself; the close button hangs off to its right.
+    showOverlay (std::move (card), juce::Rectangle<int> (InlayCard::totalW, InlayCard::cardH + 14)
+                                       .withCentre ({ designWidth / 2 + (InlayCard::gap + InlayCard::closeW) / 2, designHeight / 2 }));
+    overlay->cardShadow = false;
+}
 
-    juce::PopupMenu vst;
-    int found = 0;
-    for (auto& desc : engine.knownPlugins.getTypes())
-    {
-        if (! desc.isInstrument) continue;
-        ++found;
-        bool ticked = source == Source::instrument && inst != nullptr && inst->getPlugin() != nullptr
-                      && inst->getPlugin()->getPluginDescription().isDuplicateOf (desc);
-        vst.addItem (desc.name + "   (" + desc.manufacturerName + ")", true, ticked, [this, t, desc]
-        {
-            closePluginWindow (t);
-            say ("LOADING " + desc.name.toUpperCase(), 4.0);
-            engine.loadPlugin (t, desc, {}, [safe = juce::Component::SafePointer<DeckComponent> (this), t] (const juce::String& err)
-            {
-                if (safe == nullptr) return;
-                if (err.isNotEmpty()) safe->say ("PLUG-IN FAILED TO LOAD", 5.0);
-                else { safe->say ("INSTRUMENT LOADED"); safe->openPluginWindow (t); }
-            });
-        });
-    }
-    if (found > 0)
-        m.addSubMenu ("VST3 instruments (" + juce::String (found) + ")", vst);
-    m.addItem ("Find VST3 instruments...", [this] { openSetup (2); });
-
-    if (source == Source::instrument && inst != nullptr && inst->getPlugin() != nullptr)
-        m.addItem ("Show " + inst->getName() + " window", [this, t] { openPluginWindow (t); });
-
-    m.addSeparator();
-    m.addSectionHeader ("BOUNCE FROM TAPE");
-    for (int s = 0; s < numTracks; ++s)
-    {
-        if (s == t) continue;
-        bool ticked = source == Source::bounce && (p.bounceMask.load() & (1 << s)) != 0;
-        m.addItem ("Track " + juce::String (s + 1), true, ticked, [this, t, s]
-        {
-            closePluginWindow (t);
-            if ((Source) engine.track[t].source.load() != Source::bounce)
-                engine.setInstrument (t, nullptr);
-            engine.toggleBounceSource (t, s);
-        });
-    }
-
-    m.addSeparator();
-    m.addItem ("Unplug", source != Source::none, false, [this, t]
-    {
-        closePluginWindow (t);
-        engine.setInstrument (t, nullptr);
-        engine.track[t].source = (int) Source::none;
-    });
-
-    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (target).withMinimumWidth (260));
+void DeckComponent::deckStateApplied()
+{
+    for (auto* s : strips) s->syncFromEngine();
+    master.syncFromEngine();
+    pitch.slider.setValue (engine.tapeEngine.params.pitchStep.load(), juce::dontSendNotification);
+    pitch.repaint();
+    (engine.tapeEngine.params.speedSel.load() == 2 ? speedHi : speedLo).setToggleState (true, juce::dontSendNotification);
+    repaint();
 }
 
 void DeckComponent::openSetup (int tab)
@@ -677,6 +666,7 @@ void DeckComponent::mouseDown (const juce::MouseEvent&)
 
 bool DeckComponent::keyPressed (const juce::KeyPress& key)
 {
+    if (key == juce::KeyPress::escapeKey && overlay != nullptr) { closeOverlay(); return true; }
     auto mode = engine.tapeEngine.getMode();
 
     if (key == juce::KeyPress::spaceKey)

@@ -5,6 +5,14 @@
 
 namespace tf
 {
+/** What a track's display says: source, routing, audio path. Shared with the patch card. */
+struct TrackLines
+{
+    juce::String top, mid, low, tag;
+    juce::Colour tagColour;
+};
+TrackLines describeTrack (const AudioEngine& engine, int t);
+
 /** One channel strip, every control in a single column, top to bottom. */
 class StripComponent : public juce::Component
 {

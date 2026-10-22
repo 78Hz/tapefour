@@ -48,7 +48,7 @@ StripComponent::StripComponent (AudioEngine& e, int index)
 
     lcd.showLamps = true;
     lcd.onClick = [this] { if (onSourceMenu) onSourceMenu (t, &lcd); };
-    lcd.setTooltip ("Source for this track. Right-click anywhere on the strip for the same menu.");
+    lcd.setTooltip ("Patch this track: what's plugged in, which controller plays it, where its MIDI goes.");
 
     arm.lamp = true;
     arm.lampColour = Pal::red;
@@ -82,43 +82,76 @@ void StripComponent::syncFromEngine()
 
 void StripComponent::mouseDown (const juce::MouseEvent& e)
 {
-    engine.focusedTrack = t;
-
     if (e.mods.isPopupMenu() && dynamic_cast<juce::Slider*> (e.originalComponent) == nullptr && onSourceMenu)
         onSourceMenu (t, this);
 }
 
-void StripComponent::refresh (bool blink)
+TrackLines describeTrack (const AudioEngine& engine, int t)
 {
     auto& p = engine.track[t];
-    auto source = (Source) p.source.load();
-    auto* tape = engine.getTape();
-    auto mode = engine.tapeEngine.getMode();
-
-    lcd.top = engine.describeSource (t);
-    switch (source)
+    TrackLines d;
+    d.top = engine.describeSource (t);
+    const auto arrow = utf (" \xe2\x86\x92 ");
+    switch ((Source) p.source.load())
     {
         case Source::audio:
         {
             auto names = engine.getActiveInputNames();
             auto ch = p.inputChannel.load();
-            lcd.sub = juce::isPositiveAndBelow (ch, names.size()) ? names[ch].toUpperCase() : juce::String ("INPUT NOT ACTIVE");
-            tag = "AUDIO"; tagColour = Pal::orange;
+            d.mid = juce::isPositiveAndBelow (ch, names.size()) ? names[ch].toUpperCase() : juce::String ("INPUT NOT ACTIVE");
+            if (p.inputPair.load() && juce::isPositiveAndBelow (ch + 1, names.size()))
+                d.mid << " + " << names[ch + 1].toUpperCase();
+            d.low = "NO MIDI";
+            d.tag = "AUDIO"; d.tagColour = Pal::orange;
             break;
         }
         case Source::instrument:
-            lcd.sub = engine.mpeEnabled.load() ? juce::String ("MPE")
-                    : engine.followArm.load() ? juce::String ("MIDI IN") : "MIDI CH " + juce::String (t + 1);
-            tag = "MIDI"; tagColour = Pal::midiBlue;
+        {
+            auto port = p.midiPort.load();
+            d.mid = "MIDI IN: " + engine.midiPortLabel (port) + (engine.isMidiPortMpe (port) ? juce::String (" MPE") : juce::String());
+            d.low = "NO AUDIO IN";
+            auto* inst = engine.getInstrument (t);
+            d.tag = inst != nullptr && inst->getPlugin() == nullptr ? "INST" : "VST3";
+            d.tagColour = Pal::midiBlue;
             break;
+        }
+        case Source::hardware:
+        {
+            auto port = p.midiPort.load();
+            auto ch = p.midiOutChannel.load();
+            auto outValid = juce::isPositiveAndBelow (p.midiOutPort.load(), AudioEngine::maxMidiPorts);
+            d.mid = engine.midiPortLabel (port) + arrow
+                    + (! outValid ? juce::String ("NO MIDI OUT")
+                       : engine.isMidiPortMpe (port) || ch == 0 ? juce::String ("ALL CH") : "CH " + juce::String (ch));
+            d.low = utf ("AUDIO \xe2\x86\x90 ") + engine.describeInput (t);
+            if (! outValid) d.top = "HARDWARE SYNTH";
+            d.tag = "HW SYNTH"; d.tagColour = Pal::green;
+            break;
+        }
         case Source::bounce:
-            lcd.sub = utf ("TAPE \xe2\x86\x92 TRK ") + juce::String (t + 1);
-            tag = "BOUNCE"; tagColour = Pal::bounce;
+            d.mid = "TAPE" + arrow + "TRK " + juce::String (t + 1);
+            d.low = "NO MIDI";
+            d.tag = "BOUNCE"; d.tagColour = Pal::bounce;
             break;
         case Source::none: default:
-            lcd.sub = "RIGHT-CLICK TO PLUG IN";
-            tag = {}; break;
+            d.mid = "RIGHT-CLICK TO PATCH";
+            break;
     }
+    return d;
+}
+
+void StripComponent::refresh (bool blink)
+{
+    auto& p = engine.track[t];
+    auto* tape = engine.getTape();
+    auto mode = engine.tapeEngine.getMode();
+
+    auto d = describeTrack (engine, t);
+    lcd.top = d.top;
+    lcd.sub = d.mid;
+    lcd.low = d.low;
+    tag = d.tag;
+    tagColour = d.tagColour;
 
     // What's on the tape under the head: noise reduction and recorded speed.
     lcd.nrLamp = false;
@@ -152,7 +185,7 @@ void StripComponent::refresh (bool blink)
                 {
                     auto semis = 12.0 * std::log2 (engine.tapeEngine.getNominalSpeed() / rs);
                     if (std::abs (semis) >= 0.1)
-                        lcd.sub = (semis > 0 ? "+" : "") + juce::String (semis, 1) + " SEMITONES";
+                        lcd.low = (semis > 0 ? "+" : "") + juce::String (semis, 1) + " SEMITONES";
                 }
             }
         }
@@ -179,7 +212,7 @@ void StripComponent::resized()
 {
     auto r = getLocalBounds().reduced (12);
     r.removeFromTop (32 + 8);
-    lcd.setBounds (r.removeFromTop (52));
+    lcd.setBounds (r.removeFromTop (64));
     r.removeFromTop (10);
     gain.setBounds (r.removeFromTop (44));
     r.removeFromTop (14);

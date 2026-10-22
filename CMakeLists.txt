@@ -45,6 +45,8 @@ target_sources(TapeFour PRIVATE
     Source/CassetteComponent.cpp
     Source/StripComponent.cpp
     Source/DeckComponent.cpp
+    Source/PatchCard.cpp
+    Source/InlayCard.cpp
     Source/SetupWindow.cpp)
 
 target_compile_definitions(TapeFour PRIVATE

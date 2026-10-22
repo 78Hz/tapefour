@@ -27,8 +27,9 @@ Tape::Tape (int typeIndex)
 
     id = juce::Uuid().toString();
     created = juce::Time::getCurrentTime().formatted ("%d %b %Y").toUpperCase();
-    for (int i = 0; i < 8; ++i)
+    for (int i = 0; i < Inlay::numFields; ++i)
         trackSheet.add ({});
+    trackSheet.set (Inlay::date, juce::Time::getCurrentTime().formatted ("%d.%m.%y"));
 }
 
 Tape::~Tape()
@@ -150,8 +151,12 @@ bool Tape::save (const juce::File& folder)
     meta.setAttribute ("tracksUsed", tracksUsed());
 
     auto* sheet = meta.createNewChildElement ("TRACK_SHEET");
+    sheet->setAttribute ("layout", "inlay1");
     for (auto& line : trackSheet)
         sheet->createNewChildElement ("LINE")->setAttribute ("text", line);
+
+    if (deckState != nullptr)
+        meta.addChildElement (new juce::XmlElement (*deckState));
 
     for (int t = 0; t < numTracks; ++t)
     {
@@ -198,11 +203,28 @@ std::unique_ptr<Tape> Tape::load (const juce::File& folder)
 
     if (auto* sheet = xml->getChildByName ("TRACK_SHEET"))
     {
-        int i = 0;
+        juce::StringArray lines;
         for (auto* line : sheet->getChildIterator())
-            if (i < tape->trackSheet.size())
-                tape->trackSheet.set (i++, line->getStringAttribute ("text"));
+            lines.add (line->getStringAttribute ("text"));
+
+        if (sheet->getStringAttribute ("layout") == "inlay1")
+        {
+            for (int i = 0; i < std::min (lines.size(), (int) Inlay::numFields); ++i)
+                tape->trackSheet.set (i, lines[i]);
+        }
+        else
+        {
+            // The old eight free lines: title, then the four tracks, then notes as songs.
+            tape->trackSheet.set (Inlay::title, lines[0]);
+            for (int t = 0; t < numTracks; ++t)
+                tape->trackSheet.set (Inlay::trackNote (t), lines[1 + t]);
+            for (int i = 0; i < 3; ++i)
+                tape->trackSheet.set (Inlay::songName (i), lines[5 + i]);
+        }
     }
+
+    if (auto* deck = xml->getChildByName ("DECK"))
+        tape->deckState = std::make_unique<juce::XmlElement> (*deck);
 
     for (auto* tr : xml->getChildWithTagNameIterator ("TRACK"))
     {
