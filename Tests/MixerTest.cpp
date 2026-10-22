@@ -293,17 +293,17 @@ int main()
                AudioEngine::midFreqHz (AudioEngine::defaultMidFreq), 1200.0);
         me.track[0].mid = 0.0f;
 
-        // MON: an unarmed track hears its input instead of its tape, even while the tape plays
-        me.track[0].armed = false;
+        // ARM is the live switch: an armed track hears its input even while the tape plays; unarmed, it doesn't
         m.f[0] = 700; m.amp[0] = 0.2f;
+        me.track[0].armed = false;
         auto off = tone (m.run (0.4), 700, 0.15, 0.4);
-        me.track[0].monitor = true;
-        auto on = tone (m.run (0.4), 700, 0.15, 0.4);
+        me.track[0].armed = true;
         m.cmd (TapeEngine::Command::play);
         auto playing = tone (m.run (0.4), 700, 0.15, 0.4);
         m.cmd (TapeEngine::Command::stop);
-        check (off < 0.001 && on > 0.1 && playing > 0.1, "MON: input heard on an unarmed track, stopped and playing", playing, on);
-        me.track[0].monitor = false;
+        m.run (0.05);
+        check (off < 0.001 && playing > 0.1, "ARM: armed track plays its input while the tape plays", playing, 0.14);
+        me.track[0].armed = false;
     }
 
     // Per-track MIDI: two controllers, two instruments, each plays only its own track.
@@ -337,6 +337,16 @@ int main()
         auto bTone = tone (moved, juce::MidiMessage::getMidiNoteInHertz (75), 0.15, 0.45);
         check (bTone > 0.005, "controller B plays track 2", bTone, 0.005);
         me.injectMidi (juce::MidiMessage::noteOff (1, 75), keysB);
+        m.run (0.3);
+
+        // ...but only while its track is armed: the controller choice doesn't make it live
+        me.track[1].armed = false;
+        m.run (0.1);
+        me.injectMidi (juce::MidiMessage::noteOn (1, 75, (juce::uint8) 110), keysB);
+        auto disarmed = tone (m.run (0.5), juce::MidiMessage::getMidiNoteInHertz (75), 0.15, 0.45);
+        me.injectMidi (juce::MidiMessage::noteOff (1, 75), keysB);
+        check (disarmed < 0.001, "an instrument with its own controller is silent when its track isn't armed", disarmed, 0.0);
+        me.track[1].armed = true;
         m.run (0.3);
 
         // Hardware synth on track 3: controller A goes out on channel 5, audio comes back on IN 1.

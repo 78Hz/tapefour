@@ -57,21 +57,32 @@ StripComponent::StripComponent (AudioEngine& e, int index)
     fader.slider.onValueChange = [this, &p] { p.fader = (float) fader.slider.getValue(); };
 
     lcd.showLamps = true;
-    lcd.onClick = [this] { if (onSourceMenu) onSourceMenu (t, &lcd); };
-    lcd.setTooltip ("Patch this track: what's plugged in, which controller plays it, where its MIDI goes.");
+    // Click: the patch card. Double-click: the instrument's own window.
+    lcd.onClick = [this]
+    {
+        if (clickPending)
+        {
+            clickPending = false;
+            if (onEditSound) onEditSound (t);
+            return;
+        }
+        clickPending = true;
+        juce::Component::SafePointer<StripComponent> safe (this);
+        juce::Timer::callAfterDelay (juce::MouseEvent::getDoubleClickTimeout(), [safe]
+        {
+            if (safe == nullptr || ! safe->clickPending) return;
+            safe->clickPending = false;
+            if (safe->onSourceMenu) safe->onSourceMenu (safe->t, &safe->lcd);
+        });
+    };
+    lcd.setTooltip ("Click to patch this track. Double-click to open its instrument's window.");
 
     arm.lamp = true;
     arm.lampColour = Pal::red;
     arm.setClickingTogglesState (true);
     arm.onClick = [this, &p] { p.armed = arm.getToggleState(); };
 
-    mon.lamp = true;
-    mon.lampColour = Pal::green;
-    mon.setClickingTogglesState (true);
-    mon.onClick = [this, &p] { p.monitor = mon.getToggleState(); engine.saveSettings(); };
-    mon.setTooltip ("Input monitor: hear this track's input whether or not it's armed, instead of its tape");
-
-    for (auto* c : std::initializer_list<juce::Component*> { &lcd, &gain, &high, &mid, &freq, &low, &pan, &meter, &fader, &mon, &arm })
+    for (auto* c : std::initializer_list<juce::Component*> { &lcd, &gain, &high, &mid, &freq, &low, &pan, &meter, &fader, &arm })
         addAndMakeVisible (c);
 
     addMouseListener (this, true);
@@ -90,7 +101,6 @@ void StripComponent::syncFromEngine()
     high.slider.setValue (p.high.load(), juce::dontSendNotification);
     mid.slider.setValue (p.mid.load(), juce::dontSendNotification);
     freq.slider.setValue (p.midFreq.load(), juce::dontSendNotification);
-    mon.setToggleState (p.monitor.load(), juce::dontSendNotification);
     low.slider.setValue (p.low.load(), juce::dontSendNotification);
     pan.slider.setValue (p.pan.load(), juce::dontSendNotification);
     fader.slider.setValue (p.fader.load(), juce::dontSendNotification);
@@ -167,7 +177,8 @@ void StripComponent::refresh (bool blink)
     auto d = describeTrack (engine, t);
     lcd.top = d.top;
     lcd.sub = d.mid;
-    lcd.low = p.monitor.load() ? juce::String ("MON: INPUT") : d.low;
+    // Armed means live: say so, so nobody waits to hear the tape on an armed track.
+    lcd.low = p.armed.load() && mode != Mode::rec && (Source) p.source.load() != Source::none ? juce::String ("ARMED: LIVE INPUT") : d.low;
     tag = d.tag;
     tagColour = d.tagColour;
 
@@ -236,14 +247,6 @@ void StripComponent::refresh (bool blink)
     arm.face = armed ? Pal::armRed : Pal::button;
     arm.pressedLook = armed;
     arm.repaint();
-
-    bool monOn = p.monitor.load();
-    if (mon.getToggleState() != monOn)
-        mon.setToggleState (monOn, juce::dontSendNotification);
-    mon.lampOn = monOn;
-    mon.face = monOn ? juce::Colour (0xff2f4a22) : Pal::button;
-    mon.pressedLook = monOn;
-    mon.repaint();
     repaint (0, 0, getWidth(), 50);
 }
 
@@ -263,10 +266,7 @@ void StripComponent::resized()
     r.removeFromTop (6);
     pan.setBounds (r.removeFromTop (44));
 
-    auto buttons = r.removeFromBottom (42);
-    mon.setBounds (buttons.removeFromLeft ((buttons.getWidth() - 8) * 2 / 5));
-    buttons.removeFromLeft (8);
-    arm.setBounds (buttons);
+    arm.setBounds (r.removeFromBottom (42));
     r.removeFromBottom (12);
     r.removeFromTop (10);
 

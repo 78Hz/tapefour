@@ -15,6 +15,7 @@ PluginWindow::PluginWindow (juce::AudioPluginInstance& plugin, std::function<voi
         setResizable (editor->isResizable(), false);
     }
     centreWithSize (std::max (200, getWidth()), std::max (100, getHeight()));
+    setAlwaysOnTop (true);   // stays in front of the deck while you tweak it
     setVisible (true);
 }
 
@@ -141,6 +142,14 @@ DeckComponent::DeckComponent (AudioEngine& e, juce::PropertiesFile& settings)
     {
         auto* s = strips.add (new StripComponent (engine, t));
         s->onSourceMenu = [this] (int track, juce::Component*) { openPatch (track); };
+        s->onEditSound = [this] (int track)
+        {
+            auto* inst = engine.getInstrument (track);
+            if ((Source) engine.track[track].source.load() == Source::instrument && inst != nullptr && inst->getPlugin() != nullptr)
+                openPluginWindow (track);
+            else
+                openPatch (track);
+        };
         addAndMakeVisible (s);
     }
     addAndMakeVisible (master);
@@ -611,6 +620,14 @@ void DeckComponent::openPluginWindow (int t)
                     if (safe != nullptr) safe->closePluginWindow (t);
                 });
             });
+            pluginWindows[t]->onDeckKey = [this] (const juce::KeyPress& k)
+            {
+                // Space, R and Home drive the transport from the plug-in's window too.
+                if (k == juce::KeyPress::spaceKey || k == juce::KeyPress::homeKey
+                    || k.getTextCharacter() == 'r' || k.getTextCharacter() == 'R')
+                    return keyPressed (k);
+                return false;
+            };
         }
 }
 

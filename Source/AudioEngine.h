@@ -35,7 +35,6 @@ public:
         std::atomic<float> gain { 1.0f / 3.0f };       // input trim: 0..1 -> -20..+40 dB
         std::atomic<float> high { 0 }, mid { 0 }, low { 0 }, pan { 0 }; // -1..1
         std::atomic<float> midFreq { defaultMidFreq };   // 0..1 -> 250 Hz..5 kHz
-        std::atomic<bool>  monitor { false };            // MON: hear the input whatever the arm and transport
         std::atomic<float> fader { 0.75f };
         std::atomic<int>   bounceMask { 0 };
         std::atomic<float> meter { 0 };
@@ -55,7 +54,7 @@ public:
 
     TrackParams track[numTracks];
     std::atomic<float> masterFader { 0.75f }, phones { 0.6f }, meterL { 0 }, meterR { 0 };
-    std::atomic<int>   mainOutPair { 0 }, phonesPair { -1 }, monitorMode { 0 };   // monitor: 0 auto (tape-style), 1 always input
+    std::atomic<int>   mainOutPair { 0 }, phonesPair { -1 }, monitorMode { 1 };   // kept for old settings files; armed tracks always play their input
     std::atomic<bool>  midiFlash { false }, midiOutFlash { false };
     std::atomic<bool>  recallDeckWithTape { false };
 

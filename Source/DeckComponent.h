@@ -16,6 +16,10 @@ public:
     PluginWindow (juce::AudioPluginInstance& plugin, std::function<void()> onClose);
     void closeButtonPressed() override { if (closeCallback) closeCallback(); }
 
+    /** Transport keys typed while the plug-in has the keyboard still reach the deck. */
+    std::function<bool (const juce::KeyPress&)> onDeckKey;
+    bool keyPressed (const juce::KeyPress& k) override { return onDeckKey != nullptr && onDeckKey (k); }
+
 private:
     std::function<void()> closeCallback;
 };

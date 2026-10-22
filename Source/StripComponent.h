@@ -21,6 +21,7 @@ public:
     ~StripComponent() override;
 
     std::function<void (int track, juce::Component* target)> onSourceMenu;
+    std::function<void (int track)> onEditSound;   // double-click the display
 
     void refresh (bool blinkPhase);
     void syncFromEngine();
@@ -37,7 +38,8 @@ private:
     LabeledKnob gain, high, mid, freq, low, pan;
     Meter meter;
     Fader fader;
-    FlatButton arm { "REC ARM" }, mon { "MON" };
+    FlatButton arm { "REC ARM" };
+    bool clickPending = false;
     juce::String tag;
     juce::Colour tagColour;
     int midiHold = 0;

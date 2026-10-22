@@ -18,7 +18,7 @@ public:
         addAndMakeVisible (selector);
         selector.addComponentListener (this);
 
-        for (auto* l : { &mainLabel, &phonesLabel, &monitorLabel, &latencyLabel })
+        for (auto* l : { &mainLabel, &phonesLabel, &latencyLabel })
         {
             l->setFont (DeckLookAndFeel::get().cond (17.0f));
             l->setColour (juce::Label::textColourId, Pal::muted);
@@ -28,10 +28,6 @@ public:
 
         mainOut.onChange   = [this] { engine.mainOutPair = std::max (0, mainOut.getSelectedItemIndex()); engine.saveSettings(); };
         phonesOut.onChange = [this] { engine.phonesPair = phonesOut.getSelectedItemIndex() - 1; engine.saveSettings(); };
-        monitor.addItem ("Auto: hear the input when stopped or recording, the tape when playing", 1);
-        monitor.addItem ("Always hear the input on armed tracks", 2);
-        monitor.setSelectedItemIndex (engine.monitorMode.load(), juce::dontSendNotification);
-        monitor.onChange = [this] { engine.monitorMode = monitor.getSelectedItemIndex(); engine.saveSettings(); };
 
         latency.setRange (-50.0, 50.0, 1.0);
         latency.setTextValueSuffix (" ms");
@@ -42,7 +38,7 @@ public:
         latency.setTooltip ("Overdubs are shifted earlier by the driver's reported latency. "
                             "If they still land late or early, adjust here.");
 
-        for (auto* c : std::initializer_list<juce::Component*> { &mainOut, &phonesOut, &monitor, &latency })
+        for (auto* c : std::initializer_list<juce::Component*> { &mainOut, &phonesOut, &latency })
             addAndMakeVisible (c);
 
         engine.deviceManager.addChangeListener (this);
@@ -72,12 +68,11 @@ public:
         };
         row (mainLabel, mainOut);
         row (phonesLabel, phonesOut);
-        row (monitorLabel, monitor);
         row (latencyLabel, latency);
     }
 
     int selectorHeight() const { return selector.getHeight() > 0 ? selector.getHeight() : 360; }
-    int preferredHeight() const { return selectorHeight() + 24 + 12 + 4 * 38 + 24; }
+    int preferredHeight() const { return selectorHeight() + 24 + 12 + 3 * 38 + 24; }
     std::function<void()> onPreferredHeightChanged;
 
 private:
@@ -114,8 +109,8 @@ private:
     AudioEngine& engine;
     juce::AudioDeviceSelectorComponent selector;
     juce::Label mainLabel { {}, "Stereo out" }, phonesLabel { {}, "Phones" },
-                monitorLabel { {}, "Input monitoring" }, latencyLabel { {}, "Overdub timing" };
-    juce::ComboBox mainOut, phonesOut, monitor;
+                latencyLabel { {}, "Overdub timing" };
+    juce::ComboBox mainOut, phonesOut;
     juce::Slider latency { juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight };
 };
 

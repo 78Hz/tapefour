@@ -153,7 +153,7 @@ td:first-child { font-weight: 600; }
   <div><span class="n">6</span><span class="t">The tape switch<span class="d">Bias and EQ, and what each mismatch does</span></span></div>
   <div><span class="n">7</span><span class="t">Transport and counter<span class="d">Recording, punch-in, return to zero</span></span></div>
   <div><span class="n">8</span><span class="t">Patching a track<span class="d">Audio, instruments, hardware synths, bounces</span></span></div>
-  <div><span class="n">9</span><span class="t">The mixer<span class="d">Gain, EQ, pan, faders, meters, monitoring</span></span></div>
+  <div><span class="n">9</span><span class="t">The mixer<span class="d">Gain, EQ, pan, faders, meters, arming</span></span></div>
   <div><span class="n">10</span><span class="t">Speed and pitch<span class="d">1⅞ and 3¾ ips, varispeed</span></span></div>
   <div><span class="n">11</span><span class="t">Noise reduction<span class="d">The three types, and how they meet the tape</span></span></div>
   <div><span class="n">12</span><span class="t">Tape character<span class="d">Hiss, wow, flutter, drive and the rest</span></span></div>
@@ -180,7 +180,7 @@ td:first-child { font-weight: 600; }
 
 <h2>Audio interface</h2>
 <p>Click the amber display at the top right of the deck (<span class="lcd">SETUP ›</span>) to open Setup, then go to the <strong>Audio</strong> tab.</p>
-<figure class="narrow"><img src="images/setup_audio.png" alt="Setup, Audio tab"><figcaption><b>Setup → Audio.</b> Choose ASIO and your interface's driver, then the sample rate and buffer size, the outputs and the input monitoring.</figcaption></figure>
+<figure class="narrow"><img src="images/setup_audio.png" alt="Setup, Audio tab"><figcaption><b>Setup → Audio.</b> Choose ASIO and your interface's driver, then the sample rate and buffer size, and the outputs.</figcaption></figure>
 <table>
   <thead><tr><th>Setting</th><th>What it does</th><th>What to expect</th></tr></thead>
   <tbody>
@@ -188,7 +188,6 @@ td:first-child { font-weight: 600; }
     <tr><td>Sample rate, buffer</td><td>The interface's sample rate and block size.</td><td>A smaller buffer gives lower latency when you play live, but uses more CPU. 128 samples at 48 kHz is a good starting point.</td></tr>
     <tr><td>Stereo out</td><td>The output pair the mix goes to.</td><td>The master fader controls this pair.</td></tr>
     <tr><td>Phones</td><td>A second output pair, or the same as the stereo out.</td><td>The <span class="ctl">Phones</span> knob on the master strip sets its level, separately from the master fader.</td></tr>
-    <tr><td>Input monitoring</td><td><strong>Auto</strong> or <strong>Always</strong>.</td><td><strong>Auto</strong> works like a real deck: an armed track lets you hear its input while stopped or recording, and the tape while playing. <strong>Always</strong> lets you hear the input on armed tracks all the time.</td></tr>
     <tr><td>Overdub timing</td><td>±50 ms trim on top of the latency the driver reports.</td><td>Use it if new parts land slightly early or late against what is already on tape. Positive values move recordings earlier.</td></tr>
   </tbody>
 </table>
@@ -239,10 +238,10 @@ td:first-child { font-weight: 600; }
   <div><span class="n">11</span><span><strong>Tape speed</strong>: 1⅞ or 3¾ inches per second.</span></div>
   <div><span class="n">12</span><span><strong>Noise reduction</strong> on or off.</span></div>
   <div><span class="n">13</span><span><strong>NR type display.</strong> Click it to choose the type and the tape character in Setup.</span></div>
-  <div><span class="n">14</span><span><strong>Track display.</strong> What's plugged in, which controller plays it, the audio path, and the NR, EQ and MIDI lamps. Right-click it to open the track's patch card.</span></div>
+  <div><span class="n">14</span><span><strong>Track display.</strong> What's plugged in, which controller plays it, the audio path, and the NR, EQ and MIDI lamps. Click it to open the track's patch card; double-click it to open its plug-in's window.</span></div>
   <div><span class="n">15</span><span><strong>Gain, EQ and pan.</strong> HIGH, MID with its FREQ knob, and LOW.</span></div>
   <div><span class="n">16</span><span><strong>Meter and fader.</strong> 0 VU on the meter is Dolby level on tape.</span></div>
-  <div><span class="n">17</span><span><strong>MON and REC ARM.</strong> MON lets you hear the track's input at any time; REC ARM arms it to record.</span></div>
+  <div><span class="n">17</span><span><strong>REC ARM.</strong> An armed track plays its live input; it records when you press RECORD on the transport.</span></div>
   <div><span class="n">18</span><span><strong>Master strip.</strong> Phones level, stereo meter and master fader.</span></div>
 </div>
 
@@ -395,7 +394,7 @@ td:first-child { font-weight: 600; }
 <table>
   <thead><tr><th>Control</th><th>What it does</th><th>What to expect</th></tr></thead>
   <tbody>
-    <tr><td>PLAY <span class="key">Space</span></td><td>Plays the tape.</td><td>Armed tracks switch from their input to the tape (with Auto monitoring). The PLAY lamp lights.</td></tr>
+    <tr><td>PLAY <span class="key">Space</span></td><td>Plays the tape.</td><td>Unarmed tracks play the tape; armed tracks keep playing their live input, so you can rehearse over the tape. The PLAY lamp lights.</td></tr>
     <tr><td>STOP <span class="key">Space</span></td><td>Stops.</td><td>One second later the tape is saved.</td></tr>
     <tr><td>REC <span class="key">R</span></td><td>Records on every armed track.</td><td>The REC lamp lights. If no track is armed, the status display says <span class="lcd">ARM A TRACK FIRST</span>.</td></tr>
     <tr><td>REC while playing</td><td>Punch-in.</td><td>Recording starts at once on the armed tracks. Press PLAY to punch out and keep playing. Tape before and after the punch is untouched.</td></tr>
@@ -409,11 +408,11 @@ td:first-child { font-weight: 600; }
 
 <!-- ======================================================= 8 PATCHING -->
 <h1><span class="num">8</span>Patching a track</h1>
-<p>Right-click a track's display, or left-click it, to open the track's <strong>patch card</strong>. The card shows what's plugged into the track, what plays it, and where its audio comes from. At the bottom, it previews what the track display will say. Click <span class="ctl">DONE</span>, click outside the card or press <span class="key">Esc</span> to close it. A track has exactly one source: plugging in a new one unplugs the old.</p>
+<p>Click or right-click a track's display to open the track's <strong>patch card</strong>. The card shows what's plugged into the track, what plays it, and where its audio comes from. At the bottom, it previews what the track display will say. Click <span class="ctl">DONE</span>, click outside the card or press <span class="key">Esc</span> to close it. A track has exactly one source: plugging in a new one unplugs the old.</p>
 
 <div class="grid2">
   <figure><img src="images/patch_audio.png" alt="Patch card, audio in"><figcaption><b>Audio in.</b> Choose an input, or a pair of inputs mixed to mono.</figcaption></figure>
-  <figure><img src="images/patch_inst.png" alt="Patch card, instrument"><figcaption><b>Instrument.</b> Choose what plays it and which instrument.</figcaption></figure>
+  <figure><img src="images/patch_inst.png" alt="Patch card, instrument"><figcaption><b>Instrument.</b> CHANGE… opens a searchable list of every instrument; EDIT SOUND opens a plug-in's window.</figcaption></figure>
   <figure><img src="images/patch_hw.png" alt="Patch card, hardware synth"><figcaption><b>Hardware synth.</b> MIDI goes out to the synth and its audio comes back in on an input.</figcaption></figure>
   <figure><img src="images/patch_bounce.png" alt="Patch card, bounce"><figcaption><b>Bounce.</b> Mix other tracks from tape onto this one.</figcaption></figure>
 </div>
@@ -422,7 +421,7 @@ td:first-child { font-weight: 600; }
   <thead><tr><th>Source</th><th>Settings</th><th>What to expect</th></tr></thead>
   <tbody>
     <tr><td>Audio in</td><td><span class="ctl">Audio in</span>: <span class="ctl">IN n</span>, or <span class="ctl">IN n+m mono</span>.</td><td>The display shows <span class="lcd">ASIO IN 1</span> and the input's name. Tracks are mono; a stereo source on a pair is summed to mono at half level per side.</td></tr>
-    <tr><td>Instrument</td><td><span class="ctl">Play with</span>: <span class="ctl">Any (when armed)</span>, a named controller, or <span class="ctl">None</span>.<br><span class="ctl">Instrument</span>: TF Poly Synth, TF Tine Piano, any scanned VST3, <span class="ctl">Find VST3…</span>, <span class="ctl">Show window</span>.</td><td><strong>Any (when armed)</strong>: any controller plays the track, but only while it's armed. <strong>A named controller</strong> plays the track whether or not it's armed, so different keyboards can play different tracks at the same time. A VST3's window opens when it loads. Plug-ins come in 12 dB below their own output, so a full-level synth sits near 0 VU.</td></tr>
+    <tr><td>Instrument</td><td><span class="ctl">Play with</span>: <span class="ctl">Any</span>, a named controller, or <span class="ctl">None</span>.<br><span class="ctl">Instrument</span>: TF Poly Synth, TF Tine Piano, any scanned VST3, chosen from the list (<span class="ctl">Change…</span>), <span class="ctl">Edit sound</span>.</td><td>An instrument only sounds while its track is armed. <strong>Any</strong>: any ticked controller plays it. <strong>A named controller</strong> plays only that track, so different keyboards can play different armed tracks at once. <span class="ctl">Change…</span> opens a searchable list of the built-in instruments and every scanned VST3, grouped by maker; type to filter and press <span class="key">Return</span> for the first match. Two plug-ins with the same name are both listed, with their folder and file so you can tell them apart. <span class="ctl">Edit sound</span> (or double-clicking the track display) opens the plug-in's own window to change its sound; the window stays on top, and <span class="key">Space</span>, <span class="key">R</span> and <span class="key">Home</span> still work the transport while it has focus. Plug-ins come in 12 dB below their own output, so a full-level synth sits near 0 VU.</td></tr>
     <tr><td>Hardware synth</td><td><span class="ctl">Play with</span> (as above)<br><span class="ctl">Send to</span>: a MIDI output, and a channel 1–16, or 0 for "as played".<br><span class="ctl">Listen to</span>: the input the synth is plugged into.</td><td>Notes go out to the synth on the chosen channel, and its audio is recorded from the input. An MPE controller's notes pass through on their own channels. Changing the route sends all-notes-off so nothing hangs. A track can't play a hardware synth and a plug-in at once.</td></tr>
     <tr><td>Bounce</td><td><span class="ctl">Mix from tape</span>: tick the source tracks.</td><td>While recording, you hear the sources once, through their own EQ, pan and fader. Use those to balance the bounce, then arm the destination and record. The bounce picks up another pass of the tape: a little more hiss and grain, and a level shift of the tape's sensitivity.</td></tr>
   </tbody>
@@ -454,8 +453,7 @@ td:first-child { font-weight: 600; }
     <tr><td>PAN</td><td>L100 to R100, constant power</td><td>Centre is −3 dB to each side. Hard left puts the full level on the left output only.</td></tr>
     <tr><td>Fader</td><td>−∞ to +7 dB (0 at the mark)</td><td>The level into the mix and into bounces. On an armed track it also sets the level going to tape, as on a portastudio.</td></tr>
     <tr><td>Meter</td><td>20 LEDs, 0 VU at −12 dBFS</td><td>Green below 0 VU, amber from 0 to +3, red above +3. Keep peaks around 0 VU for a clean recording, and push into the amber for tape colour.</td></tr>
-    <tr><td>MON</td><td>On or off</td><td>Input monitor. You hear the track's input (an audio input, an instrument or a hardware synth) instead of its tape, whether or not the track is armed and whatever the transport is doing. The lamp lights green and the display reads <span class="lcd">MON: INPUT</span>. An instrument set to <strong>Any (when armed)</strong> also plays while MON is on. MON doesn't record anything.</td></tr>
-    <tr><td>REC ARM</td><td>On or off</td><td>Arms the track to record. With Auto monitoring you hear its input while stopped or recording.</td></tr>
+    <tr><td>REC ARM</td><td>On or off</td><td>An armed track plays its live input (audio in, instrument or hardware synth) instead of its tape, whatever the transport is doing, and the display reads <span class="lcd">ARMED: LIVE INPUT</span>. Press RECORD on the transport and it records that input to tape. To hear a take, disarm the track: while it is armed you hear the input, not the tape.</td></tr>
   </tbody>
 </table>
 <p>The <strong>master strip</strong> has a stereo meter, the master fader for the stereo out, and the <span class="ctl">Phones</span> knob, which sets the level of the phones output pair independently.</p>
@@ -581,12 +579,13 @@ td:first-child { font-weight: 600; }
   <tbody>
     <tr><td><span class="lcd">NO AUDIO DEVICE</span></td><td>Open Setup → Audio and choose your driver. If another program holds the ASIO driver, close it, then reselect the driver.</td></tr>
     <tr><td>REC does nothing</td><td>Arm at least one track. The status display says <span class="lcd">ARM A TRACK FIRST</span>.</td></tr>
-    <tr><td>An instrument doesn't play</td><td>Tick the controller in Setup → MIDI &amp; Deck. Check the track's <span class="ctl">Play with</span> setting; with <strong>Any (when armed)</strong>, arm the track. Watch the MIDI IN lamp and the track's MIDI lamp.</td></tr>
+    <tr><td>A take seems to have recorded silence</td><td>While a track is armed you hear its live input, not the tape. Disarm it and play the take back.</td></tr>
+    <tr><td>An instrument doesn't play</td><td>Tick the controller in Setup → MIDI &amp; Deck. Check the track's <span class="ctl">Play with</span> setting, and arm the track: instruments only sound while armed. Watch the MIDI IN lamp and the track's MIDI lamp.</td></tr>
     <tr><td>Recordings sound distorted</td><td>Lower GAIN so peaks sit around 0 VU, use a tape with more headroom (MX), centre Tape drive, and check the tape switch matches the tape.</td></tr>
     <tr><td>Everything sounds dull</td><td>Check the EQ lamps (playback EQ mismatch), the NR lamps (NR mismatch), the tape switch (over-bias) and HF loss in Setup → Tape.</td></tr>
     <tr><td>Bounces get quieter or louder</td><td>That's the tape's sensitivity, doubled with 2:1 NR. Correct it with the faders before each bounce.</td></tr>
     <tr><td>A plug-in shows as failed after a scan</td><td>It crashed or hung while being scanned, so TAPE·FOUR set it aside. Update the plug-in, select it in Setup → Instruments, choose <strong>Options… → Remove selected plug-in from list</strong>, and scan again.</td></tr>
-    <tr><td>A controller plugged in later doesn't play</td><td>Check it's ticked in Setup → MIDI &amp; Deck, and that the track's <span class="ctl">Play with</span> names it or is set to <strong>Any</strong> with the track armed or on MON.</td></tr>
+    <tr><td>A controller plugged in later doesn't play</td><td>Check it's ticked in Setup → MIDI &amp; Deck, and that the track's <span class="ctl">Play with</span> names it or is set to <strong>Any</strong>, and that the track is armed.</td></tr>
     <tr><td>A plug-in is missing when a tape is recalled</td><td>Rescan in Setup → Instruments. The plug-in's settings are kept until it can be loaded again.</td></tr>
     <tr><td>A ghost of an old take is audible</td><td>You recorded over a metal tape at NORMAL. Record over it again at METAL to erase it fully.</td></tr>
   </tbody>

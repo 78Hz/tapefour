@@ -33,10 +33,10 @@ Windows may warn that the program is from an unknown publisher, because it isn't
 | | |
 |---|---|
 | **Layout** | Like a portastudio: the mixer runs down the left, the cassette and transport are in a column on the right. The window resizes and keeps the 16:9 shape. |
-| **Mixer** | Each strip: GAIN, HIGH shelf (full by 10 kHz), MID with a swept FREQ (250 Hz–5 kHz), LOW shelf (full by 100 Hz), PAN, meter and fader, **MON** and **REC ARM**. MON plays the track's input instead of its tape whether or not it's armed. |
-| **Plug something into a track** | Right-click the channel strip, or click its amber display, to open the track's patch card. Choose **Audio in**, **Instrument**, **Hardware synth** or **Bounce**, then what plays it and where its audio comes from. |
+| **Mixer** | Each strip: GAIN, HIGH shelf (full by 10 kHz), MID with a swept FREQ (250 Hz–5 kHz), LOW shelf (full by 100 Hz), PAN, meter and fader and **REC ARM**. An armed track plays its live input; it records when you press RECORD. |
+| **Plug something into a track** | Click its amber display to open the track's patch card; double-click it to open the plug-in's window. Choose **Audio in**, **Instrument**, **Hardware synth** or **Bounce**, then what plays it and where its audio comes from. |
 | **Record** | Press **REC ARM** on the track(s), then **REC**. To punch in, press **REC** while playing; press **PLAY** to punch out. |
-| **Play an instrument** | On the patch card, **Play with** chooses the controller. **Any (when armed)** means any controller plays the track while it is armed; naming a controller ties it to that track, so different keyboards can play different tracks at once. Without a keyboard, the computer keys A W S E D F T G Y H U J K play notes and Z / X change octave. |
+| **Play an instrument** | On the patch card, **Play with** chooses the controller. Instruments sound only while their track is armed. **Any** means any ticked controller plays it; naming a controller ties it to that track, so different keyboards can play different armed tracks at once. **Change…** opens a searchable instrument list (same-named plug-ins are listed separately with their folder), and **Edit sound** opens the plug-in's window. Without a keyboard, the computer keys A W S E D F T G Y H U J K play notes and Z / X change octave. |
 | **Hardware synth** | Choose **Hardware synth** on the patch card, the controller that plays it, the MIDI output (**Send to**) and channel, and the input its audio comes back on (**Listen to**). Tracks are mono, so a stereo synth can come back on a pair of inputs, mixed to mono. A track plays either a VST/built-in instrument or a hardware synth, never both. |
 | **Bounce** | On the destination track's patch card choose **Bounce** and tick the tracks to mix from tape. Balance them with their own EQ and faders, arm the destination and record. |
 | **Counter** | **RESET** sets 000 where the tape is now. **RTZ** (or the Home key) rewinds to 000. |
@@ -58,12 +58,10 @@ Type the **bend range** to match what the controller sends. Ordinary keyboards d
 
 Hosted VST3 instruments come in 12 dB lower than their own output. That puts a full-level synth around the deck's 0 VU, as if it were plugged into a line input. Use the track's **GAIN** knob to trim further.
 
-### Monitoring
+### Arming
 
-With the default **Auto** setting:
-
-- An armed track lets you hear its input while stopped or recording, and the tape while playing back, as on a real deck.
-- Unarmed tracks play the tape.
+- An armed track plays its live input, whatever the transport is doing; press RECORD to put it on tape.
+- Unarmed tracks play the tape. To hear a take, disarm its track.
 
 ### Speed, pitch and noise reduction
 

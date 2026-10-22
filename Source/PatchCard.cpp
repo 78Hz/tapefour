@@ -33,6 +33,183 @@ namespace
     const juce::Colour ink { 0xff1a1917 };
 }
 
+/** Every instrument TapeFour knows, searchable and grouped by maker. */
+class InstrumentBrowser : public juce::Component,
+                          private juce::ListBoxModel
+{
+public:
+    struct Item
+    {
+        bool header = false;
+        juce::String text, sub;
+        int builtIn = -1;
+        juce::PluginDescription desc;
+        bool chosen = false;
+    };
+
+    std::function<void (const Item&)> onPick;
+    std::function<void()> onFind, onCancel;
+
+    InstrumentBrowser (AudioEngine& e, int track) : engine (e), t (track)
+    {
+        auto& lf = DeckLookAndFeel::get();
+        search.setFont (lf.cond (18.0f, true));
+        search.setTextToShowWhenEmpty (utf ("SEARCH INSTRUMENTS \xe2\x80\xa6"), juce::Colour (0xff8c877b));
+        search.setIndents (12, 8);
+        search.setColour (juce::TextEditor::backgroundColourId, juce::Colour (0xfffffdf6));
+        search.setColour (juce::TextEditor::textColourId, ink);
+        search.setColour (juce::TextEditor::outlineColourId, ink);
+        search.setColour (juce::TextEditor::focusedOutlineColourId, Pal::orange);
+        search.setColour (juce::CaretComponent::caretColourId, ink);
+        search.onTextChange = [this] { refilter(); };
+        search.onEscapeKey = [this] { if (onCancel) onCancel(); };
+        search.onReturnKey = [this]
+        {
+            for (auto& it : shown) if (! it.header) { if (onPick) onPick (it); return; }
+        };
+        addAndMakeVisible (search);
+
+        list.setModel (this);
+        list.setRowHeight (30);
+        list.setColour (juce::ListBox::backgroundColourId, juce::Colour (0xfffbf8ef));
+        list.setColour (juce::ListBox::outlineColourId, ink);
+        list.setOutlineThickness (1);
+        addAndMakeVisible (list);
+
+        find.textSize = 14.0f;
+        find.onClick = [this] { if (onFind) onFind(); };
+        addAndMakeVisible (find);
+
+        gather();
+        refilter();
+    }
+
+    void grabSearchFocus() { search.grabKeyboardFocus(); }
+
+    void resized() override
+    {
+        auto r = getLocalBounds();
+        auto top = r.removeFromTop (40);
+        find.setBounds (top.removeFromRight (150));
+        top.removeFromRight (8);
+        search.setBounds (top);
+        r.removeFromTop (8);
+        list.setBounds (r);
+    }
+
+private:
+    void gather()
+    {
+        all.clear();
+        auto* inst = engine.getInstrument (t);
+        all.push_back ({ true, "BUILT IN", {}, -1, {}, false });
+        for (int k = 0; k < BuiltIn::numKinds; ++k)
+            all.push_back ({ false, BuiltIn::nameOf (k), utf ("TAPE\xc2\xb7" "FOUR"), k, {},
+                             inst != nullptr && inst->getPlugin() == nullptr && inst->getName() == BuiltIn::nameOf (k) });
+
+        auto types = engine.knownPlugins.getTypes();
+        std::vector<juce::PluginDescription> instruments;
+        for (auto& d : types) if (d.isInstrument) instruments.push_back (d);
+        std::sort (instruments.begin(), instruments.end(), [] (const auto& a, const auto& b)
+        {
+            auto ma = a.manufacturerName.isEmpty() ? juce::String ("~") : a.manufacturerName.toLowerCase();
+            auto mb = b.manufacturerName.isEmpty() ? juce::String ("~") : b.manufacturerName.toLowerCase();
+            return ma != mb ? ma < mb : a.name.compareIgnoreCase (b.name) < 0;
+        });
+
+        // Plug-ins that share a name are all listed; where they came from tells them apart.
+        juce::StringArray seen, repeated;
+        for (auto& d : instruments)
+        {
+            auto key = d.name.toLowerCase();
+            if (seen.contains (key)) repeated.addIfNotAlreadyThere (key); else seen.add (key);
+        }
+
+        juce::String maker = "\x01";
+        for (auto& d : instruments)
+        {
+            auto m = d.manufacturerName.isNotEmpty() ? d.manufacturerName : juce::String ("Unknown maker");
+            if (m != maker) { all.push_back ({ true, m.toUpperCase(), {}, -1, {}, false }); maker = m; }
+
+            juce::String sub = d.pluginFormatName;
+            if (d.version.isNotEmpty()) sub << " " << d.version;
+            if (repeated.contains (d.name.toLowerCase()))
+            {
+                juce::File f (d.fileOrIdentifier);
+                sub << utf ("  \xc2\xb7  ") << f.getParentDirectory().getFileName() << "/" << f.getFileName();
+            }
+            bool chosen = inst != nullptr && inst->getPlugin() != nullptr && inst->getPlugin()->getPluginDescription().isDuplicateOf (d);
+            all.push_back ({ false, d.name, sub, -1, d, chosen });
+        }
+    }
+
+    void refilter()
+    {
+        auto q = search.getText().trim().toLowerCase();
+        shown.clear();
+        const Item* pendingHeader = nullptr;
+        for (auto& it : all)
+        {
+            if (it.header) { pendingHeader = &it; continue; }
+            bool match = q.isEmpty() || it.text.toLowerCase().contains (q) || it.sub.toLowerCase().contains (q)
+                         || (pendingHeader != nullptr && pendingHeader->text.toLowerCase().contains (q));
+            if (! match) continue;
+            if (pendingHeader != nullptr) { shown.push_back (*pendingHeader); pendingHeader = nullptr; }
+            shown.push_back (it);
+        }
+        list.updateContent();
+        list.repaint();
+        for (int i = 0; i < (int) shown.size(); ++i)
+            if (shown[(size_t) i].chosen) { list.scrollToEnsureRowIsOnscreen (i); break; }
+    }
+
+    int getNumRows() override { return (int) shown.size(); }
+
+    void paintListBoxItem (int row, juce::Graphics& g, int w, int h, bool selected) override
+    {
+        if (! juce::isPositiveAndBelow (row, (int) shown.size())) return;
+        auto& lf = DeckLookAndFeel::get();
+        auto& it = shown[(size_t) row];
+        if (it.header)
+        {
+            g.setColour (juce::Colour (0xffece4cf));
+            g.fillRect (0, 0, w, h);
+            g.setColour (Pal::menuHead);
+            g.setFont (lf.cond (14.0f, true).withExtraKerningFactor (0.2f));
+            g.drawText (it.text, 12, 0, w - 24, h, juce::Justification::bottomLeft);
+            return;
+        }
+        if (it.chosen || selected)
+        {
+            g.setColour (it.chosen ? ink : juce::Colour (0xffe8dfc8));
+            g.fillRect (0, 1, w, h - 2);
+        }
+        g.setColour (it.chosen ? Pal::orange : ink);
+        g.setFont (lf.cond (18.0f, true));
+        auto nameW = std::min (w / 2 + 40, (int) juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), it.text) + 30);
+        g.drawText (it.text, 24, 0, nameW, h, juce::Justification::centredLeft);
+        g.setColour (it.chosen ? juce::Colour (0xffcdb57c) : juce::Colour (0xff6b665c));
+        g.setFont (lf.cond (14.0f));
+        g.drawFittedText (it.sub, 24 + nameW, 0, w - nameW - 36, h, juce::Justification::centredLeft, 1, 0.8f);
+    }
+
+    void listBoxItemClicked (int row, const juce::MouseEvent&) override
+    {
+        if (juce::isPositiveAndBelow (row, (int) shown.size()) && ! shown[(size_t) row].header && onPick)
+        {
+            auto it = shown[(size_t) row];   // copy: picking rebuilds the card
+            onPick (it);
+        }
+    }
+
+    AudioEngine& engine;
+    const int t;
+    juce::TextEditor search;
+    juce::ListBox list;
+    FlatButton find { utf ("FIND VST3\xe2\x80\xa6") };
+    std::vector<Item> all, shown;
+};
+
 PatchCard::PatchCard (AudioEngine& e, int track)
     : engine (e), t (track)
 {
@@ -89,6 +266,54 @@ PatchCard::PatchCard (AudioEngine& e, int track)
     rebuild();
 }
 
+PatchCard::~PatchCard() = default;
+
+void PatchCard::openBrowser (bool open)
+{
+    browsing = open;
+    if (open)
+    {
+        browser = std::make_unique<InstrumentBrowser> (engine, t);
+        browser->onPick = [this] (const InstrumentBrowser::Item& it)
+        {
+            auto safeThis = juce::Component::SafePointer<PatchCard> (this);
+            if (it.builtIn >= 0) pickBuiltIn (it.builtIn);
+            else pickPlugin (it.desc);
+            if (safeThis != nullptr) juce::MessageManager::callAsync ([safeThis] { if (safeThis != nullptr) safeThis->openBrowser (false); });
+        };
+        browser->onFind = [this] { if (onFindInstruments) onFindInstruments(); };
+        browser->onCancel = [this]
+        {
+            juce::Component::SafePointer<PatchCard> safe (this);
+            juce::MessageManager::callAsync ([safe] { if (safe != nullptr) safe->openBrowser (false); });
+        };
+        addAndMakeVisible (*browser);
+    }
+    else
+    {
+        browser.reset();
+    }
+    rebuild();
+    if (browser != nullptr) browser->grabSearchFocus();
+}
+
+void PatchCard::pickBuiltIn (int kind)
+{
+    if (onClosePluginWindow) onClosePluginWindow (t);
+    engine.setInstrument (t, BuiltIn::create (kind));
+    changed();
+}
+
+void PatchCard::pickPlugin (const juce::PluginDescription& desc)
+{
+    if (onClosePluginWindow) onClosePluginWindow (t);
+    engine.loadPlugin (t, desc, {}, [safe = juce::Component::SafePointer<PatchCard> (this)] (const juce::String&)
+    {
+        if (safe != nullptr) safe->rebuild();
+    });
+    changed();
+}
+
 void PatchCard::changed()
 {
     engine.saveSettings();
@@ -135,7 +360,7 @@ void PatchCard::rebuild()
     {
         addRow ("PLAY WITH", "MIDI in");
         auto current = p.midiPort.load();
-        addChip ("ANY (WHEN ARMED)", current == AudioEngine::midiAnyWhenArmed, [this] { engine.setTrackMidiPort (t, AudioEngine::midiAnyWhenArmed); });
+        addChip ("ANY", current == AudioEngine::midiAnyWhenArmed, [this] { engine.setTrackMidiPort (t, AudioEngine::midiAnyWhenArmed); });
         for (auto& in : engine.getMidiInputs())
         {
             if (! in.active) continue;
@@ -171,30 +396,19 @@ void PatchCard::rebuild()
         case Source::instrument:
         {
             midiInRow();
+            // One line: what's loaded, its editor, and a way to change it.
             addRow ("INSTRUMENT", {});
             auto* inst = engine.getInstrument (t);
-            for (int k = 0; k < BuiltIn::numKinds; ++k)
-            {
-                auto name = BuiltIn::nameOf (k);
-                bool chosen = inst != nullptr && inst->getPlugin() == nullptr && inst->getName() == name;
-                addChip (name, chosen, [this, k] { if (onClosePluginWindow) onClosePluginWindow (t); engine.setInstrument (t, BuiltIn::create (k)); });
-            }
-            for (auto& desc : engine.knownPlugins.getTypes())
-            {
-                if (! desc.isInstrument) continue;
-                bool chosen = inst != nullptr && inst->getPlugin() != nullptr && inst->getPlugin()->getPluginDescription().isDuplicateOf (desc);
-                addChip (desc.name.toUpperCase(), chosen, [this, desc]
-                {
-                    if (onClosePluginWindow) onClosePluginWindow (t);
-                    engine.loadPlugin (t, desc, {}, [safe = juce::Component::SafePointer<PatchCard> (this)] (const juce::String&)
-                    {
-                        if (safe != nullptr) safe->rebuild();
-                    });
-                });
-            }
-            addChip (utf ("FIND VST3\xe2\x80\xa6"), false, [this] { if (onFindInstruments) onFindInstruments(); });
+            auto current = inst != nullptr ? inst->getName().toUpperCase() : juce::String ("NOTHING LOADED");
+            addChip (current, true, [] {});
             if (inst != nullptr && inst->getPlugin() != nullptr)
-                addChip ("SHOW WINDOW", false, [this] { if (onShowPluginWindow) onShowPluginWindow (t); });
+                addChip ("EDIT SOUND", false, [this] { if (onShowPluginWindow) onShowPluginWindow (t); });
+            addChip (browsing ? juce::String ("CLOSE LIST") : utf ("CHANGE\xe2\x80\xa6"), browsing, [this]
+            {
+                juce::Component::SafePointer<PatchCard> safe (this);
+                auto open = ! browsing;
+                juce::MessageManager::callAsync ([safe, open] { if (safe != nullptr) safe->openBrowser (open); });
+            });
             break;
         }
 
@@ -275,6 +489,12 @@ void PatchCard::resized()
         }
         row.height = rowY + chipH - y;
         y += row.height + 18;
+    }
+
+    if (browser != nullptr)
+    {
+        auto footY = getHeight() - pad - 46 - 14;
+        browser->setBounds (pad, y - 4, w - 2 * pad, std::max (120, footY - 14 - (y - 4)));
     }
 
     done.setBounds (w - pad - 120, getHeight() - pad - 46, 120, 46);

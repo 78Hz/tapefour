@@ -341,7 +341,7 @@ void AudioEngine::setMidiInputMpe (int slot, bool mpe, int bendRange)
 
 juce::String AudioEngine::midiPortLabel (int port) const
 {
-    if (port == midiAnyWhenArmed) return "ANY (ARMED)";
+    if (port == midiAnyWhenArmed) return "ANY";
     if (port == midiNone || ! juce::isPositiveAndBelow (port, maxMidiPorts) || midiPorts[port]->id.isEmpty()) return "NONE";
     if (port == computerKeyboardPort) return "COMPUTER KEYS";
     return midiPorts[port]->name.toUpperCase();
@@ -630,7 +630,6 @@ std::unique_ptr<juce::XmlElement> AudioEngine::createDeckState() const
         x->setAttribute ("high", p.high.load());
         x->setAttribute ("mid", p.mid.load());
         x->setAttribute ("midFreq", p.midFreq.load());
-        x->setAttribute ("mon", p.monitor.load());
         x->setAttribute ("low", p.low.load());
         x->setAttribute ("pan", p.pan.load());
         x->setAttribute ("fader", p.fader.load());
@@ -690,7 +689,6 @@ void AudioEngine::applyDeckState (const juce::XmlElement& deck)
         p.high  = (float) x->getDoubleAttribute ("high");
         p.mid   = (float) x->getDoubleAttribute ("mid");
         p.midFreq = (float) x->getDoubleAttribute ("midFreq", defaultMidFreq);
-        p.monitor = x->getBoolAttribute ("mon");
         p.low   = (float) x->getDoubleAttribute ("low");
         p.pan   = (float) x->getDoubleAttribute ("pan");
         p.fader = (float) x->getDoubleAttribute ("fader", 0.75);
@@ -1026,9 +1024,11 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputs, 
         if (port == midiAnyWhenArmed)
         {
             mpe = anyMpe; bend = anyBend;
-            return armed[t] || track[t].monitor.load() ? &anyMidi : nullptr;
+            return armed[t] ? &anyMidi : nullptr;
         }
-        if (juce::isPositiveAndBelow (port, maxMidiPorts) && midiPorts[(size_t) port]->active.load())
+        // An instrument or synth only plays when its track is armed; the choice of controller
+        // just says which keyboard that is.
+        if (armed[t] && juce::isPositiveAndBelow (port, maxMidiPorts) && midiPorts[(size_t) port]->active.load())
         {
             mpe = midiPorts[(size_t) port]->mpe.load();
             bend = midiPorts[(size_t) port]->bendRange.load();
@@ -1154,7 +1154,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputs, 
     // ---- channel strips ----
     bool monitorInput[numTracks];
     for (int t = 0; t < numTracks; ++t)
-        monitorInput[t] = (armed[t] && (mode != Mode::play || monitorMode.load() == 1)) || track[t].monitor.load();
+        monitorInput[t] = armed[t];   // ARM is the live switch: armed tracks play their input, unarmed ones the tape
 
     auto processChannel = [&] (int t, const float* in)
     {

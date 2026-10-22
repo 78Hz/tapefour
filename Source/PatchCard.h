@@ -25,10 +25,13 @@ private:
     or bounce), which controller plays it, where its MIDI goes and which input
     the audio comes back on.
 */
+class InstrumentBrowser;
+
 class PatchCard : public juce::Component
 {
 public:
     PatchCard (AudioEngine& engine, int track);
+    ~PatchCard() override;
 
     std::function<void()> onDone;
     std::function<void (int track)> onShowPluginWindow, onClosePluginWindow;
@@ -50,6 +53,9 @@ private:
     void addRow (const juce::String& label, const juce::String& sub);
     ChipButton* addChip (const juce::String& text, bool chosen, std::function<void()> action);
     void changed();
+    void openBrowser (bool open);
+    void pickPlugin (const juce::PluginDescription& desc);
+    void pickBuiltIn (int kind);
 
     AudioEngine& engine;
     const int t;
@@ -60,5 +66,7 @@ private:
     juce::Label channelLabel;
     FlatButton done { "DONE" }, closeX { "X" };
     TrackLines preview;
+    std::unique_ptr<InstrumentBrowser> browser;
+    bool browsing = false;
 };
 } // namespace tf
