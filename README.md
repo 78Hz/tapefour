@@ -4,6 +4,10 @@ A four-track cassette multitracker for Windows. It records onto a virtual tape, 
 
 It works like the real thing: four mono tracks, one direction, a C-46, C-60 or C-90 of tape, and **no undo**. Recording erases whatever was on the tape under the armed tracks.
 
+## Manual
+
+The owner's manual is [`Manual/TapeFour-Manual.pdf`](Manual/TapeFour-Manual.pdf): every control, the four cassettes, the tape switch and its mismatches, noise reduction, MIDI, and what to expect from each setting. Its source is `Manual/manual.html`; `python Manual/build_pdf.py` rebuilds it (needs Playwright with Chromium).
+
 ## Getting it
 
 Open the repository's **Actions** tab, pick the latest green **Build Windows** run, and download **TapeFour-windows-x64**. Unzip it and run `TapeFour.exe`. Nothing needs installing.

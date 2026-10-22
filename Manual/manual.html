@@ -1,0 +1,609 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TAPE·FOUR Owner's Manual</title>
+<style>
+@font-face { font-family: "Barlow Condensed"; font-weight: 600; src: url("../Resources/fonts/BarlowCondensed-SemiBold.ttf"); }
+@font-face { font-family: "Barlow Condensed"; font-weight: 700; src: url("../Resources/fonts/BarlowCondensed-Bold.ttf"); }
+@font-face { font-family: "Barlow Condensed"; font-weight: 800; font-style: italic; src: url("../Resources/fonts/BarlowCondensed-ExtraBoldItalic.ttf"); }
+@font-face { font-family: "Share Tech Mono"; src: url("../Resources/fonts/ShareTechMono-Regular.ttf"); }
+@font-face { font-family: "Caveat"; src: url("../Resources/fonts/Caveat-Variable.ttf"); }
+
+@page { size: A4; margin: 18mm 17mm 20mm 17mm; }
+@page :first { margin: 0; }
+
+:root {
+  --ink: #1a1917;
+  --soft: #4d4a43;
+  --muted: #6b665c;
+  --rule: #d9d3c4;
+  --paper: #fbf9f4;
+  --orange: #c4561b;
+  --orange-bright: #e8702a;
+  --panel: #2e2d29;
+  --tint: #f3efe4;
+}
+* { box-sizing: border-box; }
+html { background: #ffffff; }
+body {
+  margin: 0;
+  font: 10pt/1.5 "Inter", sans-serif;
+  color: var(--ink);
+  background: #ffffff;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+
+/* ---------- cover ---------- */
+.cover {
+  width: 210mm; height: 297mm; page-break-after: always;
+  background: #1b1a17; color: #ece4cf;
+  display: flex; flex-direction: column; padding: 22mm 18mm 16mm;
+}
+.cover .brand { font: italic 800 64pt/1 "Barlow Condensed"; letter-spacing: 0.01em; }
+.cover .brand span { color: var(--orange-bright); }
+.cover .model { margin-top: 4mm; font: 600 12pt/1.2 "Barlow Condensed"; letter-spacing: 0.24em; color: #b3ad9e; }
+.cover .title { margin-top: 14mm; font: 700 30pt/1.05 "Barlow Condensed"; letter-spacing: 0.04em; text-transform: uppercase; }
+.cover .sub { margin-top: 3mm; font: 11pt/1.5 "Inter"; color: #c9c2b0; max-width: 140mm; }
+.cover img { margin-top: auto; width: 100%; border-radius: 3mm; box-shadow: 0 4mm 10mm rgba(0,0,0,0.6); }
+.cover .foot { margin-top: 8mm; display: flex; justify-content: space-between; font: 600 9pt/1 "Barlow Condensed"; letter-spacing: 0.2em; color: #8f897b; }
+
+/* ---------- type ---------- */
+h1 {
+  page-break-before: always; break-before: page;
+  margin: 0 0 6mm; padding-bottom: 3mm; border-bottom: 1.2pt solid var(--ink);
+  font: 700 26pt/1 "Barlow Condensed"; letter-spacing: 0.03em; text-transform: uppercase;
+  display: flex; align-items: baseline; gap: 4mm;
+}
+h1 .num { color: var(--orange); font-style: italic; font-weight: 800; }
+h2 {
+  margin: 7mm 0 2.5mm; font: 700 15pt/1.15 "Barlow Condensed"; letter-spacing: 0.04em; text-transform: uppercase;
+  break-after: avoid;
+}
+h3 { margin: 5mm 0 1.5mm; font: 700 11.5pt/1.2 "Barlow Condensed"; letter-spacing: 0.06em; text-transform: uppercase; color: var(--soft); break-after: avoid; }
+p { margin: 0 0 2.6mm; }
+ul, ol { margin: 0 0 3mm; padding-left: 5mm; }
+li { margin-bottom: 1.2mm; }
+strong { font-weight: 600; }
+.lede { font-size: 11pt; color: var(--soft); }
+.key, .lcd { font-family: "Share Tech Mono", monospace; font-size: 9pt; }
+.key { padding: 0.2mm 1.4mm; border: 0.6pt solid #b5ae9f; border-radius: 1mm; background: var(--tint); white-space: nowrap; }
+.ctl { font: 700 9.5pt "Barlow Condensed"; letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; }
+
+/* ---------- figures ---------- */
+figure { margin: 3mm 0 5mm; break-inside: avoid; }
+figure img { display: block; width: 100%; border-radius: 1.6mm; border: 0.6pt solid #2a2926; }
+figure.half { width: 62%; }
+figure.narrow { width: 56%; margin-left: auto; margin-right: auto; }
+figure.annot { width: 90%; margin-left: auto; margin-right: auto; }
+table.matrix { break-inside: avoid; }
+figcaption { margin-top: 1.8mm; font-size: 8.5pt; color: var(--muted); }
+figcaption b { color: var(--ink); font-weight: 600; }
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4mm; }
+.grid2 figure { margin: 0; }
+
+/* annotated deck */
+.annot { position: relative; }
+.annot .pin {
+  position: absolute; width: 6.2mm; height: 6.2mm; margin: -3.1mm 0 0 -3.1mm; border-radius: 50%;
+  background: var(--orange-bright); color: #1a1917; border: 0.8pt solid #1a1917;
+  font: 700 9pt/6mm "Barlow Condensed"; text-align: center; box-shadow: 0 0.6mm 1.4mm rgba(0,0,0,0.5);
+}
+.legend { columns: 2; column-gap: 7mm; font-size: 8.6pt; line-height: 1.4; }
+.legend div { break-inside: avoid; margin-bottom: 1.6mm; display: flex; gap: 2.4mm; }
+.legend .n { flex: none; width: 5.2mm; height: 5.2mm; border-radius: 50%; background: var(--orange-bright); font: 700 8.5pt/5.2mm "Barlow Condensed"; text-align: center; }
+
+/* ---------- tables ---------- */
+table { width: 100%; border-collapse: collapse; margin: 2mm 0 5mm; font-size: 8.8pt; break-inside: auto; }
+thead { display: table-header-group; }
+tr { break-inside: avoid; }
+th { text-align: left; font: 700 8.6pt/1.2 "Barlow Condensed"; letter-spacing: 0.1em; text-transform: uppercase; color: var(--soft); border-bottom: 1pt solid var(--ink); padding: 1.6mm 2mm 1.4mm 0; vertical-align: bottom; }
+td { border-bottom: 0.5pt solid var(--rule); padding: 1.6mm 2mm 1.6mm 0; vertical-align: top; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+td:first-child { font-weight: 600; }
+.matrix td { width: 25%; }
+.matrix td.ok { background: #eef3e7; }
+.matrix td.lo { background: #fbf0e1; }
+.matrix td.hi { background: #eaf0f7; }
+
+/* ---------- call-outs ---------- */
+.note { break-inside: avoid; margin: 3mm 0 4mm; padding: 3mm 4mm; background: var(--tint); border-radius: 1.6mm; font-size: 9.3pt; }
+.note .tag { display: block; font: 700 8.5pt/1 "Barlow Condensed"; letter-spacing: 0.18em; color: var(--orange); margin-bottom: 1.4mm; }
+.warn { background: #fbece6; }
+
+/* ---------- tape cards ---------- */
+.tape { display: grid; grid-template-columns: 62mm minmax(0, 1fr); gap: 5mm; break-inside: avoid; margin: 3mm 0 6mm; }
+.tape img { width: 100%; border-radius: 1.4mm; border: 0.6pt solid #2a2926; }
+.tape h3 { margin-top: 0; color: var(--ink); font-size: 14pt; }
+.tape .pos { font: 600 9pt/1.2 "Barlow Condensed"; letter-spacing: 0.16em; color: var(--muted); margin: -1mm 0 2mm; }
+.tape dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0.6mm 3mm; margin: 2mm 0 0; font-size: 8.8pt; }
+.tape dt { color: var(--muted); }
+.tape dd { margin: 0; }
+
+/* ---------- contents ---------- */
+.toc { columns: 2; column-gap: 8mm; margin-top: 4mm; }
+.toc div { break-inside: avoid; display: flex; gap: 3mm; padding: 1.4mm 0; border-bottom: 0.5pt solid var(--rule); font-size: 10pt; }
+.toc .n { color: var(--orange); font: italic 800 11pt/1.3 "Barlow Condensed"; width: 7mm; }
+.toc .t { font: 700 11pt/1.3 "Barlow Condensed"; letter-spacing: 0.06em; text-transform: uppercase; }
+.toc .d { display: block; font: 8.5pt/1.35 "Inter"; color: var(--muted); text-transform: none; letter-spacing: 0; font-weight: 400; }
+.small { font-size: 8.5pt; color: var(--muted); }
+.sources li { font-size: 8.5pt; }
+</style>
+</head>
+<body>
+
+<!-- ======================================================= COVER -->
+<section class="cover">
+  <div class="brand">TAPE<span>·</span>FOUR</div>
+  <div class="model">MODEL TF-4 · 4-TRACK CASSETTE MULTITRACKER</div>
+  <div class="title">Owner's manual</div>
+  <div class="sub">How to record with TAPE·FOUR: the deck, the cassettes, the tape switch, noise reduction, instruments and MIDI. Each control comes with what you should expect to hear when you use it.</div>
+  <img src="images/deck_full.png" alt="The TAPE·FOUR front panel">
+  <div class="foot"><span>FOR WINDOWS · ASIO · VST3</span><span>OCTOBER 2026</span></div>
+</section>
+
+<!-- ======================================================= CONTENTS -->
+<h1 style="page-break-before: auto; break-before: auto;">Contents</h1>
+<div class="toc">
+  <div><span class="n">1</span><span class="t">Welcome<span class="d">What TAPE·FOUR is and how it differs from a DAW</span></span></div>
+  <div><span class="n">2</span><span class="t">Getting started<span class="d">Install, audio interface, MIDI, plug-ins</span></span></div>
+  <div><span class="n">3</span><span class="t">The front panel<span class="d">Every control, at a glance</span></span></div>
+  <div><span class="n">4</span><span class="t">Cassettes<span class="d">Inserting tapes, the shelf, label and inlay</span></span></div>
+  <div><span class="n">5</span><span class="t">The four tape types<span class="d">BASIC, SD, XR and MX, and how they sound</span></span></div>
+  <div><span class="n">6</span><span class="t">The tape switch<span class="d">Bias and EQ, and what each mismatch does</span></span></div>
+  <div><span class="n">7</span><span class="t">Transport and counter<span class="d">Recording, punch-in, return to zero</span></span></div>
+  <div><span class="n">8</span><span class="t">Patching a track<span class="d">Audio, instruments, hardware synths, bounces</span></span></div>
+  <div><span class="n">9</span><span class="t">The mixer<span class="d">Gain, EQ, pan, faders, meters, monitoring</span></span></div>
+  <div><span class="n">10</span><span class="t">Speed and pitch<span class="d">1⅞ and 3¾ ips, varispeed</span></span></div>
+  <div><span class="n">11</span><span class="t">Noise reduction<span class="d">The three types, and how they meet the tape</span></span></div>
+  <div><span class="n">12</span><span class="t">Tape character<span class="d">Hiss, wow, flutter, drive and the rest</span></span></div>
+  <div><span class="n">13</span><span class="t">MIDI and the deck state<span class="d">Controllers, MPE, synths out, recall</span></span></div>
+  <div><span class="n">14</span><span class="t">Reference<span class="d">Shortcuts, files, troubleshooting, measurements</span></span></div>
+</div>
+
+<!-- ======================================================= 1 WELCOME -->
+<h1><span class="num">1</span>Welcome</h1>
+<p class="lede">TAPE·FOUR is a four-track cassette recorder that runs on your computer. It records onto a virtual cassette, works with your ASIO audio interface, and plays VST3 instruments as if they were plugged into the deck.</p>
+<p>It is deliberately not a DAW. Everything about it follows the workflow of a portable cassette multitracker:</p>
+<ul>
+  <li><strong>Four mono tracks on one side of a tape, all running in one direction.</strong> The tape is a C-46, C-60 or C-90, and the length of your song is limited by the length of the tape.</li>
+  <li><strong>No undo.</strong> Recording replaces whatever was on the tape under the armed tracks. To keep a take, don't record over it.</li>
+  <li><strong>Everything goes to tape as audio.</strong> There are no MIDI tracks. An instrument (a plug-in, one of the built-ins, or a hardware synth) is plugged into a track, you play it, and what you play is recorded as sound.</li>
+  <li><strong>The tape is part of the sound.</strong> Each cassette type has its own headroom, treble limit, hiss and grain, taken from measurements of real tapes. The tape switch, noise reduction, speed and every bounce change the sound, just as they do on a real deck.</li>
+</ul>
+<div class="note"><span class="tag">ABOUT THE SCREENSHOTS</span>The screenshots in this manual were taken on a test machine with no audio interface or MIDI devices connected. That's why the setup display reads <span class="lcd">NO AUDIO DEVICE</span> and the audio tracks read <span class="lcd">INPUT NOT ACTIVE</span>. On your computer these show your interface and its inputs.</div>
+
+<!-- ======================================================= 2 GETTING STARTED -->
+<h1><span class="num">2</span>Getting started</h1>
+<h2>Installing</h2>
+<p>Open the repository's <strong>Actions</strong> tab on GitHub, pick the latest green <strong>Build Windows</strong> run, and download <strong>TapeFour-windows-x64</strong>. Unzip it and run <span class="key">TapeFour.exe</span>. Nothing needs installing. Windows may warn that the program comes from an unknown publisher, because it isn't code-signed: choose <strong>More info → Run anyway</strong>.</p>
+
+<h2>Audio interface</h2>
+<p>Click the amber display at the top right of the deck (<span class="lcd">SETUP ›</span>) to open Setup, then go to the <strong>Audio</strong> tab.</p>
+<figure class="narrow"><img src="images/setup_audio.png" alt="Setup, Audio tab"><figcaption><b>Setup → Audio.</b> Choose ASIO and your interface's driver, then the sample rate and buffer size, the outputs and the input monitoring.</figcaption></figure>
+<table>
+  <thead><tr><th>Setting</th><th>What it does</th><th>What to expect</th></tr></thead>
+  <tbody>
+    <tr><td>Device type, device</td><td>Chooses the driver (ASIO, WASAPI or DirectSound) and the interface.</td><td>The setup display on the deck shows the driver, sample rate, buffer size and latency. If an ASIO driver is installed, it is picked automatically the first time you start.</td></tr>
+    <tr><td>Sample rate, buffer</td><td>The interface's sample rate and block size.</td><td>A smaller buffer gives lower latency when you play live, but uses more CPU. 128 samples at 48 kHz is a good starting point.</td></tr>
+    <tr><td>Stereo out</td><td>The output pair the mix goes to.</td><td>The master fader controls this pair.</td></tr>
+    <tr><td>Phones</td><td>A second output pair, or the same as the stereo out.</td><td>The <span class="ctl">Phones</span> knob on the master strip sets its level, separately from the master fader.</td></tr>
+    <tr><td>Input monitoring</td><td><strong>Auto</strong> or <strong>Always</strong>.</td><td><strong>Auto</strong> works like a real deck: an armed track lets you hear its input while stopped or recording, and the tape while playing. <strong>Always</strong> lets you hear the input on armed tracks all the time.</td></tr>
+    <tr><td>Overdub timing</td><td>±50 ms trim on top of the latency the driver reports.</td><td>Use it if new parts land slightly early or late against what is already on tape. Positive values move recordings earlier.</td></tr>
+  </tbody>
+</table>
+<p>Every change is saved straight away. If the saved driver can't be opened at start-up (for example, because another program is using it), the deck tells you, and keeps your choice for next time.</p>
+
+<h2>MIDI controllers and synths</h2>
+<p>In <strong>Setup → MIDI &amp; Deck</strong>, tick the controllers you want to use and the MIDI outputs your hardware synths are on. Chapter 13 covers this in full.</p>
+
+<h2>Plug-ins</h2>
+<p>In <strong>Setup → Instruments</strong>, choose <strong>Options… → Scan for new or updated VST3 plug-ins</strong>. Instruments found here appear on each track's patch card. TAPE·FOUR also has two built-in instruments, <strong>TF Poly Synth</strong> and <strong>TF Tine Piano</strong>, so you can start without any plug-ins.</p>
+<figure class="narrow"><img src="images/setup_inst.png" alt="Setup, Instruments tab"><figcaption><b>Setup → Instruments.</b> Scan once; the list is remembered.</figcaption></figure>
+
+<!-- ======================================================= 3 FRONT PANEL -->
+<h1><span class="num">3</span>The front panel</h1>
+<figure class="annot">
+  <img src="images/deck_full.png" alt="The front panel with numbered controls">
+  <span class="pin" style="left: 66%; top: 3.4%">1</span>
+  <span class="pin" style="left: 86%; top: 3.4%">2</span>
+  <span class="pin" style="left: 17%; top: 22%">3</span>
+  <span class="pin" style="left: 39.6%; top: 20%">4</span>
+  <span class="pin" style="left: 5.8%; top: 34.2%">5</span>
+  <span class="pin" style="left: 23%; top: 34.2%">6</span>
+  <span class="pin" style="left: 54.6%; top: 11.8%">7</span>
+  <span class="pin" style="left: 72%; top: 11.8%">8</span>
+  <span class="pin" style="left: 73%; top: 20%">9</span>
+  <span class="pin" style="left: 52.8%; top: 28.6%">10</span>
+  <span class="pin" style="left: 73%; top: 28.6%">11</span>
+  <span class="pin" style="left: 62.5%; top: 33.4%">12</span>
+  <span class="pin" style="left: 83%; top: 33.4%">13</span>
+  <span class="pin" style="left: 13%; top: 45%">14</span>
+  <span class="pin" style="left: 13%; top: 58.8%">15</span>
+  <span class="pin" style="left: 6.5%; top: 83%">16</span>
+  <span class="pin" style="left: 13%; top: 95%">17</span>
+  <span class="pin" style="left: 90%; top: 58%">18</span>
+</figure>
+<div class="legend">
+  <div><span class="n">1</span><span><strong>Setup display.</strong> Shows the audio driver and buffer. Click it to open Setup.</span></div>
+  <div><span class="n">2</span><span><strong>MIDI IN / MIDI OUT lamps.</strong> They flash when notes come in from a controller or go out to a hardware synth.</span></div>
+  <div><span class="n">3</span><span><strong>Cassette.</strong> The tape moves from the left spool to the right as it plays. Double-click the label to write on it.</span></div>
+  <div><span class="n">4</span><span><strong>Inlay.</strong> Click it to take the J-card out and write the track list.</span></div>
+  <div><span class="n">5</span><span><strong>EJECT.</strong> Puts in a new blank tape or loads one from the shelf. Stop the tape first.</span></div>
+  <div><span class="n">6</span><span><strong>Tape switch.</strong> NORMAL, CHROME or METAL bias and EQ (chapter 6).</span></div>
+  <div><span class="n">7</span><span><strong>Tape counter</strong>, with <span class="ctl">RESET</span> (set 000 here) and <span class="ctl">RTZ</span> (return to 000).</span></div>
+  <div><span class="n">8</span><span><strong>Status display.</strong> Transport state, time remaining, and warnings such as mismatches.</span></div>
+  <div><span class="n">9</span><span><strong>Transport keys</strong>: REC, REW, F.FWD, PLAY, STOP.</span></div>
+  <div><span class="n">10</span><span><strong>Pitch</strong>: varispeed in steps of 2.4%, up to ±12%.</span></div>
+  <div><span class="n">11</span><span><strong>Tape speed</strong>: 1⅞ or 3¾ inches per second.</span></div>
+  <div><span class="n">12</span><span><strong>Noise reduction</strong> on or off.</span></div>
+  <div><span class="n">13</span><span><strong>NR type display.</strong> Click it to choose the type and the tape character in Setup.</span></div>
+  <div><span class="n">14</span><span><strong>Track display.</strong> What's plugged in, which controller plays it, the audio path, and the NR, EQ and MIDI lamps. Right-click it to open the track's patch card.</span></div>
+  <div><span class="n">15</span><span><strong>Gain, EQ (high, mid, low) and pan.</strong></span></div>
+  <div><span class="n">16</span><span><strong>Meter and fader.</strong> 0 VU on the meter is Dolby level on tape.</span></div>
+  <div><span class="n">17</span><span><strong>REC ARM.</strong> Arms the track to record when you press REC.</span></div>
+  <div><span class="n">18</span><span><strong>Master strip.</strong> Phones level, stereo meter and master fader.</span></div>
+</div>
+
+<!-- ======================================================= 4 CASSETTES -->
+<h1><span class="num">4</span>Cassettes</h1>
+<h2>Putting in a tape</h2>
+<p>With the tape stopped, press <span class="ctl">EJECT</span>. The menu's top half inserts a new blank tape: first choose the cassette (BASIC, SD, XR or MX), then the length. The bottom half, the <strong>tape shelf</strong>, lists every tape you have made. The tape that's in the deck is ticked.</p>
+<div class="grid2">
+  <figure><img src="images/eject_menu.png" alt="Eject menu, choosing a new tape"><figcaption><b>Inserting a blank.</b> Choose the cassette, then the length.</figcaption></figure>
+  <figure><img src="images/eject_shelf.png" alt="Eject menu, the tape shelf"><figcaption><b>The tape shelf.</b> Each entry shows the label, cassette, minutes used, tracks used and date.</figcaption></figure>
+</div>
+<table>
+  <thead><tr><th>Length</th><th class="num">Per side</th><th class="num">At 1⅞ ips</th><th class="num">At 3¾ ips</th><th>Spools</th></tr></thead>
+  <tbody>
+    <tr><td>C-46</td><td class="num">23 min</td><td class="num">23:00</td><td class="num">11:30</td><td>Smallest packs</td></tr>
+    <tr><td>C-60</td><td class="num">30 min</td><td class="num">30:00</td><td class="num">15:00</td><td>Medium</td></tr>
+    <tr><td>C-90</td><td class="num">45 min</td><td class="num">45:00</td><td class="num">22:30</td><td>Largest packs</td></tr>
+  </tbody>
+</table>
+<p>Like a real 4-track, TAPE·FOUR uses one side only, with all four tracks running the same way. When the tape reaches the end, the transport stops and the status display shows <span class="lcd">END OF TAPE</span>.</p>
+
+<h2>Saving</h2>
+<p>You never need to save. A tape is written to disk once it has been stopped for a second, and again whenever you change it. It is also saved when you eject it and when you quit. The deck remembers which tape was in when you quit and loads it next time.</p>
+
+<h2>Label and inlay</h2>
+<p>Double-click the label on the cassette to write on it. Click the inlay beside the cassette to take the J-card out of its case and write on it: the title, up to eight songs with their counter numbers, a note for each track, whether you recorded with NR, the speed, and the date. Click outside the card, press <span class="key">Esc</span> or click <span class="ctl">X</span> to put it back. The title on the inlay and the label on the cassette are the same text, so changing one changes the other.</p>
+<figure class="narrow" style="width: 40%"><img src="images/inlay.png" alt="The cassette inlay, opened"><figcaption><b>The inlay</b>, opened out: back flap, spine and front. Its colours follow the cassette type.</figcaption></figure>
+
+<!-- ======================================================= 5 TAPE TYPES -->
+<h1><span class="num">5</span>The four tape types</h1>
+<p class="lede">Each cassette in TAPE·FOUR behaves like a real tape. Its headroom, treble limit, hiss, grain and output level come from published lab measurements of a real cassette of that kind.</p>
+<p>The figures are in dB relative to <strong>Dolby level</strong>, the tape's reference level. On TAPE·FOUR that is <strong>0 VU</strong> on the meters, or −12 dBFS. All figures are at 1⅞ ips without noise reduction.</p>
+<table>
+  <thead><tr><th>Term</th><th>Meaning</th><th>What you hear</th></tr></thead>
+  <tbody>
+    <tr><td>MOL 400 Hz</td><td>Maximum output level: where a 400 Hz tone reaches 3% distortion.</td><td>How loud you can record before the tape thickens and then distorts. Bass gets a little less room than the mids, as on real tape.</td></tr>
+    <tr><td>SOL 10 kHz</td><td>Saturation output level for treble.</td><td>How loud cymbals, hi-hats and bright synths can go before the tape squashes them. Treble saturates long before the mids, especially at 1⅞ ips.</td></tr>
+    <tr><td>S/N</td><td>Hiss on blank tape, A-weighted, below Dolby level.</td><td>The hiss in quiet passages.</td></tr>
+    <tr><td>Mod. noise</td><td>Modulation noise: grain that rides on the signal.</td><td>A fine roughness on sustained notes. It gets louder and quieter with the music, so noise reduction can't remove it.</td></tr>
+    <tr><td>Sensitivity</td><td>How loud the tape plays back what you recorded.</td><td>A small level shift on every pass through the tape. You notice it after several bounces.</td></tr>
+    <tr><td>EQ</td><td>The playback EQ time constant: 120 µs or 70 µs.</td><td>70 µs tapes have less treble hiss.</td></tr>
+  </tbody>
+</table>
+
+<div class="tape">
+  <img src="images/bay_basic.png" alt="BASIC 60 cassette">
+  <div>
+    <h3>BASIC</h3>
+    <div class="pos">TYPE I · NORMAL BIAS · 120 µs · MODELLED ON SONY HF</div>
+    <p>A budget ferric tape, the kind that came in multipacks. It has the least headroom and the most hiss and grain of the four. It sounds warm and slightly fuzzy, and compresses early if you record hot. It's good for sketches, lo-fi textures and anything you want to sound like an old demo.</p>
+    <dl><dt>MOL 400 / 100 Hz</dt><dd>+2.4 / +2.0 dB</dd><dt>SOL 10 kHz</dt><dd>−10.3 dB</dd><dt>S/N</dt><dd>54.3 dB(A)</dd><dt>Mod. noise</dt><dd>−36.1 dB</dd><dt>Sensitivity</dt><dd>−1.0 dB</dd></dl>
+  </div>
+</div>
+<div class="tape">
+  <img src="images/bay_sd.png" alt="SD60 cassette">
+  <div>
+    <h3>SD</h3>
+    <div class="pos">TYPE I · NORMAL BIAS · 120 µs · MODELLED ON TDK AD</div>
+    <p>A premium ferric tape and the all-rounder. It has good mid-range headroom, the best treble headroom of the Type I tapes, and moderate hiss. Tapes made before tape types existed play as SD. It's the tape to reach for when you don't have a reason to pick another.</p>
+    <dl><dt>MOL 400 / 100 Hz</dt><dd>+6.2 / +3.8 dB</dd><dt>SOL 10 kHz</dt><dd>−8.2 dB</dd><dt>S/N</dt><dd>60.3 dB(A)</dd><dt>Mod. noise</dt><dd>−44.3 dB</dd><dt>Sensitivity</dt><dd>−0.3 dB</dd></dl>
+  </div>
+</div>
+<div class="tape">
+  <img src="images/bay_xr.png" alt="XR cassette">
+  <div>
+    <h3>XR</h3>
+    <div class="pos">TYPE II · HIGH (CHROME) BIAS · 70 µs · MODELLED ON TDK SA</div>
+    <p>A chrome-position tape. Its 70 µs playback EQ makes the hiss quieter and less bright, and it plays back slightly hot. It has the least treble headroom of the four, so loud bright sounds dull and compress first, especially at 1⅞ ips. It's clean and quiet for vocals, acoustic instruments and pads. For bright, loud material, use 3¾ ips or MX.</p>
+    <dl><dt>MOL 400 / 100 Hz</dt><dd>+4.4 / +3.4 dB</dd><dt>SOL 10 kHz</dt><dd>−11.2 dB</dd><dt>S/N</dt><dd>60.9 dB(A)</dd><dt>Mod. noise</dt><dd>−47.2 dB</dd><dt>Sensitivity</dt><dd>+1.1 dB</dd></dl>
+  </div>
+</div>
+<div class="tape">
+  <img src="images/bay_mx.png" alt="MX cassette">
+  <div>
+    <h3>MX</h3>
+    <div class="pos">TYPE IV · METAL BIAS · 70 µs · MODELLED ON MAXELL MX</div>
+    <p>A metal tape. It has the most headroom everywhere (about 3 dB more mid-range and 1.4 dB more treble than SD), the lowest grain and the lowest hiss. It takes hot levels and bright material without complaint. It's the closest a cassette gets to transparent.</p>
+    <dl><dt>MOL 400 / 100 Hz</dt><dd>+9.1 / +8.0 dB</dd><dt>SOL 10 kHz</dt><dd>−6.8 dB</dd><dt>S/N</dt><dd>62.7 dB(A)</dd><dt>Mod. noise</dt><dd>−50.4 dB</dd><dt>Sensitivity</dt><dd>+0.8 dB</dd></dl>
+  </div>
+</div>
+
+<h2>Choosing a tape: what to expect</h2>
+<table>
+  <thead><tr><th>If you…</th><th>BASIC</th><th>SD</th><th>XR</th><th>MX</th></tr></thead>
+  <tbody>
+    <tr><td>record a vocal peaking at +3 VU</td><td>Audibly thick, a little gritty</td><td>Clean, slightly rounded</td><td>Clean</td><td>Clean</td></tr>
+    <tr><td>record hi-hats at 0 VU at 1⅞</td><td>Softened, a bit dull</td><td>Mostly intact</td><td>Noticeably dulled</td><td>Intact</td></tr>
+    <tr><td>listen to blank tape (NR off)</td><td>Most hiss</td><td>About 6 dB less</td><td>Less, and darker</td><td>Least</td></tr>
+    <tr><td>hold a long synth note</td><td>Slight roughness</td><td>Faint</td><td>Very faint</td><td>Practically none</td></tr>
+    <tr><td>bounce three times</td><td>About 3 dB quieter</td><td>About 1 dB quieter</td><td>About 3 dB louder</td><td>About 2.4 dB louder</td></tr>
+  </tbody>
+</table>
+<p class="small">Generation loss comes from each tape's sensitivity, which is applied on every pass. Noise reduction doubles it (chapter 11).</p>
+
+<!-- ======================================================= 6 TAPE SWITCH -->
+<h1><span class="num">6</span>The tape switch</h1>
+<p class="lede">The <span class="ctl">TAPE · BIAS · EQ</span> switch under the cassette sets three things at once, as on a real deck: the record bias, the record EQ and the playback EQ.</p>
+<figure><img src="images/mismatch_top.png" alt="Tape switch set to NORMAL with a metal tape loaded"><figcaption><b>A mismatch.</b> An MX (metal) tape is loaded but the switch is at NORMAL. The METAL lamp shows amber, and the status display reads <span class="lcd">BIAS LOW: TYPE IV TAPE AT NORMAL</span>.</figcaption></figure>
+<ul>
+  <li><strong>When a tape goes in, the switch moves to that tape's type.</strong> After that it stays where you put it, so a mismatch is always your choice. Restarting the audio device doesn't move it.</li>
+  <li><strong>The lamp for the cassette's own type</strong> lights green when the switch matches the tape and amber when it doesn't. Real decks sense the type from holes in the cassette shell, and TAPE·FOUR shows the same thing with this lamp.</li>
+  <li><strong>Every stretch of tape remembers the switch position it was recorded at</strong>, just as it remembers noise reduction and speed.</li>
+</ul>
+
+<h2>Bias: recording at the wrong position</h2>
+<p>A Type II tape needs about 1.5 times the bias of a Type I, and a Type IV about 2.5 times.</p>
+<ul>
+  <li><strong>Too little bias (under-bias)</strong> leaves the tape bright and fuzzy. It distorts and compresses sooner and gets grainier.</li>
+  <li><strong>Too much bias (over-bias)</strong> wipes out the treble as it records. The tape sounds dull and a little quieter, but slightly cleaner.</li>
+</ul>
+<p>These effects are recorded into the tape. The table assumes you play the tape back at the same position you recorded at.</p>
+<table class="matrix">
+  <thead><tr><th>Tape ↓ · switch →</th><th>NORMAL</th><th>CHROME</th><th>METAL</th></tr></thead>
+  <tbody>
+    <tr><td>Type I: BASIC, SD</td>
+      <td class="ok">Correct.</td>
+      <td class="hi">Over-biased by 3.5 dB. About −7 dB at 10 kHz, −0.9 dB overall, slightly cleaner (+0.9 dB MOL). Muffled.</td>
+      <td class="hi">Over-biased by 8 dB. About −16 dB at 10 kHz and −2 dB overall. Very dull, like a worn head.</td></tr>
+    <tr><td>Type II: XR</td>
+      <td class="lo">Under-biased by 3.5 dB. About +2.6 dB at 10 kHz, MOL −5.3 dB, grain +4 dB. Bright and edgy; distorts early.</td>
+      <td class="ok">Correct.</td>
+      <td class="hi">Over-biased by 4.5 dB. About −9 dB at 10 kHz and −1.1 dB overall. Dull.</td></tr>
+    <tr><td>Type IV: MX</td>
+      <td class="lo">Under-biased by 8 dB. MOL −12 dB, grain +10 dB, −2.5 dB overall, treble about −1 dB. Heavily distorted and gritty. <strong>Old recordings bleed through</strong> (see below).</td>
+      <td class="lo">Under-biased by 4.5 dB. About +2.5 dB at 10 kHz, MOL −6.8 dB, grain +5 dB. Bright and crunchy.</td>
+      <td class="ok">Correct.</td></tr>
+  </tbody>
+</table>
+<div class="note"><span class="tag">ABOUT THESE FIGURES</span>The bias ratios between tape types follow the tape standards. How much the treble, headroom and grain move per dB of bias error is an estimate of typical real-deck behaviour, not a published measurement. The automated tests check every row of this table.</div>
+
+<h2>Playback EQ: playing back at the other position</h2>
+<p>NORMAL plays back with 120 µs EQ, while CHROME and METAL both use 70 µs. Each stretch of tape is played back through the EQ of the switch as it is now, compared with the EQ it was recorded with:</p>
+<table>
+  <thead><tr><th>Recorded at</th><th>Played at</th><th>Result</th></tr></thead>
+  <tbody>
+    <tr><td>CHROME or METAL (70 µs)</td><td>NORMAL (120 µs)</td><td>Treble lifted by a shelf starting near 1.3 kHz: about +4.5 dB at 8 kHz, up to +4.7 dB. Bright and hissy.</td></tr>
+    <tr><td>NORMAL (120 µs)</td><td>CHROME or METAL (70 µs)</td><td>The reverse: about −4.5 dB at 8 kHz. Muffled.</td></tr>
+    <tr><td>CHROME</td><td>METAL, or the other way round</td><td>No EQ change; both use 70 µs.</td></tr>
+  </tbody>
+</table>
+<p>Blank-tape hiss follows the same rule: a Type II or IV tape played at NORMAL hisses brighter. You can combine both effects. For example, record a chrome tape at NORMAL (under-biased and bright), then play it back at CHROME.</p>
+<figure><img src="images/eq_mismatch.png" alt="EQ lamps red on tracks recorded at NORMAL with the switch at CHROME"><figcaption><b>The EQ lamp.</b> These tracks were recorded at NORMAL and the switch is now at CHROME, so each track's <span class="lcd">EQ</span> lamp is red. It flashes while the tape plays. It is green when the recording's EQ matches the switch, and off on blank tape.</figcaption></figure>
+
+<h2>Metal tape at NORMAL: old material bleeds through</h2>
+<p>On a NORMAL setting the erase head isn't strong enough to fully erase high-coercivity metal tape. If you record over an MX tape at NORMAL, about 30 dB of the old recording survives underneath the new one, mostly its bass. Treble erases more easily. Record over it at METAL and the old recording is fully gone (it measures below −90 dB).</p>
+<div class="note"><span class="tag">TRY THIS</span>Record a bass line on an MX tape at METAL. Set the switch to NORMAL and record a new part over it on the same track. Play it back: the old bass line is still there underneath, faint and muffled, like a ghost of the earlier take.</div>
+
+<!-- ======================================================= 7 TRANSPORT -->
+<h1><span class="num">7</span>Transport and counter</h1>
+<table>
+  <thead><tr><th>Control</th><th>What it does</th><th>What to expect</th></tr></thead>
+  <tbody>
+    <tr><td>PLAY <span class="key">Space</span></td><td>Plays the tape.</td><td>Armed tracks switch from their input to the tape (with Auto monitoring). The PLAY lamp lights.</td></tr>
+    <tr><td>STOP <span class="key">Space</span></td><td>Stops.</td><td>One second later the tape is saved.</td></tr>
+    <tr><td>REC <span class="key">R</span></td><td>Records on every armed track.</td><td>The REC lamp lights. If no track is armed, the status display says <span class="lcd">ARM A TRACK FIRST</span>.</td></tr>
+    <tr><td>REC while playing</td><td>Punch-in.</td><td>Recording starts at once on the armed tracks. Press PLAY to punch out and keep playing. Tape before and after the punch is untouched.</td></tr>
+    <tr><td>REW, F.FWD</td><td>Wind the tape.</td><td>The tape speeds up and slows down like real spools. Winding stops at either end of the tape.</td></tr>
+    <tr><td>RESET</td><td>Sets the counter to 000 where the tape is now.</td><td>Use it to mark the start of a song.</td></tr>
+    <tr><td>RTZ <span class="key">Home</span></td><td>Return to zero.</td><td>Rewinds and stops at 000. The status display reads <span class="lcd">RETURN TO ZERO</span>.</td></tr>
+  </tbody>
+</table>
+<p>The counter is a three-digit mechanical-style counter. Like the counters on real decks, it doesn't count seconds: it advances one count for every two seconds of tape at 1⅞ ips. Write the counter number for each song on the inlay. The status display shows the time remaining at the current speed.</p>
+<div class="note warn"><span class="tag">NO UNDO</span>Recording replaces what was on the tape under the armed tracks, from the moment you press REC until you stop or punch out. Nothing else is touched. To keep a take, record on a different track or a new tape.</div>
+
+<!-- ======================================================= 8 PATCHING -->
+<h1><span class="num">8</span>Patching a track</h1>
+<p>Right-click a track's display, or left-click it, to open the track's <strong>patch card</strong>. The card shows what's plugged into the track, what plays it, and where its audio comes from. At the bottom, it previews what the track display will say. Click <span class="ctl">DONE</span>, click outside the card or press <span class="key">Esc</span> to close it. A track has exactly one source: plugging in a new one unplugs the old.</p>
+
+<div class="grid2">
+  <figure><img src="images/patch_audio.png" alt="Patch card, audio in"><figcaption><b>Audio in.</b> Choose an input, or a pair of inputs mixed to mono.</figcaption></figure>
+  <figure><img src="images/patch_inst.png" alt="Patch card, instrument"><figcaption><b>Instrument.</b> Choose what plays it and which instrument.</figcaption></figure>
+  <figure><img src="images/patch_hw.png" alt="Patch card, hardware synth"><figcaption><b>Hardware synth.</b> MIDI goes out to the synth and its audio comes back in on an input.</figcaption></figure>
+  <figure><img src="images/patch_bounce.png" alt="Patch card, bounce"><figcaption><b>Bounce.</b> Mix other tracks from tape onto this one.</figcaption></figure>
+</div>
+
+<table>
+  <thead><tr><th>Source</th><th>Settings</th><th>What to expect</th></tr></thead>
+  <tbody>
+    <tr><td>Audio in</td><td><span class="ctl">Audio in</span>: <span class="ctl">IN n</span>, or <span class="ctl">IN n+m mono</span>.</td><td>The display shows <span class="lcd">ASIO IN 1</span> and the input's name. Tracks are mono; a stereo source on a pair is summed to mono at half level per side.</td></tr>
+    <tr><td>Instrument</td><td><span class="ctl">Play with</span>: <span class="ctl">Any (when armed)</span>, a named controller, or <span class="ctl">None</span>.<br><span class="ctl">Instrument</span>: TF Poly Synth, TF Tine Piano, any scanned VST3, <span class="ctl">Find VST3…</span>, <span class="ctl">Show window</span>.</td><td><strong>Any (when armed)</strong>: any controller plays the track, but only while it's armed. <strong>A named controller</strong> plays the track whether or not it's armed, so different keyboards can play different tracks at the same time. A VST3's window opens when it loads. Plug-ins come in 12 dB below their own output, so a full-level synth sits near 0 VU.</td></tr>
+    <tr><td>Hardware synth</td><td><span class="ctl">Play with</span> (as above)<br><span class="ctl">Send to</span>: a MIDI output, and a channel 1–16, or 0 for "as played".<br><span class="ctl">Listen to</span>: the input the synth is plugged into.</td><td>Notes go out to the synth on the chosen channel, and its audio is recorded from the input. An MPE controller's notes pass through on their own channels. Changing the route sends all-notes-off so nothing hangs. A track can't play a hardware synth and a plug-in at once.</td></tr>
+    <tr><td>Bounce</td><td><span class="ctl">Mix from tape</span>: tick the source tracks.</td><td>While recording, you hear the sources once, through their own EQ, pan and fader. Use those to balance the bounce, then arm the destination and record. The bounce picks up another pass of the tape: a little more hiss and grain, and a level shift of the tape's sensitivity.</td></tr>
+  </tbody>
+</table>
+
+<h2>Reading the track display</h2>
+<figure><img src="images/strip_lcds.png" alt="Track displays"><figcaption><b>Track displays.</b> Line 1: the source. Line 2: what plays it, or the input's name. Line 3: the audio path, plus three lamps.</figcaption></figure>
+<table>
+  <thead><tr><th>Lamp</th><th>Lit</th><th>Red</th></tr></thead>
+  <tbody>
+    <tr><td>NR</td><td>The tape under the head was recorded with noise reduction, or you're recording with NR on.</td><td>Flashes red while playing if the NR switch doesn't match how the tape was recorded.</td></tr>
+    <tr><td>EQ</td><td>Green: the tape here was recorded with the same playback EQ as the switch.</td><td>The switch's EQ differs from the recording's (chapter 6). It flashes while playing.</td></tr>
+    <tr><td>MIDI</td><td>Green flash: notes are reaching this track.</td><td>—</td></tr>
+  </tbody>
+</table>
+<p>When the tape under the head was recorded at a different speed from the one you're playing at, line 3 shows the pitch shift in semitones, for example <span class="lcd">-12.0 SEMITONES</span>.</p>
+
+<!-- ======================================================= 9 MIXER -->
+<h1><span class="num">9</span>The mixer</h1>
+<p>Each of the four channel strips has its controls in a single column, top to bottom. Double-click any knob or fader to reset it: gain to 0 dB, EQ and pan to centre, fader to the 0 mark.</p>
+<table>
+  <thead><tr><th>Control</th><th>Range</th><th>What to expect</th></tr></thead>
+  <tbody>
+    <tr><td>GAIN</td><td>−20 to +40 dB (0 dB at the default)</td><td>Input trim before the tape. Use it to put peaks near 0 VU. Higher levels reach the tape's MOL and compress or distort (chapter 5).</td></tr>
+    <tr><td>HIGH</td><td>±12 dB, shelf at 10 kHz</td><td>Air and brightness. A boost also brings up hiss.</td></tr>
+    <tr><td>MID</td><td>±12 dB, peak at 1.2 kHz</td><td>Presence and honk. A cut makes a part sit back.</td></tr>
+    <tr><td>LOW</td><td>±12 dB, shelf at 100 Hz</td><td>Weight. A cut helps when bouncing several tracks together.</td></tr>
+    <tr><td>PAN</td><td>L100 to R100, constant power</td><td>Centre is −3 dB to each side. Hard left puts the full level on the left output only.</td></tr>
+    <tr><td>Fader</td><td>−∞ to +7 dB (0 at the mark)</td><td>The level into the mix and into bounces. It doesn't change the recording level.</td></tr>
+    <tr><td>Meter</td><td>20 LEDs, 0 VU at −12 dBFS</td><td>Green below 0 VU, amber from 0 to +3, red above +3. Keep peaks around 0 VU for a clean recording, and push into the amber for tape colour.</td></tr>
+    <tr><td>REC ARM</td><td>On or off</td><td>Arms the track to record. With Auto monitoring you hear its input while stopped or recording.</td></tr>
+  </tbody>
+</table>
+<p>The <strong>master strip</strong> has a stereo meter, the master fader for the stereo out, and the <span class="ctl">Phones</span> knob, which sets the level of the phones output pair independently.</p>
+
+<h2>What the EQ and gain record, and what they don't</h2>
+<p>On a cassette 4-track the channel strip sits between the input and the tape. TAPE·FOUR works the same way: gain and EQ shape what is recorded on an armed track. On playback, the same strip shapes what you hear from the tape. To fix a recording later, adjust the strip on playback, or bounce it through the strip onto another track.</p>
+
+<!-- ======================================================= 10 SPEED -->
+<h1><span class="num">10</span>Speed and pitch</h1>
+<table>
+  <thead><tr><th>Setting</th><th>What it does</th><th>What to expect</th></tr></thead>
+  <tbody>
+    <tr><td>1⅞ ips</td><td>Normal cassette speed.</td><td>The tape's full length. Treble saturates sooner and there's slightly more hiss.</td></tr>
+    <tr><td>3¾ ips</td><td>Double speed, as on many 4-track portastudios.</td><td>Half the recording time. About an octave more treble headroom (the treble limit moves up), and about 3 dB less hiss in the audible range.</td></tr>
+    <tr><td>Playing at the other speed</td><td>Every stretch of tape remembers the speed it was recorded at.</td><td>A recording made at 3¾ and played at 1⅞ sounds an octave lower at half speed, and the reverse sounds an octave higher. The track display shows the shift in semitones. Record at 1⅞ and play at 3¾ for chipmunk vocals; do the reverse for slow, dark textures.</td></tr>
+    <tr><td>PITCH</td><td>Varispeed, ±5 steps of 2.4% (up to ±12%).</td><td>Speeds up or slows down the tape and changes pitch and tempo together, by about 0.4 semitone per step. Use it to tune the tape to an instrument, or to record a part slowed down and play it back at normal speed.</td></tr>
+  </tbody>
+</table>
+<p>Wow, flutter and drift (chapter 12) are added on top of the pitch setting, so the tape always moves slightly unevenly unless you turn them off.</p>
+
+<!-- ======================================================= 11 NR -->
+<h1><span class="num">11</span>Noise reduction</h1>
+<p>Noise reduction encodes what you record and decodes on playback. On the way to tape it boosts quiet sounds, mostly the treble. On the way back it turns them down again, and the tape hiss goes down with them. Turn it on with the <span class="ctl">Noise reduction</span> button. Choose the type by clicking the <span class="ctl">NR type</span> display, or in <strong>Setup → Tape</strong>.</p>
+<table>
+  <thead><tr><th>Type</th><th>How it works</th><th>Hiss reduction</th><th>Character</th></tr></thead>
+  <tbody>
+    <tr><td>2:1 compander</td><td>Broadband 2:1 compression on record and 1:2 expansion on playback, with fixed treble pre-emphasis (dbx-style).</td><td>The most, roughly 30 dB</td><td>Very quiet. Can "pump": hiss and grain rise and fall behind loud bass notes.</td></tr>
+    <tr><td>Sliding band B</td><td>Lifts quiet treble up to 10 dB above about 1.5 kHz.</td><td>About 10 dB</td><td>Gentle and forgiving.</td></tr>
+    <tr><td>Sliding band C</td><td>A deeper band from about 700 Hz, up to 20 dB.</td><td>About 20 dB</td><td>Quieter than B, and more sensitive to level and treble errors.</td></tr>
+  </tbody>
+</table>
+<h2>Mismatched NR</h2>
+<p>Tape remembers whether it was recorded with NR. If you play it back with the switch the other way, the track's NR lamp flashes red. Encoded tape played without NR sounds bright and squashed, and the treble pumps. Plain tape played with NR sounds dull and lifeless.</p>
+<h2>How the tape type and noise reduction interact</h2>
+<p>Noise reduction expects the tape to give back exactly what the encoder put on it. Anything that changes level or treble on the way through gets enlarged by the decoder, not just passed along. In TAPE·FOUR the encoder sits before the tape model and the decoder after it, so all of this happens on its own:</p>
+<ul>
+  <li><strong>Hiss floor.</strong> NR removes a fixed amount, so the tape's own hiss still matters. MX with C or 2:1 is the quietest combination, and BASIC with B the noisiest.</li>
+  <li><strong>Level errors grow.</strong> With 2:1, a 1 dB difference becomes 2 dB. SD (−0.3 dB) loses about 0.6 dB per pass with NR on. XR (+1.1 dB) gains about 2.2 dB. B and C mistrack in the treble on quiet passages.</li>
+  <li><strong>Treble errors grow and move.</strong> A bias or EQ mismatch is a treble error. B and C read it as a level change, so a bright mismatch gets brighter on quiet passages and a dull one duller. The treble "breathes" with the music. With 2:1 the treble error is doubled throughout.</li>
+  <li><strong>Treble saturation.</strong> The encoder lifts quiet treble before the tape. On tapes with little treble headroom (XR and BASIC, especially at 1⅞ ips), loud bright parts saturate after encoding. The decoder then mistracks, and cymbals turn dull and swishy. MX has the most room.</li>
+  <li><strong>Grain.</strong> NR can't remove modulation noise, which rides on the signal. A 2:1 compander's gain swings make it, and the hiss, rise and fall. That's most obvious on BASIC.</li>
+</ul>
+
+<!-- ======================================================= 12 TAPE CHARACTER -->
+<h1><span class="num">12</span>Tape character</h1>
+<p><strong>Setup → Tape</strong> shows the loaded cassette's measured figures. Its sliders adjust the deck and the tape's condition on top of those figures. Double-click <span class="ctl">Hiss</span> or <span class="ctl">Tape drive</span> to return it to the centre.</p>
+<figure class="narrow"><img src="images/setup_tape.png" alt="Setup, Tape tab"><figcaption><b>Setup → Tape</b>, with an SD60 loaded.</figcaption></figure>
+<table>
+  <thead><tr><th>Control</th><th>Range</th><th>What to expect</th></tr></thead>
+  <tbody>
+    <tr><td>Hiss</td><td>Off, or −12 to +12 dB relative to the tape's measured hiss (centre = as measured)</td><td>Real cassettes without NR hiss at 54–63 dB below 0 VU. That is audible in quiet passages but not intrusive. Turn it up to taste for a dirtier tape, or off for a silent background.</td></tr>
+    <tr><td>Wow</td><td>0–0.5%</td><td>A slow pitch waver (under 1.5 Hz). It's most audible on sustained notes and piano.</td></tr>
+    <tr><td>Flutter</td><td>0–0.3%</td><td>A fast waver (6–12 Hz). It gives a slight shimmer, and above 0.15% a watery roughness.</td></tr>
+    <tr><td>Tape drive</td><td>−6 to +6 dB (centre = 0 VU at Dolby level)</td><td>Where 0 VU lands on the tape. More drive brings saturation and treble compression earlier, the way a deck calibrated hot would. Less drive keeps it cleaner. The playback level isn't changed.</td></tr>
+    <tr><td>HF loss</td><td>0 to −12 dB at 10 kHz</td><td>A worn or misaligned head. It dulls everything played back, hiss included.</td></tr>
+    <tr><td>Track crosstalk</td><td>Off, or −80 to −30 dB</td><td>Neighbouring tracks leak into each other. You may hear it as a faint ghost of track 2 behind track 1.</td></tr>
+    <tr><td>Dropouts</td><td>None to frequent</td><td>Brief dips in level, from 15 to 75 ms, as a damaged patch of tape passes the head.</td></tr>
+    <tr><td>Speed drift</td><td>0 to ±1%</td><td>The tape speed wanders slowly, every few seconds, as with tired motor belts.</td></tr>
+    <tr><td>Noise reduction</td><td>2:1, B or C</td><td>See chapter 11.</td></tr>
+  </tbody>
+</table>
+<h2>Condition presets</h2>
+<p>The presets set every slider except Tape drive, which is calibration rather than wear.</p>
+<table>
+  <thead><tr><th>Preset</th><th class="num">Hiss</th><th class="num">Wow</th><th class="num">Flutter</th><th class="num">HF loss</th><th class="num">Crosstalk</th><th>Dropouts</th><th class="num">Drift</th></tr></thead>
+  <tbody>
+    <tr><td>Clean</td><td class="num">off</td><td class="num">0</td><td class="num">0</td><td class="num">0 dB</td><td class="num">off</td><td>none</td><td class="num">0</td></tr>
+    <tr><td>Well kept</td><td class="num">+1.2 dB</td><td class="num">0.15%</td><td class="num">0.08%</td><td class="num">−2.4 dB</td><td class="num">−65 dB</td><td>rare</td><td class="num">±0.2%</td></tr>
+    <tr><td>Worn</td><td class="num">+6 dB</td><td class="num">0.30%</td><td class="num">0.15%</td><td class="num">−6.6 dB</td><td class="num">−55 dB</td><td>occasional</td><td class="num">±0.4%</td></tr>
+    <tr><td>Chewed</td><td class="num">+9.6 dB</td><td class="num">0.45%</td><td class="num">0.24%</td><td class="num">−9.6 dB</td><td class="num">−45 dB</td><td>frequent</td><td class="num">±0.7%</td></tr>
+  </tbody>
+</table>
+
+<!-- ======================================================= 13 MIDI -->
+<h1><span class="num">13</span>MIDI and the deck state</h1>
+<figure class="narrow"><img src="images/setup_midi.png" alt="Setup, MIDI and Deck tab"><figcaption><b>Setup → MIDI &amp; Deck.</b> Controllers in, hardware synths out, and deck recall.</figcaption></figure>
+<h2>Controllers in</h2>
+<ul>
+  <li><strong>Use</strong>: TAPE·FOUR only listens to controllers that are ticked. Each track then chooses its controller on its patch card.</li>
+  <li><strong>MPE</strong>: tick it for MPE controllers (Osmose, Seaboard, LinnStrument and others). Known MPE controllers start ticked. A track played by an MPE controller tells its instrument about the MPE zone (lower zone, 15 channels). Each note then gets its own pitch bend, pressure and timbre (CC74). The built-in instruments respond directly. VST3s need MPE support, and some need it switched on in their own settings.</li>
+  <li><strong>Bend range</strong>: type the per-note pitch-bend range your controller sends (the Osmose default is 48 semitones). If it's wrong, bent notes land at the wrong pitch.</li>
+  <li><strong>Computer keyboard</strong>: <span class="key">A W S E D F T G Y H U J K O L P ;</span> play notes like a piano keyboard, and <span class="key">Z</span> and <span class="key">X</span> change octave.</li>
+</ul>
+<h2>Hardware synths out</h2>
+<p>Tick the MIDI outputs your synths are on. You can give each one a name, such as "JUNO-106", which the track display then shows instead of the port name. The MIDI OUT lamp at the top of the deck flashes when notes go out.</p>
+<h2>Recall the deck with each tape</h2>
+<p>Every tape remembers the deck it was last used with:</p>
+<ul>
+  <li>sources, and instruments with their plug-in settings;</li>
+  <li>MIDI routing;</li>
+  <li>gain, EQ, pan and faders;</li>
+  <li>master and phones;</li>
+  <li>speed and pitch;</li>
+  <li>tape character.</li>
+</ul>
+<p>With <strong>Recall the deck with each tape</strong> ticked, loading a tape puts the deck back exactly as it was. Unticked (the default), the deck stays as it is when you change tapes. The tape switch always moves to the new tape's type either way.</p>
+
+<!-- ======================================================= 14 REFERENCE -->
+<h1><span class="num">14</span>Reference</h1>
+<h2>Keyboard</h2>
+<table>
+  <thead><tr><th>Key</th><th>Action</th></tr></thead>
+  <tbody>
+    <tr><td><span class="key">Space</span></td><td>Play / stop</td></tr>
+    <tr><td><span class="key">R</span></td><td>Record (punch in while playing)</td></tr>
+    <tr><td><span class="key">Home</span></td><td>Return to zero</td></tr>
+    <tr><td><span class="key">Esc</span></td><td>Close the patch card or inlay</td></tr>
+    <tr><td><span class="key">A</span> … <span class="key">;</span></td><td>Play notes; <span class="key">Z</span> / <span class="key">X</span> change octave</td></tr>
+  </tbody>
+</table>
+<h2>Where things are kept</h2>
+<table>
+  <tbody>
+    <tr><td>Tapes</td><td><span class="lcd">Documents\TapeFour\Tape Shelf\</span>: one folder per tape, holding the audio for each track and <span class="lcd">tape.xml</span> (label, inlay, flags and deck state).</td></tr>
+    <tr><td>Settings</td><td><span class="lcd">%APPDATA%\TapeFour\TapeFour.settings</span>: audio device, MIDI, deck and tape character.</td></tr>
+  </tbody>
+</table>
+<h2>Troubleshooting</h2>
+<table>
+  <thead><tr><th>Problem</th><th>Try this</th></tr></thead>
+  <tbody>
+    <tr><td><span class="lcd">NO AUDIO DEVICE</span></td><td>Open Setup → Audio and choose your driver. If another program holds the ASIO driver, close it, then reselect the driver.</td></tr>
+    <tr><td>REC does nothing</td><td>Arm at least one track. The status display says <span class="lcd">ARM A TRACK FIRST</span>.</td></tr>
+    <tr><td>An instrument doesn't play</td><td>Tick the controller in Setup → MIDI &amp; Deck. Check the track's <span class="ctl">Play with</span> setting; with <strong>Any (when armed)</strong>, arm the track. Watch the MIDI IN lamp and the track's MIDI lamp.</td></tr>
+    <tr><td>Recordings sound distorted</td><td>Lower GAIN so peaks sit around 0 VU, use a tape with more headroom (MX), centre Tape drive, and check the tape switch matches the tape.</td></tr>
+    <tr><td>Everything sounds dull</td><td>Check the EQ lamps (playback EQ mismatch), the NR lamps (NR mismatch), the tape switch (over-bias) and HF loss in Setup → Tape.</td></tr>
+    <tr><td>Bounces get quieter or louder</td><td>That's the tape's sensitivity, doubled with 2:1 NR. Correct it with the faders before each bounce.</td></tr>
+    <tr><td>A plug-in is missing when a tape is recalled</td><td>Rescan in Setup → Instruments. The plug-in's settings are kept until it can be loaded again.</td></tr>
+    <tr><td>A ghost of an old take is audible</td><td>You recorded over a metal tape at NORMAL. Record over it again at METAL to erase it fully.</td></tr>
+  </tbody>
+</table>
+
+<h2>Cassette measurements</h2>
+<table>
+  <thead><tr><th>Cassette</th><th>Type</th><th>Measured on</th><th class="num">MOL 400</th><th class="num">MOL 100</th><th class="num">SOL 10k</th><th class="num">S/N (A)</th><th class="num">Mod. noise</th><th class="num">Sens.</th><th class="num">EQ</th></tr></thead>
+  <tbody>
+    <tr><td>BASIC</td><td>I</td><td>Sony HF</td><td class="num">+2.4</td><td class="num">+2.0</td><td class="num">−10.3</td><td class="num">54.3</td><td class="num">−36.1</td><td class="num">−1.0</td><td class="num">120 µs</td></tr>
+    <tr><td>SD</td><td>I</td><td>TDK AD</td><td class="num">+6.2</td><td class="num">+3.8</td><td class="num">−8.2</td><td class="num">60.3</td><td class="num">−44.3</td><td class="num">−0.3</td><td class="num">120 µs</td></tr>
+    <tr><td>XR</td><td>II</td><td>TDK SA</td><td class="num">+4.4</td><td class="num">+3.4</td><td class="num">−11.2</td><td class="num">60.9</td><td class="num">−47.2</td><td class="num">+1.1</td><td class="num">70 µs</td></tr>
+    <tr><td>MX</td><td>IV</td><td>Maxell MX</td><td class="num">+9.1</td><td class="num">+8.0</td><td class="num">−6.8</td><td class="num">62.7</td><td class="num">−50.4</td><td class="num">+0.8</td><td class="num">70 µs</td></tr>
+  </tbody>
+</table>
+<p class="small">dB relative to 400 Hz Dolby level (0 VU), at 1⅞ ips, without noise reduction. TAPE·FOUR's automated tests record tones through each cassette and check that these figures come out within about 1 dB, and that the tape switch's EQ and bias effects match chapter 6.</p>
+
+<h2>Sources</h2>
+<ul class="sources">
+  <li>Compact Cassette tape types and formulations, Wikipedia (including Roberson's measurements of retail cassettes): en.wikipedia.org/wiki/Compact_Cassette_tape_types_and_formulations</li>
+  <li>Adaptive biasing, Wikipedia: en.wikipedia.org/wiki/Adaptive_biasing</li>
+  <li>"Analog Tape 101, part 3: Bias Magic", Mix: mixonline.com/recording/analog-tape-101-part-3-bias-magic-373029</li>
+  <li>TDK D, AD, SA and MA product pages, vintagecassettes.com</li>
+</ul>
+<p class="small">TAPE·FOUR is free software under the GNU GPL v3. Fonts: Barlow Condensed, Share Tech Mono and Caveat (SIL Open Font License); Inter (SIL Open Font License). Cassette names and designs in TAPE·FOUR are its own. The real tapes named above are referenced only as the source of the measurements.</p>
+</body>
+</html>

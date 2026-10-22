@@ -447,9 +447,9 @@ void DeckComponent::timerCallback()
     repaint (transportPanel.getX(), transportPanel.getY(), transportPanel.getWidth(), 100);
     repaint (1110, 20, 260, 44);
 
-    // Auto-save the tape whenever it has been sitting stopped for a second.
+    // Auto-save the tape once it has been stopped for a second, and again each second after any change.
     stoppedFrames = mode == Mode::stop ? stoppedFrames + 1 : 0;
-    if (tape != nullptr && stoppedFrames == 30 && tape->needsSaving())
+    if (tape != nullptr && stoppedFrames >= 30 && frame % 30 == 0 && tape->needsSaving())
         saveTape (false);
 
     // Knobs, faders and sources are kept too, every 20 seconds while stopped.
