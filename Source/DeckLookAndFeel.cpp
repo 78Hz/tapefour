@@ -99,7 +99,8 @@ void DeckLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int w, 
     juce::Path p;
     p.addRoundedRectangle (-1.5f, -radius + 3.0f, 3.0f, radius * 0.42f, 1.5f);
     bool accent = (bool) s.getProperties().getWithDefault ("accent", false);
-    g.setColour (accent ? Pal::orange : Pal::cream);
+    bool secondary = (bool) s.getProperties().getWithDefault ("secondary", false);
+    g.setColour (secondary ? juce::Colour (0xff8fb0d6) : accent ? Pal::orange : Pal::cream);
     g.fillPath (p, juce::AffineTransform::rotation (angle).translated (c));
 }
 

@@ -19,6 +19,10 @@ public:
     static constexpr int midiNone = -2;
     static constexpr int computerKeyboardPort = 0;
 
+    // The swept mid: 250 Hz to 5 kHz on a log scale; the default puts it at 1.2 kHz.
+    static double midFreqHz (float v) noexcept { return 250.0 * std::pow (20.0, juce::jlimit (0.0, 1.0, (double) v)); }
+    static constexpr float defaultMidFreq = 0.5236f;
+
     struct TrackParams
     {
         std::atomic<int>   source { (int) Source::none };
@@ -30,6 +34,8 @@ public:
         std::atomic<bool>  armed { false };
         std::atomic<float> gain { 1.0f / 3.0f };       // input trim: 0..1 -> -20..+40 dB
         std::atomic<float> high { 0 }, mid { 0 }, low { 0 }, pan { 0 }; // -1..1
+        std::atomic<float> midFreq { defaultMidFreq };   // 0..1 -> 250 Hz..5 kHz
+        std::atomic<bool>  monitor { false };            // MON: hear the input whatever the arm and transport
         std::atomic<float> fader { 0.75f };
         std::atomic<int>   bounceMask { 0 };
         std::atomic<float> meter { 0 };
@@ -169,7 +175,7 @@ private:
     int bufferSize = 0, maxBlock = 8192, deviceLatency = 0;
 
     Biquad eq[numTracks][3];
-    float eqState[numTracks][3] { { 99, 99, 99 }, { 99, 99, 99 }, { 99, 99, 99 }, { 99, 99, 99 } };
+    float eqState[numTracks][4] { { 99, 99, 99, 99 }, { 99, 99, 99, 99 }, { 99, 99, 99, 99 }, { 99, 99, 99, 99 } };
     float lastGainL[numTracks] {}, lastGainR[numTracks] {}, lastTrim[numTracks] {}, lastMaster = 0, lastPhones = 0;
 
     std::vector<float> tapeOut[numTracks], src[numTracks], chan[numTracks], mixL, mixR;

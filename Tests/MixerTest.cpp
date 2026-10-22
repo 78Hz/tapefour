@@ -272,6 +272,40 @@ int main()
         }
     }
 
+    // Swept mid and MON
+    {
+        Rig m;
+        auto& me = *m.engine;
+        me.setAudioSource (0, 0);
+        me.track[0].armed = true;
+        auto boost = [&] (double hz, float freqKnob)
+        {
+            me.track[0].midFreq = freqKnob;
+            m.f[0] = hz; m.amp[0] = 0.05f;
+            me.track[0].mid = 0.0f; auto flat = tone (m.run (0.4), hz, 0.15, 0.4);
+            me.track[0].mid = 1.0f; auto lifted = tone (m.run (0.4), hz, 0.15, 0.4);
+            return 20.0 * std::log10 (lifted / flat);
+        };
+        auto lo250 = boost (250, 0.0f), lo5k = boost (5000, 0.0f), hi5k = boost (5000, 1.0f), hi250 = boost (250, 1.0f);
+        check (lo250 > 11.0 && lo5k < 1.0, "swept mid at 250 Hz lifts 250 Hz, not 5 kHz (dB)", lo250, 12.0);
+        check (hi5k > 11.0 && hi250 < 1.0, "swept mid at 5 kHz lifts 5 kHz, not 250 Hz (dB)", hi5k, 12.0);
+        check (std::abs (AudioEngine::midFreqHz (AudioEngine::defaultMidFreq) - 1200.0) < 10.0, "swept mid starts at 1.2 kHz",
+               AudioEngine::midFreqHz (AudioEngine::defaultMidFreq), 1200.0);
+        me.track[0].mid = 0.0f;
+
+        // MON: an unarmed track hears its input instead of its tape, even while the tape plays
+        me.track[0].armed = false;
+        m.f[0] = 700; m.amp[0] = 0.2f;
+        auto off = tone (m.run (0.4), 700, 0.15, 0.4);
+        me.track[0].monitor = true;
+        auto on = tone (m.run (0.4), 700, 0.15, 0.4);
+        m.cmd (TapeEngine::Command::play);
+        auto playing = tone (m.run (0.4), 700, 0.15, 0.4);
+        m.cmd (TapeEngine::Command::stop);
+        check (off < 0.001 && on > 0.1 && playing > 0.1, "MON: input heard on an unarmed track, stopped and playing", playing, on);
+        me.track[0].monitor = false;
+    }
+
     // Per-track MIDI: two controllers, two instruments, each plays only its own track.
     {
         Rig m;

@@ -198,31 +198,32 @@ td:first-child { font-weight: 600; }
 <p>In <strong>Setup → MIDI &amp; Deck</strong>, tick the controllers you want to use and the MIDI outputs your hardware synths are on. Chapter 13 covers this in full.</p>
 
 <h2>Plug-ins</h2>
-<p>In <strong>Setup → Instruments</strong>, choose <strong>Options… → Scan for new or updated VST3 plug-ins</strong>. Instruments found here appear on each track's patch card. TAPE·FOUR also has two built-in instruments, <strong>TF Poly Synth</strong> and <strong>TF Tine Piano</strong>, so you can start without any plug-ins.</p>
+<p>In <strong>Setup → Instruments</strong>, choose <strong>Options… → Scan for new or updated VST3 plug-ins</strong>. Instruments found here appear on each track's patch card. Each plug-in is scanned in a separate helper copy of TAPE·FOUR, so a plug-in that crashes or hangs while being scanned can't take the program down: it is set aside and the scan carries on. TAPE·FOUR also has two built-in instruments, <strong>TF Poly Synth</strong> and <strong>TF Tine Piano</strong>, so you can start without any plug-ins.</p>
 <figure class="narrow"><img src="images/setup_inst.png" alt="Setup, Instruments tab"><figcaption><b>Setup → Instruments.</b> Scan once; the list is remembered.</figcaption></figure>
 
 <!-- ======================================================= 3 FRONT PANEL -->
 <h1><span class="num">3</span>The front panel</h1>
+<p>The deck is laid out like a portastudio: the mixer runs the full height on the left, and the tape section is a column on the right, with the cassette at the top and the transport below it. The window can be resized; the deck keeps its 16:9 shape.</p>
 <figure class="annot">
   <img src="images/deck_full.png" alt="The front panel with numbered controls">
-  <span class="pin" style="left: 66%; top: 3.4%">1</span>
-  <span class="pin" style="left: 86%; top: 3.4%">2</span>
-  <span class="pin" style="left: 17%; top: 22%">3</span>
-  <span class="pin" style="left: 39.6%; top: 20%">4</span>
-  <span class="pin" style="left: 5.8%; top: 34.2%">5</span>
-  <span class="pin" style="left: 23%; top: 34.2%">6</span>
-  <span class="pin" style="left: 54.6%; top: 11.8%">7</span>
-  <span class="pin" style="left: 72%; top: 11.8%">8</span>
-  <span class="pin" style="left: 73%; top: 20%">9</span>
-  <span class="pin" style="left: 52.8%; top: 28.6%">10</span>
-  <span class="pin" style="left: 73%; top: 28.6%">11</span>
-  <span class="pin" style="left: 62.5%; top: 33.4%">12</span>
-  <span class="pin" style="left: 83%; top: 33.4%">13</span>
-  <span class="pin" style="left: 13%; top: 45%">14</span>
-  <span class="pin" style="left: 13%; top: 58.8%">15</span>
-  <span class="pin" style="left: 6.5%; top: 83%">16</span>
-  <span class="pin" style="left: 13%; top: 95%">17</span>
-  <span class="pin" style="left: 90%; top: 58%">18</span>
+  <span class="pin" style="left: 69.4%; top: 4.3%">1</span>
+  <span class="pin" style="left: 84.4%; top: 4.3%">2</span>
+  <span class="pin" style="left: 78%; top: 26.7%">3</span>
+  <span class="pin" style="left: 94.4%; top: 20%">4</span>
+  <span class="pin" style="left: 68%; top: 47.8%">5</span>
+  <span class="pin" style="left: 82.5%; top: 47.8%">6</span>
+  <span class="pin" style="left: 68.8%; top: 61.7%">7</span>
+  <span class="pin" style="left: 84.4%; top: 61.7%">8</span>
+  <span class="pin" style="left: 81%; top: 72.2%">9</span>
+  <span class="pin" style="left: 66%; top: 83%">10</span>
+  <span class="pin" style="left: 87.5%; top: 83.9%">11</span>
+  <span class="pin" style="left: 70.6%; top: 92%">12</span>
+  <span class="pin" style="left: 89.4%; top: 92%">13</span>
+  <span class="pin" style="left: 2.4%; top: 17.8%">14</span>
+  <span class="pin" style="left: 2.4%; top: 36.7%">15</span>
+  <span class="pin" style="left: 2.4%; top: 71%">16</span>
+  <span class="pin" style="left: 8%; top: 94.8%">17</span>
+  <span class="pin" style="left: 58%; top: 46.7%">18</span>
 </figure>
 <div class="legend">
   <div><span class="n">1</span><span><strong>Setup display.</strong> Shows the audio driver and buffer. Click it to open Setup.</span></div>
@@ -239,9 +240,9 @@ td:first-child { font-weight: 600; }
   <div><span class="n">12</span><span><strong>Noise reduction</strong> on or off.</span></div>
   <div><span class="n">13</span><span><strong>NR type display.</strong> Click it to choose the type and the tape character in Setup.</span></div>
   <div><span class="n">14</span><span><strong>Track display.</strong> What's plugged in, which controller plays it, the audio path, and the NR, EQ and MIDI lamps. Right-click it to open the track's patch card.</span></div>
-  <div><span class="n">15</span><span><strong>Gain, EQ (high, mid, low) and pan.</strong></span></div>
+  <div><span class="n">15</span><span><strong>Gain, EQ and pan.</strong> HIGH, MID with its FREQ knob, and LOW.</span></div>
   <div><span class="n">16</span><span><strong>Meter and fader.</strong> 0 VU on the meter is Dolby level on tape.</span></div>
-  <div><span class="n">17</span><span><strong>REC ARM.</strong> Arms the track to record when you press REC.</span></div>
+  <div><span class="n">17</span><span><strong>MON and REC ARM.</strong> MON lets you hear the track's input at any time; REC ARM arms it to record.</span></div>
   <div><span class="n">18</span><span><strong>Master strip.</strong> Phones level, stereo meter and master fader.</span></div>
 </div>
 
@@ -339,10 +340,10 @@ td:first-child { font-weight: 600; }
 <!-- ======================================================= 6 TAPE SWITCH -->
 <h1><span class="num">6</span>The tape switch</h1>
 <p class="lede">The <span class="ctl">TAPE · BIAS · EQ</span> switch under the cassette sets three things at once, as on a real deck: the record bias, the record EQ and the playback EQ.</p>
-<figure><img src="images/mismatch_top.png" alt="Tape switch set to NORMAL with a metal tape loaded"><figcaption><b>A mismatch.</b> An MX (metal) tape is loaded but the switch is at NORMAL. The METAL lamp shows amber, and the status display reads <span class="lcd">BIAS LOW: TYPE IV TAPE AT NORMAL</span>.</figcaption></figure>
+<figure class="narrow" style="width: 46%"><img src="images/mismatch_col.png" alt="Tape switch set to NORMAL with a metal tape loaded"><figcaption><b>A mismatch.</b> An MX (metal) tape is loaded but the switch is at NORMAL. The lamp on NORMAL is amber, and the status display reads <span class="lcd">BIAS LOW: TYPE IV TAPE AT NORMAL</span>.</figcaption></figure>
 <ul>
   <li><strong>When a tape goes in, the switch moves to that tape's type.</strong> After that it stays where you put it, so a mismatch is always your choice. Restarting the audio device doesn't move it.</li>
-  <li><strong>The lamp for the cassette's own type</strong> lights green when the switch matches the tape and amber when it doesn't. Real decks sense the type from holes in the cassette shell, and TAPE·FOUR shows the same thing with this lamp.</li>
+  <li><strong>One lamp shows where the switch is.</strong> It is green when that position suits the loaded cassette and amber when it doesn't. The status display then says which way the bias is off.</li>
   <li><strong>Every stretch of tape remembers the switch position it was recorded at</strong>, just as it remembers noise reduction and speed.</li>
 </ul>
 
@@ -383,7 +384,7 @@ td:first-child { font-weight: 600; }
   </tbody>
 </table>
 <p>Blank-tape hiss follows the same rule: a Type II or IV tape played at NORMAL hisses brighter. You can combine both effects. For example, record a chrome tape at NORMAL (under-biased and bright), then play it back at CHROME.</p>
-<figure><img src="images/eq_mismatch.png" alt="EQ lamps red on tracks recorded at NORMAL with the switch at CHROME"><figcaption><b>The EQ lamp.</b> These tracks were recorded at NORMAL and the switch is now at CHROME, so each track's <span class="lcd">EQ</span> lamp is red. It flashes while the tape plays. It is green when the recording's EQ matches the switch, and off on blank tape.</figcaption></figure>
+<figure><img src="images/eq_mismatch.png" alt="EQ lamps red on tracks recorded at NORMAL with the switch at CHROME"><figcaption><b>The EQ lamp.</b> These tracks were recorded at NORMAL and the switch is now at CHROME, so each track's <span class="lcd">EQ</span> lamp is red and the switch lamp is amber. It flashes while the tape plays. It is green when the recording's EQ matches the switch, and off on blank tape.</figcaption></figure>
 
 <h2>Metal tape at NORMAL: old material bleeds through</h2>
 <p>On a NORMAL setting the erase head isn't strong enough to fully erase high-coercivity metal tape. If you record over an MX tape at NORMAL, about 30 dB of the old recording survives underneath the new one, mostly its bass. Treble erases more easily. Record over it at METAL and the old recording is fully gone (it measures below −90 dB).</p>
@@ -441,24 +442,26 @@ td:first-child { font-weight: 600; }
 
 <!-- ======================================================= 9 MIXER -->
 <h1><span class="num">9</span>The mixer</h1>
-<p>Each of the four channel strips has its controls in a single column, top to bottom. Double-click any knob or fader to reset it: gain to 0 dB, EQ and pan to centre, fader to the 0 mark.</p>
+<p>Each of the four channel strips has its controls in a single column, top to bottom. Double-click any knob or fader to reset it: gain to 0 dB, EQ and pan to centre, FREQ to 1.2 kHz, fader to the 0 mark.</p>
 <table>
   <thead><tr><th>Control</th><th>Range</th><th>What to expect</th></tr></thead>
   <tbody>
     <tr><td>GAIN</td><td>−20 to +40 dB (0 dB at the default)</td><td>Input trim before the tape. Use it to put peaks near 0 VU. Higher levels reach the tape's MOL and compress or distort (chapter 5).</td></tr>
-    <tr><td>HIGH</td><td>±12 dB, shelf at 10 kHz</td><td>Air and brightness. A boost also brings up hiss.</td></tr>
-    <tr><td>MID</td><td>±12 dB, peak at 1.2 kHz</td><td>Presence and honk. A cut makes a part sit back.</td></tr>
-    <tr><td>LOW</td><td>±12 dB, shelf at 100 Hz</td><td>Weight. A cut helps when bouncing several tracks together.</td></tr>
+    <tr><td>HIGH</td><td>±12 dB shelf: about ±11.6 dB at 10 kHz, ±7 dB at 5 kHz, half way at 4.5 kHz</td><td>Presence and air, well inside what the tape can record. Full boost is clearly brighter, and also brings up hiss.</td></tr>
+    <tr><td>MID</td><td>±12 dB peak</td><td>Presence, honk or boxiness, depending on FREQ. A cut makes a part sit back.</td></tr>
+    <tr><td>FREQ</td><td>250 Hz to 5 kHz (1.2 kHz at the centre)</td><td>Where MID works; the smaller knob with the blue pointer. Around 250–500 Hz for body or mud, 1–2 kHz for honk, 3–5 kHz for bite and vocal presence. Sweep it with MID boosted to find a spot, then cut or boost.</td></tr>
+    <tr><td>LOW</td><td>±12 dB shelf: about ±11.6 dB at 100 Hz, ±6 dB at 250 Hz</td><td>Weight. A cut helps when bouncing several tracks together.</td></tr>
     <tr><td>PAN</td><td>L100 to R100, constant power</td><td>Centre is −3 dB to each side. Hard left puts the full level on the left output only.</td></tr>
-    <tr><td>Fader</td><td>−∞ to +7 dB (0 at the mark)</td><td>The level into the mix and into bounces. It doesn't change the recording level.</td></tr>
+    <tr><td>Fader</td><td>−∞ to +7 dB (0 at the mark)</td><td>The level into the mix and into bounces. On an armed track it also sets the level going to tape, as on a portastudio.</td></tr>
     <tr><td>Meter</td><td>20 LEDs, 0 VU at −12 dBFS</td><td>Green below 0 VU, amber from 0 to +3, red above +3. Keep peaks around 0 VU for a clean recording, and push into the amber for tape colour.</td></tr>
+    <tr><td>MON</td><td>On or off</td><td>Input monitor. You hear the track's input (an audio input, an instrument or a hardware synth) instead of its tape, whether or not the track is armed and whatever the transport is doing. The lamp lights green and the display reads <span class="lcd">MON: INPUT</span>. An instrument set to <strong>Any (when armed)</strong> also plays while MON is on. MON doesn't record anything.</td></tr>
     <tr><td>REC ARM</td><td>On or off</td><td>Arms the track to record. With Auto monitoring you hear its input while stopped or recording.</td></tr>
   </tbody>
 </table>
 <p>The <strong>master strip</strong> has a stereo meter, the master fader for the stereo out, and the <span class="ctl">Phones</span> knob, which sets the level of the phones output pair independently.</p>
 
 <h2>What the EQ and gain record, and what they don't</h2>
-<p>On a cassette 4-track the channel strip sits between the input and the tape. TAPE·FOUR works the same way: gain and EQ shape what is recorded on an armed track. On playback, the same strip shapes what you hear from the tape. To fix a recording later, adjust the strip on playback, or bounce it through the strip onto another track.</p>
+<p>On a cassette 4-track the channel strip sits between the input and the tape. TAPE·FOUR works the same way: gain, EQ and the fader shape what is recorded on an armed track. On playback, the same strip shapes what you hear from the tape. To fix a recording later, adjust the strip on playback, or bounce it through the strip onto another track.</p>
 
 <!-- ======================================================= 10 SPEED -->
 <h1><span class="num">10</span>Speed and pitch</h1>
@@ -536,6 +539,8 @@ td:first-child { font-weight: 600; }
   <li><strong>Bend range</strong>: type the per-note pitch-bend range your controller sends (the Osmose default is 48 semitones). If it's wrong, bent notes land at the wrong pitch.</li>
   <li><strong>Computer keyboard</strong>: <span class="key">A W S E D F T G Y H U J K O L P ;</span> play notes like a piano keyboard, and <span class="key">Z</span> and <span class="key">X</span> change octave.</li>
 </ul>
+<h2>Plugging in while running</h2>
+<p>TAPE·FOUR notices MIDI devices being plugged in and out while it runs. Controllers and synth outputs you have ticked reconnect on their own, and tracks routed to them carry on. A controller TAPE·FOUR has never seen comes in switched on; untick it in Setup if you don't want it.</p>
 <h2>Hardware synths out</h2>
 <p>Tick the MIDI outputs your synths are on. You can give each one a name, such as "JUNO-106", which the track display then shows instead of the port name. The MIDI OUT lamp at the top of the deck flashes when notes go out.</p>
 <h2>Recall the deck with each tape</h2>
@@ -580,6 +585,8 @@ td:first-child { font-weight: 600; }
     <tr><td>Recordings sound distorted</td><td>Lower GAIN so peaks sit around 0 VU, use a tape with more headroom (MX), centre Tape drive, and check the tape switch matches the tape.</td></tr>
     <tr><td>Everything sounds dull</td><td>Check the EQ lamps (playback EQ mismatch), the NR lamps (NR mismatch), the tape switch (over-bias) and HF loss in Setup → Tape.</td></tr>
     <tr><td>Bounces get quieter or louder</td><td>That's the tape's sensitivity, doubled with 2:1 NR. Correct it with the faders before each bounce.</td></tr>
+    <tr><td>A plug-in shows as failed after a scan</td><td>It crashed or hung while being scanned, so TAPE·FOUR set it aside. Update the plug-in, select it in Setup → Instruments, choose <strong>Options… → Remove selected plug-in from list</strong>, and scan again.</td></tr>
+    <tr><td>A controller plugged in later doesn't play</td><td>Check it's ticked in Setup → MIDI &amp; Deck, and that the track's <span class="ctl">Play with</span> names it or is set to <strong>Any</strong> with the track armed or on MON.</td></tr>
     <tr><td>A plug-in is missing when a tape is recalled</td><td>Rescan in Setup → Instruments. The plug-in's settings are kept until it can be loaded again.</td></tr>
     <tr><td>A ghost of an old take is audible</td><td>You recorded over a metal tape at NORMAL. Record over it again at METAL to erase it fully.</td></tr>
   </tbody>

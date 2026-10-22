@@ -36,7 +36,7 @@ public:
         content = new ScaledDeck (engine, settings);
         setContentOwned (content, false);
         setResizable (true, true);
-        setResizeLimits (720, 595, 4000, 3300);
+        setResizeLimits (800, 450, 4800, 2700);
 
         auto area = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay() != nullptr
                         ? juce::Desktop::getInstance().getDisplays().getPrimaryDisplay()->userArea

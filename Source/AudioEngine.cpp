@@ -629,6 +629,8 @@ std::unique_ptr<juce::XmlElement> AudioEngine::createDeckState() const
         x->setAttribute ("gain", p.gain.load());
         x->setAttribute ("high", p.high.load());
         x->setAttribute ("mid", p.mid.load());
+        x->setAttribute ("midFreq", p.midFreq.load());
+        x->setAttribute ("mon", p.monitor.load());
         x->setAttribute ("low", p.low.load());
         x->setAttribute ("pan", p.pan.load());
         x->setAttribute ("fader", p.fader.load());
@@ -687,6 +689,8 @@ void AudioEngine::applyDeckState (const juce::XmlElement& deck)
         p.gain  = (float) x->getDoubleAttribute ("gain", 1.0 / 3.0);
         p.high  = (float) x->getDoubleAttribute ("high");
         p.mid   = (float) x->getDoubleAttribute ("mid");
+        p.midFreq = (float) x->getDoubleAttribute ("midFreq", defaultMidFreq);
+        p.monitor = x->getBoolAttribute ("mon");
         p.low   = (float) x->getDoubleAttribute ("low");
         p.pan   = (float) x->getDoubleAttribute ("pan");
         p.fader = (float) x->getDoubleAttribute ("fader", 0.75);
@@ -947,11 +951,16 @@ void AudioEngine::audioDeviceStopped()
 
 void AudioEngine::updateEq (int t)
 {
-    auto l = track[t].low.load(), m = track[t].mid.load(), h = track[t].high.load();
+    auto l = track[t].low.load(), m = track[t].mid.load(), h = track[t].high.load(), mf = track[t].midFreq.load();
     // Shelves voiced like a cassette portastudio's: LOW is at full strength by 100 Hz (half at 250 Hz),
     // HIGH at nearly full strength by 10 kHz (half at 4.5 kHz), so both are heard well inside the tape's range.
     if (l != eqState[t][0]) { eq[t][0].setLowShelf (sampleRate, 250.0, l * 12.0); eqState[t][0] = l; }
-    if (m != eqState[t][1]) { eq[t][1].setPeak (sampleRate, 1200.0, 0.8, m * 12.0); eqState[t][1] = m; }
+    if (m != eqState[t][1] || mf != eqState[t][3])
+    {
+        eq[t][1].setPeak (sampleRate, midFreqHz (mf), 0.8, m * 12.0);
+        eqState[t][1] = m;
+        eqState[t][3] = mf;
+    }
     if (h != eqState[t][2]) { eq[t][2].setHighShelf (sampleRate, 4500.0, h * 12.0); eqState[t][2] = h; }
 }
 
@@ -1017,7 +1026,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputs, 
         if (port == midiAnyWhenArmed)
         {
             mpe = anyMpe; bend = anyBend;
-            return armed[t] ? &anyMidi : nullptr;
+            return armed[t] || track[t].monitor.load() ? &anyMidi : nullptr;
         }
         if (juce::isPositiveAndBelow (port, maxMidiPorts) && midiPorts[(size_t) port]->active.load())
         {
@@ -1145,7 +1154,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputs, 
     // ---- channel strips ----
     bool monitorInput[numTracks];
     for (int t = 0; t < numTracks; ++t)
-        monitorInput[t] = armed[t] && (mode != Mode::play || monitorMode.load() == 1);
+        monitorInput[t] = (armed[t] && (mode != Mode::play || monitorMode.load() == 1)) || track[t].monitor.load();
 
     auto processChannel = [&] (int t, const float* in)
     {

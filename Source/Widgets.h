@@ -35,10 +35,11 @@ public:
         g.setFont (lf.mono (topSize));
         g.drawFittedText (top, in.removeFromTop ((int) topSize + 2), juce::Justification::topLeft, 1, 0.9f);
 
-        auto bottom = in.removeFromBottom (14);
         if (showLamps)
         {
-            auto lamps = bottom.removeFromRight (136);
+            // the lamps get a row of their own, so narrow strips keep all three lines of text
+            auto lamps = in.removeFromBottom (12).removeFromRight (136);
+            in.removeFromBottom (3);
             g.setFont (lf.mono (12.0f));
             g.setColour (Pal::lcdDim);
             g.drawText ("NR", lamps.removeFromLeft (20), juce::Justification::centredLeft);
@@ -51,8 +52,8 @@ public:
             g.setColour (Pal::lcdDim);
             g.drawText ("MIDI", lamps.removeFromLeft (36), juce::Justification::centredLeft);
             drawLamp (g, lamps.removeFromLeft (12).toFloat().withSizeKeepingCentre (8, 8), midiLamp, Pal::green);
-            bottom.removeFromRight (8);
         }
+        auto bottom = in.removeFromBottom (14);
         g.setColour (Pal::lcdDim);
         if (low.isNotEmpty() || showLamps)
         {
@@ -253,30 +254,60 @@ public:
 
     juce::Slider slider;
 
+    int knobSize = 46;
+    bool stacked = false;      // knob on the left, label and value beside it (narrow strips)
+
+    /** A secondary control (the mid's frequency): smaller, with a blue pointer and quieter label. */
+    void setSecondary (int size)
+    {
+        knobSize = size;
+        secondary = true;
+        slider.getProperties().set ("secondary", true);
+        resized();
+    }
+
     void resized() override
     {
         auto r = getLocalBounds();
-        auto third = (r.getWidth() - 46) / 2;
-        slider.setBounds (r.withX (third).withWidth (46));
+        if (stacked)
+        {
+            slider.setBounds (r.removeFromLeft (knobSize).withSizeKeepingCentre (knobSize, knobSize));
+            return;
+        }
+        // The knob sits on the strip's centre line whatever its size.
+        auto x = (r.getWidth() - knobSize) / 2;
+        slider.setBounds (r.withX (x).withWidth (knobSize).withSizeKeepingCentre (knobSize, std::min (r.getHeight(), knobSize)));
     }
 
     void paint (juce::Graphics& g) override
     {
         auto& lf = DeckLookAndFeel::get();
         auto r = getLocalBounds();
-        auto third = (r.getWidth() - 46) / 2;
-        g.setFont (lf.cond (15.0f).withExtraKerningFactor (0.14f));
-        g.setColour (Pal::muted);
-        g.drawText (label, r.withWidth (third - 12), juce::Justification::centredRight);
-        g.setFont (lf.mono (14.0f));
+        auto value = formatter != nullptr ? formatter (slider.getValue()) : juce::String();
+        if (stacked)
+        {
+            auto text = r.withTrimmedLeft (knobSize + 10);
+            g.setFont (lf.cond (14.0f).withExtraKerningFactor (0.14f));
+            g.setColour (Pal::muted);
+            g.drawText (label, text.removeFromTop (text.getHeight() / 2), juce::Justification::bottomLeft);
+            g.setFont (lf.mono (13.0f));
+            g.setColour (Pal::faint);
+            g.drawText (value, text.withTrimmedTop (2), juce::Justification::topLeft);
+            return;
+        }
+        const int gap = 10, side = (r.getWidth() - 46) / 2;   // labels and values line up across knob sizes
+        g.setFont (lf.cond (secondary ? 13.0f : 15.0f).withExtraKerningFactor (0.14f));
+        g.setColour (secondary ? Pal::faint.darker (0.15f) : Pal::muted);
+        g.drawText (label, r.withWidth (side - gap), juce::Justification::centredRight);
+        g.setFont (lf.mono (secondary ? 13.0f : 14.0f));
         g.setColour (Pal::faint);
-        g.drawText (formatter != nullptr ? formatter (slider.getValue()) : juce::String(),
-                    r.withTrimmedLeft (third + 46 + 12), juce::Justification::centredLeft);
+        g.drawText (value, r.withTrimmedLeft (side + 46 + gap), juce::Justification::centredLeft);
     }
 
 private:
     juce::String label;
     std::function<juce::String (double)> formatter;
+    bool secondary = false;
 };
 
 //==============================================================================

@@ -32,6 +32,8 @@ Windows may warn that the program is from an unknown publisher, because it isn't
 
 | | |
 |---|---|
+| **Layout** | Like a portastudio: the mixer runs down the left, the cassette and transport are in a column on the right. The window resizes and keeps the 16:9 shape. |
+| **Mixer** | Each strip: GAIN, HIGH shelf (full by 10 kHz), MID with a swept FREQ (250 Hz–5 kHz), LOW shelf (full by 100 Hz), PAN, meter and fader, **MON** and **REC ARM**. MON plays the track's input instead of its tape whether or not it's armed. |
 | **Plug something into a track** | Right-click the channel strip, or click its amber display, to open the track's patch card. Choose **Audio in**, **Instrument**, **Hardware synth** or **Bounce**, then what plays it and where its audio comes from. |
 | **Record** | Press **REC ARM** on the track(s), then **REC**. To punch in, press **REC** while playing; press **PLAY** to punch out. |
 | **Play an instrument** | On the patch card, **Play with** chooses the controller. **Any (when armed)** means any controller plays the track while it is armed; naming a controller ties it to that track, so different keyboards can play different tracks at once. Without a keyboard, the computer keys A W S E D F T G Y H U J K play notes and Z / X change octave. |
@@ -93,7 +95,7 @@ The automated tests record tones through each cassette and check that these figu
 
 ### The tape switch
 
-The **TAPE · BIAS · EQ** switch under the cassette (NORMAL / CHROME / METAL) sets the record bias, the record EQ and the playback EQ, as on a real deck. When a tape goes in, the switch moves to that tape's type. After that it stays where you put it, so you can try mismatches. The lamp for the cassette's own type is green when the switch matches it and amber when it doesn't, and the status display says which way the bias is off.
+The **TAPE · BIAS · EQ** switch under the cassette (NORMAL / CHROME / METAL) sets the record bias, the record EQ and the playback EQ, as on a real deck. When a tape goes in, the switch moves to that tape's type. After that it stays where you put it, so you can try mismatches. One lamp shows where the switch is: green when that suits the loaded cassette, amber when it doesn't, and the status display says which way the bias is off.
 
 - **Bias:** a Type II tape takes about 1.5× the bias of a Type I, and a Type IV about 2.5×.
   - **Under-biased** (a tape recorded at a lower position than its own): brighter, distorts and compresses sooner, grainier. For example, a chrome tape at NORMAL gains about +2.5 dB at 10 kHz and loses about 5 dB of MOL.

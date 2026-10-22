@@ -22,10 +22,11 @@ PluginWindow::PluginWindow (juce::AudioPluginInstance& plugin, std::function<voi
 namespace
 {
     // design coordinates
-    const juce::Rectangle<int> bayPanel { 24, 76, 676, 360 };
-    const juce::Rectangle<int> transportPanel { 716, 76, 700, 360 };
+    // Portastudio layout: mixer on the left, the tape section in a column on the right.
+    const juce::Rectangle<int> bayPanel { 1020, 74, 560, 404 };
+    const juce::Rectangle<int> transportPanel { 1020, 490, 560, 390 };
     enum { audioTab = 0, midiTab = 1, tapeTab = 2, instrumentsTab = 3 };
-    constexpr int mixerY = 450, mixerH = 716, stripW = 271, stripGap = 14;
+    constexpr int mixerX = 20, mixerY = 74, mixerH = 806, stripW = 197, stripGap = 12, masterW = 150;
 
     void panelBackground (juce::Graphics& g, juce::Rectangle<int> r, juce::Colour c)
     {
@@ -197,34 +198,35 @@ void DeckComponent::prepareToQuit()
 //==============================================================================
 void DeckComponent::resized()
 {
-    setupLcd.setBounds (800, 18, 300, 46);
+    setupLcd.setBounds (980, 16, 260, 46);
 
-    cassette.setBounds (bayPanel.getX() + 38, bayPanel.getY() + 42, 400, 255);
-    inlayThumb.setBounds (bayPanel.getX() + 500, bayPanel.getY() + 44, 136, 232);
-    eject.setBounds (bayPanel.getX() + 20, bayPanel.getY() + 311, 112, 42);
-    tapeSwitch.setBounds (bayPanel.getX() + 150, bayPanel.getY() + 309, TapeSwitch::labelW + 3 * TapeSwitch::segW + 8, 46);
+    auto bp = bayPanel;
+    cassette.setBounds (bp.getX() + 30, bp.getY() + 52, 400, 255);
+    inlayThumb.setBounds (bp.getX() + 448, bp.getY() + 56, 86, 226);
+    eject.setBounds (bp.getX() + 18, bp.getY() + 335, 100, 42);
+    tapeSwitch.setBounds (bp.getX() + 132, bp.getY() + 333, TapeSwitch::labelW + 3 * TapeSwitch::segW + 8, 46);
 
     auto tp = transportPanel;
-    resetBtn.setBounds (tp.getX() + 152, tp.getY() + 36, 70, 26);
-    rtzBtn.setBounds (tp.getX() + 152, tp.getY() + 66, 70, 26);
-    status.setBounds (tp.getX() + 238, tp.getY() + 36, 330, 56);
+    resetBtn.setBounds (tp.getX() + 146, tp.getY() + 36, 62, 26);
+    rtzBtn.setBounds (tp.getX() + 146, tp.getY() + 66, 62, 26);
+    status.setBounds (tp.getX() + 218, tp.getY() + 36, 254, 56);
 
-    auto keys = juce::Rectangle<int> (tp.getX() + 20, tp.getY() + 110, 660, 112).reduced (6, 10);
+    auto keys = juce::Rectangle<int> (tp.getX() + 18, tp.getY() + 112, 524, 92).reduced (8, 10);
     for (auto* k : { &recKey, &rewKey, &ffKey, &playKey, &stopKey })
     {
-        k->setBounds (keys.removeFromLeft (116));
-        keys.removeFromLeft (17);
+        k->setBounds (keys.removeFromLeft (92));
+        keys.removeFromLeft (10);
     }
 
-    pitch.setBounds (tp.getX() + 4, tp.getY() + 242, 210, 44);
-    speedLo.setBounds (tp.getX() + 250, tp.getY() + 254, 150, 34);
-    speedHi.setBounds (tp.getX() + 410, tp.getY() + 254, 150, 34);
-    nrButton.setBounds (tp.getX() + 20, tp.getY() + 302, 320, 42);
-    nrType.setBounds (tp.getX() + 356, tp.getY() + 300, 324, 46);
+    pitch.setBounds (tp.getX() + 2, tp.getY() + 236, 200, 44);
+    speedLo.setBounds (tp.getX() + 236, tp.getY() + 246, 150, 34);
+    speedHi.setBounds (tp.getX() + 392, tp.getY() + 246, 150, 34);
+    nrButton.setBounds (tp.getX() + 18, tp.getY() + 318, 254, 42);
+    nrType.setBounds (tp.getX() + 286, tp.getY() + 316, 256, 46);
 
     for (int t = 0; t < numTracks; ++t)
-        strips[t]->setBounds (24 + t * (stripW + stripGap), mixerY, stripW, mixerH);
-    master.setBounds (24 + numTracks * (stripW + stripGap), mixerY, designWidth - 24 - (24 + numTracks * (stripW + stripGap)), mixerH);
+        strips[t]->setBounds (mixerX + t * (stripW + stripGap), mixerY, stripW, mixerH);
+    master.setBounds (mixerX + numTracks * (stripW + stripGap), mixerY, masterW, mixerH);
 
     if (overlay != nullptr)
         overlay->setBounds (getLocalBounds());
@@ -241,8 +243,8 @@ void DeckComponent::paint (juce::Graphics& g)
     brand.append ("TAPE", lf.brand (46.0f), Pal::cream);
     brand.append (utf ("\xc2\xb7"), lf.brand (46.0f), Pal::orange);
     brand.append ("FOUR", lf.brand (46.0f), Pal::cream);
-    brand.draw (g, juce::Rectangle<float> (26, 14, 220, 52));
-    smallCaps (g, utf ("MODEL TF-4 \xc2\xb7 4-TRACK CASSETTE MULTITRACKER"), { 236, 30, 420, 24 });
+    brand.draw (g, juce::Rectangle<float> (20, 12, 220, 52));
+    smallCaps (g, utf ("MODEL TF-4 \xc2\xb7 4-TRACK CASSETTE MULTITRACKER"), { 232, 28, 420, 24 });
 
     auto jack = [&] (juce::Point<float> c, float r)
     {
@@ -253,21 +255,21 @@ void DeckComponent::paint (juce::Graphics& g)
         g.setColour (Pal::darker);
         g.fillEllipse (juce::Rectangle<float> (r * 2, r * 2).withCentre (c));
     };
-    drawLamp (g, { 1124, 37, 8, 8 }, midiLamp, Pal::green);
-    jack ({ 1152, 41 }, 12);
-    smallCaps (g, "MIDI IN", { 1172, 30, 62, 24 });
-    drawLamp (g, { 1240, 37, 8, 8 }, midiOutLamp, Pal::green);
-    jack ({ 1268, 41 }, 12);
-    smallCaps (g, "MIDI OUT", { 1288, 30, 72, 24 });
-    drawLamp (g, { 1374, 36, 10, 10 }, true, Pal::red);
-    smallCaps (g, "POWER", { 1390, 30, 50, 24 });
+    drawLamp (g, { 1262, 35, 8, 8 }, midiLamp, Pal::green);
+    jack ({ 1290, 39 }, 12);
+    smallCaps (g, "MIDI IN", { 1310, 28, 62, 24 });
+    drawLamp (g, { 1384, 35, 8, 8 }, midiOutLamp, Pal::green);
+    jack ({ 1412, 39 }, 12);
+    smallCaps (g, "MIDI OUT", { 1432, 28, 76, 24 });
+    drawLamp (g, { 1520, 34, 10, 10 }, true, Pal::red);
+    smallCaps (g, "POWER", { 1536, 28, 50, 24 });
 
     // ---- cassette bay ----
     panelBackground (g, bayPanel, Pal::panel);
     smallCaps (g, utf ("CASSETTE \xc2\xb7 SIDE A ONLY \xc2\xb7 4 TRACKS ONE DIRECTION"),
-               { bayPanel.getX() + 20, bayPanel.getY() + 12, 436, 20 });
-    smallCaps (g, "INLAY", { bayPanel.getX() + 500, bayPanel.getY() + 12, 136, 20 });
-    auto bay = juce::Rectangle<float> ((float) bayPanel.getX() + 20, (float) bayPanel.getY() + 36, 436, 268);
+               { bayPanel.getX() + 18, bayPanel.getY() + 12, 400, 20 });
+    smallCaps (g, "INLAY", { bayPanel.getX() + 448, bayPanel.getY() + 12, 90, 20 });
+    auto bay = juce::Rectangle<float> ((float) bayPanel.getX() + 18, (float) bayPanel.getY() + 36, 524, 286);
     g.setColour (Pal::bay);
     g.fillRoundedRectangle (bay, 8.0f);
     g.setColour (juce::Colours::black);
@@ -275,21 +277,21 @@ void DeckComponent::paint (juce::Graphics& g)
 
     if (auto* t = engine.getTape())
     {
-        auto info = t->productName() + utf (" \xc2\xb7 ") + iecTypeName (t->naturalPosition()) + "\n"
+        auto info = t->productName() + utf (" \xc2\xb7 ") + iecTypeName (t->naturalPosition()) + utf (" \xc2\xb7 ")
                     + formatTime (t->getLengthSeconds() / engine.tapeEngine.params.speedSel.load())
                     + " @ " + speedLabel() + " IPS";
-        g.setFont (lf.mono (16.0f));
+        g.setFont (lf.mono (14.0f));
         g.setColour (Pal::muted);
-        g.drawFittedText (info, juce::Rectangle<int> (bayPanel.getX() + 530, bayPanel.getY() + 309, 126, 46), juce::Justification::centredRight, 2, 0.8f);
+        g.drawFittedText (info, juce::Rectangle<int> (bayPanel.getX() + 18, bayPanel.getY() + 382, 524, 18), juce::Justification::centredRight, 1, 0.8f);
     }
 
     // ---- transport ----
     auto tp = transportPanel;
     panelBackground (g, tp, Pal::panel);
-    smallCaps (g, "TAPE COUNTER", { tp.getX() + 20, tp.getY() + 12, 140, 20 });
-    smallCaps (g, "STATUS", { tp.getX() + 238, tp.getY() + 12, 140, 20 });
+    smallCaps (g, "TAPE COUNTER", { tp.getX() + 18, tp.getY() + 12, 140, 20 });
+    smallCaps (g, "STATUS", { tp.getX() + 218, tp.getY() + 12, 140, 20 });
 
-    auto counter = juce::Rectangle<int> (tp.getX() + 20, tp.getY() + 36, 3 * 36 + 10, 56);
+    auto counter = juce::Rectangle<int> (tp.getX() + 18, tp.getY() + 36, 3 * 36 + 10, 56);
     g.setColour (Pal::darker);
     g.fillRoundedRectangle (counter.toFloat(), 4.0f);
     auto digits = counter.reduced (5);
@@ -309,14 +311,14 @@ void DeckComponent::paint (juce::Graphics& g)
         g.drawHorizontalLine ((int) d.getCentreY(), d.getX(), d.getRight());
     }
 
-    drawLamp (g, { (float) tp.getX() + 590, (float) tp.getY() + 44, 12, 12 }, recLamp, Pal::red);
-    smallCaps (g, "REC", { tp.getX() + 608, tp.getY() + 40, 60, 20 });
-    drawLamp (g, { (float) tp.getX() + 590, (float) tp.getY() + 72, 12, 12 }, playLamp, Pal::green);
-    smallCaps (g, "PLAY", { tp.getX() + 608, tp.getY() + 68, 60, 20 });
+    drawLamp (g, { (float) tp.getX() + 486, (float) tp.getY() + 44, 12, 12 }, recLamp, Pal::red);
+    smallCaps (g, "REC", { tp.getX() + 504, tp.getY() + 40, 50, 20 });
+    drawLamp (g, { (float) tp.getX() + 486, (float) tp.getY() + 72, 12, 12 }, playLamp, Pal::green);
+    smallCaps (g, "PLAY", { tp.getX() + 504, tp.getY() + 68, 50, 20 });
 
     g.setColour (Pal::dark);
-    g.fillRoundedRectangle (juce::Rectangle<float> ((float) tp.getX() + 20, (float) tp.getY() + 110, 660, 112), 8.0f);
-    smallCaps (g, "TAPE SPEED", { tp.getX() + 250, tp.getY() + 232, 200, 18 });
+    g.fillRoundedRectangle (juce::Rectangle<float> ((float) tp.getX() + 18, (float) tp.getY() + 112, 524, 92), 8.0f);
+    smallCaps (g, "TAPE SPEED", { tp.getX() + 236, tp.getY() + 224, 200, 18 });
 }
 
 //==============================================================================
@@ -445,7 +447,7 @@ void DeckComponent::timerCallback()
     }
 
     repaint (transportPanel.getX(), transportPanel.getY(), transportPanel.getWidth(), 100);
-    repaint (1110, 20, 260, 44);
+    repaint (1250, 20, 340, 44);
 
     // Auto-save the tape once it has been stopped for a second, and again each second after any change.
     stoppedFrames = mode == Mode::stop ? stoppedFrames + 1 : 0;

@@ -25,6 +25,11 @@ StripComponent::StripComponent (AudioEngine& e, int index)
       gain ("GAIN", false, [] (double v) { return fmtDb (-20.0 + 60.0 * v) + " dB"; }),
       high ("HIGH", true,  [] (double v) { return fmtDb (v * 12.0, 1); }),
       mid  ("MID",  true,  [] (double v) { return fmtDb (v * 12.0, 1); }),
+      freq ("FREQ", true,  [] (double v)
+             {
+                 auto hz = AudioEngine::midFreqHz ((float) v);
+                 return hz >= 1000.0 ? juce::String (hz / 1000.0, hz >= 9950.0 ? 0 : 1) + "k" : juce::String (juce::roundToInt (hz / 10.0) * 10);
+             }),
       low  ("LOW",  true,  [] (double v) { return fmtDb (v * 12.0, 1); }),
       pan  ("PAN",  false, [] (double v)
              {
@@ -38,10 +43,15 @@ StripComponent::StripComponent (AudioEngine& e, int index)
     gain.slider.setDoubleClickReturnValue (true, 1.0 / 3.0);
     for (auto* k : { &high, &mid, &low, &pan })
         setupBipolar (k->slider);
+    freq.slider.setRange (0.0, 1.0);
+    freq.slider.setDoubleClickReturnValue (true, AudioEngine::defaultMidFreq);
+    freq.setSecondary (36);
+    freq.slider.setTooltip ("Mid frequency: 250 Hz to 5 kHz");
 
     gain.slider.onValueChange = [this, &p] { p.gain = (float) gain.slider.getValue(); gain.repaint(); };
     high.slider.onValueChange = [this, &p] { p.high = (float) high.slider.getValue(); high.repaint(); };
     mid.slider.onValueChange  = [this, &p] { p.mid  = (float) mid.slider.getValue();  mid.repaint(); };
+    freq.slider.onValueChange = [this, &p] { p.midFreq = (float) freq.slider.getValue(); freq.repaint(); };
     low.slider.onValueChange  = [this, &p] { p.low  = (float) low.slider.getValue();  low.repaint(); };
     pan.slider.onValueChange  = [this, &p] { p.pan  = (float) pan.slider.getValue();  pan.repaint(); };
     fader.slider.onValueChange = [this, &p] { p.fader = (float) fader.slider.getValue(); };
@@ -55,7 +65,13 @@ StripComponent::StripComponent (AudioEngine& e, int index)
     arm.setClickingTogglesState (true);
     arm.onClick = [this, &p] { p.armed = arm.getToggleState(); };
 
-    for (auto* c : std::initializer_list<juce::Component*> { &lcd, &gain, &high, &mid, &low, &pan, &meter, &fader, &arm })
+    mon.lamp = true;
+    mon.lampColour = Pal::green;
+    mon.setClickingTogglesState (true);
+    mon.onClick = [this, &p] { p.monitor = mon.getToggleState(); engine.saveSettings(); };
+    mon.setTooltip ("Input monitor: hear this track's input whether or not it's armed, instead of its tape");
+
+    for (auto* c : std::initializer_list<juce::Component*> { &lcd, &gain, &high, &mid, &freq, &low, &pan, &meter, &fader, &mon, &arm })
         addAndMakeVisible (c);
 
     addMouseListener (this, true);
@@ -73,6 +89,8 @@ void StripComponent::syncFromEngine()
     gain.slider.setValue (p.gain.load(), juce::dontSendNotification);
     high.slider.setValue (p.high.load(), juce::dontSendNotification);
     mid.slider.setValue (p.mid.load(), juce::dontSendNotification);
+    freq.slider.setValue (p.midFreq.load(), juce::dontSendNotification);
+    mon.setToggleState (p.monitor.load(), juce::dontSendNotification);
     low.slider.setValue (p.low.load(), juce::dontSendNotification);
     pan.slider.setValue (p.pan.load(), juce::dontSendNotification);
     fader.slider.setValue (p.fader.load(), juce::dontSendNotification);
@@ -149,7 +167,7 @@ void StripComponent::refresh (bool blink)
     auto d = describeTrack (engine, t);
     lcd.top = d.top;
     lcd.sub = d.mid;
-    lcd.low = d.low;
+    lcd.low = p.monitor.load() ? juce::String ("MON: INPUT") : d.low;
     tag = d.tag;
     tagColour = d.tagColour;
 
@@ -218,25 +236,37 @@ void StripComponent::refresh (bool blink)
     arm.face = armed ? Pal::armRed : Pal::button;
     arm.pressedLook = armed;
     arm.repaint();
+
+    bool monOn = p.monitor.load();
+    if (mon.getToggleState() != monOn)
+        mon.setToggleState (monOn, juce::dontSendNotification);
+    mon.lampOn = monOn;
+    mon.face = monOn ? juce::Colour (0xff2f4a22) : Pal::button;
+    mon.pressedLook = monOn;
+    mon.repaint();
     repaint (0, 0, getWidth(), 50);
 }
 
 void StripComponent::resized()
 {
-    auto r = getLocalBounds().reduced (12);
-    r.removeFromTop (32 + 8);
-    lcd.setBounds (r.removeFromTop (64));
-    r.removeFromTop (10);
+    auto r = getLocalBounds().reduced (10);
+    r.removeFromTop (30 + 6);
+    lcd.setBounds (r.removeFromTop (78));
+    r.removeFromTop (8);
     gain.setBounds (r.removeFromTop (44));
-    r.removeFromTop (14);
-    auto eq = r.removeFromTop (176).reduced (0, 16);
-    high.setBounds (eq.removeFromTop (44)); eq.removeFromTop (6);
-    mid.setBounds (eq.removeFromTop (44));  eq.removeFromTop (6);
+    r.removeFromTop (16);
+    auto eq = r.removeFromTop (200).reduced (0, 12);
+    high.setBounds (eq.removeFromTop (44)); eq.removeFromTop (2);
+    mid.setBounds (eq.removeFromTop (44));  eq.removeFromTop (0);
+    freq.setBounds (eq.removeFromTop (38)); eq.removeFromTop (2);
     low.setBounds (eq.removeFromTop (44));
     r.removeFromTop (6);
     pan.setBounds (r.removeFromTop (44));
 
-    arm.setBounds (r.removeFromBottom (46));
+    auto buttons = r.removeFromBottom (42);
+    mon.setBounds (buttons.removeFromLeft ((buttons.getWidth() - 8) * 2 / 5));
+    buttons.removeFromLeft (8);
+    arm.setBounds (buttons);
     r.removeFromBottom (12);
     r.removeFromTop (10);
 
@@ -257,17 +287,17 @@ void StripComponent::paint (juce::Graphics& g)
     g.setColour (Pal::panelHi);
     g.drawLine (10, 1, r.getWidth() - 10, 1, 1.0f);
 
-    auto head = getLocalBounds().reduced (14, 12).removeFromTop (32);
+    auto head = getLocalBounds().reduced (12, 10).removeFromTop (30);
     g.setColour (Pal::cream);
-    g.setFont (lf.cond (40.0f, true));
-    g.drawText (juce::String (t + 1), head.removeFromLeft (24), juce::Justification::centredLeft);
+    g.setFont (lf.cond (36.0f, true));
+    g.drawText (juce::String (t + 1), head.removeFromLeft (22), juce::Justification::centredLeft);
     g.setColour (Pal::muted);
-    g.setFont (lf.cond (14.0f).withExtraKerningFactor (0.2f));
-    g.drawText ("TRACK", head.removeFromLeft (70).withTrimmedTop (10), juce::Justification::centredLeft);
+    g.setFont (lf.cond (13.0f).withExtraKerningFactor (0.2f));
+    g.drawText ("TRACK", head.removeFromLeft (60).withTrimmedTop (9), juce::Justification::centredLeft);
 
     if (tag.isNotEmpty())
     {
-        g.setFont (lf.cond (14.0f, true).withExtraKerningFactor (0.16f));
+        g.setFont (lf.cond (13.0f, true).withExtraKerningFactor (0.14f));
         auto w = (int) juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), tag) + 18;
         auto badge = head.removeFromRight (w).withSizeKeepingCentre (w, 24).toFloat();
         g.setColour (tagColour);
@@ -277,8 +307,8 @@ void StripComponent::paint (juce::Graphics& g)
     }
 
     // EQ box
-    auto eqBox = high.getBounds().getUnion (low.getBounds()).expanded (0, 14).toFloat();
-    eqBox = eqBox.withX (12.0f).withWidth ((float) getWidth() - 24.0f);
+    auto eqBox = high.getBounds().getUnion (low.getBounds()).expanded (0, 10).toFloat();
+    eqBox = eqBox.withX (10.0f).withWidth ((float) getWidth() - 20.0f);
     g.setColour (Pal::line);
     g.drawRoundedRectangle (eqBox, 8.0f, 1.0f);
     g.setFont (lf.cond (14.0f, true).withExtraKerningFactor (0.24f));
@@ -294,6 +324,8 @@ MasterStrip::MasterStrip (AudioEngine& e)
     : engine (e),
       phones ("PHONES", false, [] (double v) { return juce::String (juce::roundToInt (v * 10.0)); })
 {
+    phones.stacked = true;
+    phones.knobSize = 40;
     phones.slider.setRange (0.0, 1.0);
     phones.slider.setDoubleClickReturnValue (true, 0.6);
     phones.slider.onValueChange = [this] { engine.phones = (float) phones.slider.getValue(); phones.repaint(); };
@@ -318,13 +350,13 @@ void MasterStrip::refresh()
 void MasterStrip::resized()
 {
     auto r = getLocalBounds().reduced (12);
-    r.removeFromTop (40);
+    r.removeFromTop (52);
     phones.setBounds (r.removeFromTop (44));
     r.removeFromTop (16);
-    r.removeFromBottom (46 + 12);
-    auto area = r.withSizeKeepingCentre (44 + 14 + 100, r.getHeight());
-    meter.setBounds (area.removeFromLeft (44));
-    area.removeFromLeft (14);
+    r.removeFromBottom (24 + 12);
+    auto area = r.withSizeKeepingCentre (32 + 8 + 86, r.getHeight());
+    meter.setBounds (area.removeFromLeft (32));
+    area.removeFromLeft (8);
     fader.setBounds (area);
 }
 
@@ -337,16 +369,16 @@ void MasterStrip::paint (juce::Graphics& g)
     g.setColour (Pal::master);
     g.fillRoundedRectangle (r, 10.0f);
 
-    auto head = getLocalBounds().reduced (14, 12).removeFromTop (32);
+    auto head = getLocalBounds().reduced (12, 10).removeFromTop (48);
     g.setColour (Pal::cream);
-    g.setFont (lf.cond (30.0f, true).withExtraKerningFactor (0.1f));
-    g.drawText ("MASTER", head, juce::Justification::centredLeft);
+    g.setFont (lf.cond (26.0f, true).withExtraKerningFactor (0.1f));
+    g.drawText ("MASTER", head.removeFromTop (28), juce::Justification::centredLeft);
     g.setColour (Pal::muted);
-    g.setFont (lf.cond (14.0f).withExtraKerningFactor (0.2f));
-    g.drawText ("STEREO OUT", head, juce::Justification::centredRight);
+    g.setFont (lf.cond (12.0f).withExtraKerningFactor (0.2f));
+    g.drawText ("STEREO OUT", head, juce::Justification::centredLeft);
 
-    g.setFont (lf.cond (15.0f).withExtraKerningFactor (0.2f));
-    g.drawText (utf ("L \xc2\xb7 R"), getLocalBounds().reduced (12).removeFromBottom (46).withWidth (44 + 14 + 100)
-                                         .withX (meter.getX()), juce::Justification::centredLeft);
+    g.setFont (lf.cond (14.0f).withExtraKerningFactor (0.2f));
+    g.drawText (utf ("L \xc2\xb7 R"), juce::Rectangle<int> (meter.getX() - 6, getHeight() - 36, meter.getWidth() + 12, 24),
+                juce::Justification::centred);
 }
 } // namespace tf

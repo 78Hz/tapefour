@@ -21,14 +21,15 @@ private:
 };
 
 /**
-    The whole front panel, laid out at a fixed design size (1440 x 1190)
-    and scaled to fit the window.
+    The whole front panel, laid out like a portastudio at a fixed design size
+    (1600 x 900): the mixer on the left, the tape section in a column on the right.
+    Scaled to fit the window.
 */
 class DeckComponent : public juce::Component,
                       private juce::Timer
 {
 public:
-    static constexpr int designWidth = 1440, designHeight = 1190;
+    static constexpr int designWidth = 1600, designHeight = 900;
 
     DeckComponent (AudioEngine& engine, juce::PropertiesFile& settings);
     ~DeckComponent() override;

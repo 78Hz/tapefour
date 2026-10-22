@@ -253,9 +253,12 @@ void InlayThumb::paintButton (juce::Graphics& g, bool over, bool)
     g.fillRect (c.removeFromBottom (6.0f));
     g.setFont (lf.brand (17.0f));
     g.drawText (tape != nullptr ? tape->productName() : juce::String(), head.reduced (6, 0), juce::Justification::centredLeft);
-    g.setColour (Pal::cream);
-    g.setFont (lf.brand (9.0f));
-    g.drawText (utf ("TAPE\xc2\xb7" "FOUR"), head.reduced (6, 0), juce::Justification::centredRight);
+    if (getWidth() >= 110)
+    {
+        g.setColour (Pal::cream);
+        g.setFont (lf.brand (9.0f));
+        g.drawText (utf ("TAPE\xc2\xb7" "FOUR"), head.reduced (6, 0), juce::Justification::centredRight);
+    }
 
     c = c.reduced (7.0f, 6.0f);
     g.setColour (Pal::rule);

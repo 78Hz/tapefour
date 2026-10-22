@@ -34,10 +34,10 @@ private:
     const int t;
 
     LcdButton lcd;
-    LabeledKnob gain, high, mid, low, pan;
+    LabeledKnob gain, high, mid, freq, low, pan;
     Meter meter;
     Fader fader;
-    FlatButton arm { "REC ARM" };
+    FlatButton arm { "REC ARM" }, mon { "MON" };
     juce::String tag;
     juce::Colour tagColour;
     int midiHold = 0;
