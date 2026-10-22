@@ -15,9 +15,9 @@ Windows may warn that the program is from an unknown publisher, because it isn't
 1. Click the amber display at the top right (**AUDIO SETUP ›**). Under **Audio & MIDI**:
    - choose **ASIO** and your interface's driver;
    - choose the sample rate and buffer size;
-   - tick your MIDI keyboard.
+   - under **MIDI inputs**, tick only the controllers you want to play.
 
-   If an ASIO driver is installed, TapeFour picks it on first start.
+   If an ASIO driver is installed, TapeFour picks it on first start. Every change is saved straight away. If the saved driver can't be opened at start-up (for example, another program has it), the deck says so and keeps your choice for next time.
 2. To use your own instruments, go to the **Instruments** tab and choose **Options… → Scan for new or updated VST3 plug-ins**. The program also has two built-in instruments, a poly synth and a tine piano, so you can start without any plug-ins.
 3. Close the setup window. You're at the deck.
 
@@ -33,6 +33,19 @@ Windows may warn that the program is from an unknown publisher, because it isn't
 | **Tapes** | **EJECT** (tape stopped) inserts a new blank C-46/C-60/C-90 or loads one from the tape shelf. |
 | **Label and track sheet** | Double-click the cassette label to write on it. Type on the track sheet. Both are saved with the tape. |
 | **Keys** | Space = play/stop, R = record. |
+
+### MPE controllers (Osmose, Seaboard, LinnStrument…)
+
+**MPE** is on by default. Every instrument gets told about the MPE zone: lower zone, 15 member channels, and your per-note pitch-bend range (default 48, as on the Osmose). Each note's bend, pressure and timbre (CC74) then reach the instrument separately.
+
+- **Built-in instruments:** they respond directly. Pressure opens the filter and swells the level, and timbre moves the filter.
+- **VST3 instruments:** the plug-in has to support MPE. Some need MPE switched on in their own settings too.
+
+Set **MPE pitch-bend range** to match what your controller sends. With MPE off, ordinary keyboards work as before.
+
+### Levels
+
+Hosted VST3 instruments come in 12 dB lower than their own output. That puts a full-level synth around the deck's 0 VU, as if it were plugged into a line input. Use the track's **GAIN** knob to trim further.
 
 ### Monitoring
 
@@ -68,7 +81,7 @@ cmake --build build --config Release
 
 JUCE 8.0.11 is downloaded during configuration. It includes the ASIO headers (Steinberg made ASIO available under GPLv3) and the VST3 SDK.
 
-Add `-DTAPEFOUR_TESTS=ON` to also build two headless test programs, `EngineTest` and `MixerTest`. They check the recording and playback paths: pitch and level, noise reduction, tape speed, punch-in, bounce, monitoring, the built-in synth via MIDI, and saving and loading tapes.
+Add `-DTAPEFOUR_TESTS=ON` to also build two headless test programs, `EngineTest` and `MixerTest`. They check the recording and playback paths: pitch and level, noise reduction, tape speed, punch-in, bounce, monitoring, the built-in synth via MIDI and MPE, settings surviving a restart, and saving and loading tapes.
 
 ## Licence
 

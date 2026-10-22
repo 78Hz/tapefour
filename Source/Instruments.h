@@ -14,6 +14,8 @@ public:
     /** Renders into the first two channels of `stereo` (which has room for maxBlockSize samples). */
     virtual void render (juce::AudioBuffer<float>& stereo, int numSamples, juce::MidiBuffer& midi) = 0;
     virtual juce::AudioPluginInstance* getPlugin() noexcept { return nullptr; }
+    /** Audio thread: MPE on (lower zone, 15 member channels) or off (plain MIDI, all channels). */
+    virtual void applyMpe (bool /*on*/, int /*bendRange*/) noexcept {}
     virtual std::unique_ptr<juce::XmlElement> saveState() const = 0;
 };
 

@@ -199,6 +199,42 @@ int main()
     check (rms (synth, 0.5, 1.1) > 0.01, "synth note is on tape and plays back", rms (synth, 0.5, 1.1), 0.01);
     check (rms (synth, 0.0, 0.15) < 0.002, "silence before the note", rms (synth, 0.0, 0.15), 0.0);
 
+    // MPE: a note on member channel 2, bent +12 semitones on its own channel (48-semitone range).
+    {
+        Rig m;
+        auto& me = *m.engine;
+        me.setMpe (true, 48);
+        me.setInstrument (0, BuiltIn::create (BuiltIn::epiano));
+        me.track[0].armed = true;                  // armed + stopped: you hear the instrument live
+        m.run (0.1);
+        me.injectMidi (juce::MidiMessage::pitchWheel (2, 8192 + 8192 * 12 / 48));
+        me.injectMidi (juce::MidiMessage::noteOn (2, 69, (juce::uint8) 110));
+        auto bent = m.run (0.6);
+        auto at880 = tone (bent, 880, 0.2, 0.5), at440 = tone (bent, 440, 0.2, 0.5);
+        check (at880 > 4.0 * at440 && at880 > 0.005, "MPE: per-note bend on channel 2 moves A440 up an octave", at880, 4.0 * at440);
+
+        // A second note on another member channel is not bent.
+        me.injectMidi (juce::MidiMessage::noteOn (3, 64, (juce::uint8) 110));
+        auto both = m.run (0.4);
+        check (tone (both, juce::MidiMessage::getMidiNoteInHertz (64), 0.15, 0.4) > 0.005, "MPE: unbent note on channel 3 sounds at its own pitch",
+               tone (both, juce::MidiMessage::getMidiNoteInHertz (64), 0.15, 0.4), 0.005);
+        me.injectMidi (juce::MidiMessage::noteOff (2, 69));
+        me.injectMidi (juce::MidiMessage::noteOff (3, 64));
+
+        // Settings survive a restart.
+        me.mpeBendRange = 24;
+        me.track[2].fader = 0.42f;
+        me.saveSettings();
+        m.engine.reset();
+        auto again = std::make_unique<AudioEngine> (*m.props);
+        check (again->mpeEnabled.load() && again->mpeBendRange.load() == 24, "settings: MPE and bend range restored after restart",
+               again->mpeBendRange.load(), 24);
+        check (std::abs (again->track[2].fader.load() - 0.42f) < 1e-4f, "settings: fader position restored after restart", again->track[2].fader.load(), 0.42);
+        check (again->getInstrument (0) != nullptr && again->getInstrument (0)->getName() == BuiltIn::nameOf (BuiltIn::epiano),
+               "settings: track 1 instrument restored after restart", 1, 1);
+        again.reset();
+    }
+
     std::printf ("\n%s (%d failure%s)\n", failures == 0 ? "ALL PASSED" : "SOME FAILED", failures, failures == 1 ? "" : "s");
     return failures == 0 ? 0 : 1;
 }

@@ -107,7 +107,8 @@ void StripComponent::refresh (bool blink)
             break;
         }
         case Source::instrument:
-            lcd.sub = engine.followArm.load() ? juce::String ("MIDI IN") : "MIDI CH " + juce::String (t + 1);
+            lcd.sub = engine.mpeEnabled.load() ? juce::String ("MPE")
+                    : engine.followArm.load() ? juce::String ("MIDI IN") : "MIDI CH " + juce::String (t + 1);
             tag = "MIDI"; tagColour = Pal::midiBlue;
             break;
         case Source::bounce:

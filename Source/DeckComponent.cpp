@@ -169,6 +169,8 @@ DeckComponent::DeckComponent (AudioEngine& e, juce::PropertiesFile& settings)
     noFocus (*this);
 
     loadStartupTape();
+    if (engine.getStartupProblem().isNotEmpty())
+        say (engine.getStartupProblem() + " - OPEN SETUP", 10.0);
     startTimerHz (30);
 }
 
@@ -447,6 +449,10 @@ void DeckComponent::timerCallback()
     stoppedFrames = mode == Mode::stop ? stoppedFrames + 1 : 0;
     if (tape != nullptr && stoppedFrames == 30 && tape->needsSaving())
         saveTape (false);
+
+    // Knobs, faders and sources are kept too, every 20 seconds while stopped.
+    if (stoppedFrames > 0 && frame % 600 == 0)
+        engine.saveSettings();
 }
 
 //==============================================================================
@@ -591,7 +597,7 @@ void DeckComponent::showSourceMenu (int t, juce::Component* target)
     for (int i = 0; i < inputs.size(); ++i)
         m.addItem ("IN " + juce::String (i + 1) + "   " + inputs[i], true,
                    source == Source::audio && p.inputChannel.load() == i,
-                   [this, t, i] { closePluginWindow (t); engine.setInstrument (t, nullptr); engine.setAudioSource (t, i); });
+                   [this, t, i] { closePluginWindow (t); engine.setInstrument (t, nullptr); engine.setAudioSource (t, i); engine.saveSettings(); });
 
     m.addSeparator();
     m.addSectionHeader ("MIDI INSTRUMENT");
@@ -600,7 +606,7 @@ void DeckComponent::showSourceMenu (int t, juce::Component* target)
     {
         auto name = BuiltIn::nameOf (k);
         bool ticked = source == Source::instrument && inst != nullptr && inst->getPlugin() == nullptr && inst->getName() == name;
-        m.addItem (name, true, ticked, [this, t, k] { closePluginWindow (t); engine.setInstrument (t, BuiltIn::create (k)); });
+        m.addItem (name, true, ticked, [this, t, k] { closePluginWindow (t); engine.setInstrument (t, BuiltIn::create (k)); engine.saveSettings(); });
     }
 
     juce::PopupMenu vst;

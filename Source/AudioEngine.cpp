@@ -26,7 +26,24 @@ AudioEngine::AudioEngine (juce::PropertiesFile& settings)
     auto saved = props.getXmlValue ("audioDevice");
     deviceManager.initialise (8, 8, saved.get(), true);
 
-    if (saved == nullptr)
+    if (saved != nullptr)
+    {
+        // If the saved driver couldn't be opened (switched off, in use by another program),
+        // JUCE falls back to a default device. Keep the user's choice on disk until they pick again.
+        auto wantType = saved->getStringAttribute ("deviceType");
+        auto wantName = saved->getStringAttribute ("audioOutputDeviceName");
+        if (wantName.isEmpty()) wantName = saved->getStringAttribute ("audioInputDeviceName");
+        auto* dev = deviceManager.getCurrentAudioDevice();
+        bool ok = dev != nullptr
+                  && (wantType.isEmpty() || deviceManager.getCurrentAudioDeviceType() == wantType)
+                  && (wantName.isEmpty() || dev->getName() == wantName);
+        if (! ok)
+        {
+            restoringDevice = true;
+            startupProblem = "COULD NOT OPEN " + (wantName.isNotEmpty() ? wantName : wantType).toUpperCase();
+        }
+    }
+    else
     {
         // First run: prefer ASIO when a driver is installed, then open every input and output.
         for (auto* type : deviceManager.getAvailableDeviceTypes())
@@ -62,11 +79,64 @@ AudioEngine::AudioEngine (juce::PropertiesFile& settings)
 
     deviceManager.addMidiInputDeviceCallback ({}, &midiCollector);
     restoreSettings();
+    stateAtStartup = deviceManager.createStateXml();
+    deviceManager.addChangeListener (this);
     deviceManager.addAudioCallback (this);
+    saveSettings();
+}
+
+void AudioEngine::changeListenerCallback (juce::ChangeBroadcaster*)
+{
+    // Any change the user makes in Audio Setup is written to disk straight away.
+    if (restoringDevice)
+    {
+        auto now = deviceManager.createStateXml();
+        bool changed = (now == nullptr) != (stateAtStartup == nullptr)
+                       || (now != nullptr && ! now->isEquivalentTo (stateAtStartup.get(), true));
+        if (! changed) return;
+        restoringDevice = false;
+        startupProblem = {};
+    }
+    saveSettings();
+}
+
+void AudioEngine::saveDeviceState()
+{
+    if (restoringDevice) return;
+    if (auto dev = deviceManager.createStateXml())
+        props.setValue ("audioDevice", dev.get());
+}
+
+void AudioEngine::setMidiInputEnabled (const juce::String& id, bool enabled)
+{
+    deviceManager.setMidiInputDeviceEnabled (id, enabled);
+    saveSettings();
+}
+
+void AudioEngine::setMpe (bool enabled, int bendRange)
+{
+    mpeEnabled = enabled;
+    mpeBendRange = juce::jlimit (1, 96, bendRange);
+    for (auto& p : mpeConfigPending) p = true;
+    saveSettings();
+}
+
+void AudioEngine::addMpeConfiguration (juce::MidiBuffer& b, bool on, int bendRange)
+{
+    auto cc = [&b] (int ch, int n, int v) { b.addEvent (juce::MidiMessage::controllerEvent (ch, n, v), 0); };
+    // MPE Configuration Message: RPN 6 on the master channel = number of member channels (lower zone).
+    // Data-entry MSB only: adding CC38 makes some receivers read a 14-bit value (15 -> 1920).
+    cc (1, 101, 0); cc (1, 100, 6); cc (1, 6, on ? 15 : 0); cc (1, 101, 127); cc (1, 100, 127);
+    if (on)
+    {
+        // Per-note pitch-bend range: RPN 0 on a member channel applies to all member channels.
+        cc (2, 101, 0); cc (2, 100, 0); cc (2, 6, bendRange); cc (2, 101, 127); cc (2, 100, 127);
+    }
 }
 
 AudioEngine::~AudioEngine()
 {
+    deviceManager.removeChangeListener (this);
     deviceManager.removeAudioCallback (this);
     deviceManager.removeMidiInputDeviceCallback ({}, &midiCollector);
     for (auto& s : slots)
@@ -85,12 +155,16 @@ std::unique_ptr<Tape> AudioEngine::swapTape (std::unique_ptr<Tape> newTape)
 
 void AudioEngine::setAudioSource (int t, int inputChannel)
 {
+    pendingInstrument[t].reset();
+    pluginMissing[t] = false;
     track[t].inputChannel = inputChannel;
     track[t].source = (int) Source::audio;
 }
 
 void AudioEngine::setInstrument (int t, std::unique_ptr<Instrument> inst)
 {
+    pendingInstrument[t].reset();
+    pluginMissing[t] = false;
     if (inst != nullptr && sampleRate > 0)
         inst->prepare (sampleRate, maxBlock);
 
@@ -101,6 +175,7 @@ void AudioEngine::setInstrument (int t, std::unique_ptr<Instrument> inst)
         slots[t].inst = std::move (inst);
     }
 
+    mpeConfigPending[t] = true;   // tell the new instrument about the MPE zone
     if (slots[t].inst != nullptr)
         track[t].source = (int) Source::instrument;
 }
@@ -116,6 +191,7 @@ void AudioEngine::loadPlugin (int t, const juce::PluginDescription& desc, const 
         {
             if (p == nullptr)
             {
+                pluginMissing[t] = pendingInstrument[t] != nullptr;
                 if (done) done (err.isNotEmpty() ? err : juce::String ("The plug-in could not be loaded."));
                 return;
             }
@@ -128,6 +204,7 @@ void AudioEngine::loadPlugin (int t, const juce::PluginDescription& desc, const 
             }
 
             setInstrument (t, std::make_unique<PluginInstrument> (std::move (p)));
+            saveSettings();
             if (done) done ({});
         });
 }
@@ -135,6 +212,8 @@ void AudioEngine::loadPlugin (int t, const juce::PluginDescription& desc, const 
 void AudioEngine::toggleBounceSource (int t, int sourceTrack)
 {
     if (sourceTrack == t) return;
+    pendingInstrument[t].reset();
+    pluginMissing[t] = false;
     auto mask = track[t].source.load() == (int) Source::bounce ? track[t].bounceMask.load() : 0;
     mask ^= (1 << sourceTrack);
     track[t].bounceMask = mask;
@@ -148,7 +227,14 @@ juce::String AudioEngine::describeSource (int t) const
         case Source::audio:
             return "ASIO IN " + juce::String (track[t].inputChannel.load() + 1);
         case Source::instrument:
-            return slots[t].inst != nullptr ? slots[t].inst->getName().toUpperCase() : juce::String ("LOADING...");
+            if (slots[t].inst != nullptr) return slots[t].inst->getName().toUpperCase();
+            if (pendingInstrument[t] != nullptr)
+            {
+                auto name = pendingInstrument[t]->getChildByName ("PLUGIN") != nullptr
+                                ? pendingInstrument[t]->getChildByName ("PLUGIN")->getStringAttribute ("name") : juce::String ("PLUG-IN");
+                return pluginMissing[t] ? "MISSING: " + name.toUpperCase() : "LOADING " + name.toUpperCase();
+            }
+            return "NO INSTRUMENT";
         case Source::bounce:
         {
             juce::StringArray names;
@@ -218,8 +304,7 @@ void AudioEngine::injectMidi (const juce::MidiMessage& m)
 //==============================================================================
 void AudioEngine::saveSettings()
 {
-    if (auto dev = deviceManager.createStateXml())
-        props.setValue ("audioDevice", dev.get());
+    saveDeviceState();
 
     if (auto known = knownPlugins.createXml())
         props.setValue ("knownPlugins", known.get());
@@ -241,6 +326,8 @@ void AudioEngine::saveSettings()
         x->setAttribute ("bounce", p.bounceMask.load());
         if (slots[t].inst != nullptr)
             x->addChildElement (slots[t].inst->saveState().release());
+        else if (pendingInstrument[t] != nullptr)
+            x->addChildElement (new juce::XmlElement (*pendingInstrument[t]));
     }
 
     auto* m = deck.createNewChildElement ("MASTER");
@@ -250,6 +337,17 @@ void AudioEngine::saveSettings()
     m->setAttribute ("phonesOut", phonesPair.load());
     m->setAttribute ("monitor", monitorMode.load());
     m->setAttribute ("followArm", followArm.load());
+    m->setAttribute ("mpe", mpeEnabled.load());
+    m->setAttribute ("mpeBendRange", mpeBendRange.load());
+
+    auto* midi = deck.createNewChildElement ("MIDI_INPUTS");
+    for (auto& d : juce::MidiInput::getAvailableDevices())
+    {
+        auto* x = midi->createNewChildElement ("INPUT");
+        x->setAttribute ("id", d.identifier);
+        x->setAttribute ("name", d.name);
+        x->setAttribute ("enabled", deviceManager.isMidiInputDeviceEnabled (d.identifier));
+    }
 
     auto& tp = tapeEngine.params;
     auto* x = deck.createNewChildElement ("TAPE_DECK");
@@ -315,6 +413,7 @@ void AudioEngine::restoreSettings()
                     if (desc.loadFromXml (*dx))
                     {
                         p.source = (int) Source::instrument;
+                        pendingInstrument[t] = std::make_unique<juce::XmlElement> (*ix);
                         loadPlugin (t, desc, ix->getStringAttribute ("state"), nullptr);
                     }
                 }
@@ -334,6 +433,21 @@ void AudioEngine::restoreSettings()
         phonesPair  = m->getIntAttribute ("phonesOut", -1);
         monitorMode = m->getIntAttribute ("monitor");
         followArm   = m->getBoolAttribute ("followArm", true);
+        mpeEnabled  = m->getBoolAttribute ("mpe", true);
+        mpeBendRange = juce::jlimit (1, 96, m->getIntAttribute ("mpeBendRange", 48));
+    }
+
+    // MIDI inputs: exactly the ones that were chosen last time. Devices never seen before stay off.
+    if (auto* midi = deck->getChildByName ("MIDI_INPUTS"))
+    {
+        for (auto& d : juce::MidiInput::getAvailableDevices())
+        {
+            bool enabled = false;
+            for (auto* x : midi->getChildWithTagNameIterator ("INPUT"))
+                if (x->getStringAttribute ("id") == d.identifier || x->getStringAttribute ("name") == d.name)
+                    enabled = x->getBoolAttribute ("enabled");
+            deviceManager.setMidiInputDeviceEnabled (d.identifier, enabled);
+        }
     }
 
     if (auto* x = deck->getChildByName ("TAPE_DECK"))
@@ -385,6 +499,7 @@ void AudioEngine::audioDeviceAboutToStart (juce::AudioIODevice* dev)
         tapeEngine.setTape (tape.get());
     }
     midiCollector.reset (sampleRate);
+    for (auto& p : mpeConfigPending) p = true;
 
     for (int t = 0; t < numTracks; ++t)
     {
@@ -451,7 +566,10 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputs, 
 
     // ---- who hears the keyboard ----
     bool receives[numTracks] {};
-    const bool follow = followArm.load();
+    const bool mpeOn = mpeEnabled.load();
+    const int bendRange = mpeBendRange.load();
+    // MPE spreads one keyboard across 15 channels, so it always goes to the armed track.
+    const bool follow = followArm.load() || mpeOn;
     if (follow)
     {
         bool any = false;
@@ -483,6 +601,8 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputs, 
         else if (source[t] == (int) Source::instrument)
         {
             trackMidi.clear();
+            if (mpeConfigPending[t].exchange (false))
+                addMpeConfiguration (trackMidi, mpeOn, bendRange);
             if (receives[t])
             {
                 if (follow)
@@ -507,7 +627,10 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputs, 
             {
                 const juce::SpinLock::ScopedTryLockType sl (slots[t].lock);
                 if (sl.isLocked() && slots[t].inst != nullptr)
+                {
+                    slots[t].inst->applyMpe (mpeOn, bendRange);
                     slots[t].inst->render (instBuffer, n, trackMidi);
+                }
             }
             auto* l = instBuffer.getReadPointer (0);
             auto* r = instBuffer.getReadPointer (1);

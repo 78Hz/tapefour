@@ -12,9 +12,10 @@ public:
     ~SetupWindow() override;
 
     void showTab (int index);
-    void closeButtonPressed() override { setVisible (false); }
+    void closeButtonPressed() override { setVisible (false); engine.saveSettings(); }
 
 private:
+    AudioEngine& engine;
     std::unique_ptr<juce::TabbedComponent> tabs;
 };
 } // namespace tf

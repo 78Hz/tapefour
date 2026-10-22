@@ -12,12 +12,13 @@ class AudioPanel : public juce::Component,
 public:
     explicit AudioPanel (AudioEngine& e)
         : engine (e),
-          selector (e.deviceManager, 0, 16, 2, 16, true, false, false, false)
+          // MIDI inputs are handled below, not by JUCE's selector.
+          selector (e.deviceManager, 0, 16, 2, 16, false, false, false, false)
     {
         addAndMakeVisible (selector);
         selector.addComponentListener (this);
 
-        for (auto* l : { &mainLabel, &phonesLabel, &monitorLabel, &latencyLabel })
+        for (auto* l : { &mainLabel, &phonesLabel, &monitorLabel, &latencyLabel, &midiLabel, &mpeLabel, &bendLabel })
         {
             l->setFont (DeckLookAndFeel::get().cond (17.0f));
             l->setColour (juce::Label::textColourId, Pal::muted);
@@ -25,29 +26,45 @@ public:
             addAndMakeVisible (l);
         }
 
-        mainOut.onChange   = [this] { engine.mainOutPair = std::max (0, mainOut.getSelectedItemIndex()); };
-        phonesOut.onChange = [this] { engine.phonesPair = phonesOut.getSelectedItemIndex() - 1; };
+        mainOut.onChange   = [this] { engine.mainOutPair = std::max (0, mainOut.getSelectedItemIndex()); engine.saveSettings(); };
+        phonesOut.onChange = [this] { engine.phonesPair = phonesOut.getSelectedItemIndex() - 1; engine.saveSettings(); };
         monitor.addItem ("Auto: hear the input when stopped or recording, the tape when playing", 1);
         monitor.addItem ("Always hear the input on armed tracks", 2);
         monitor.setSelectedItemIndex (engine.monitorMode.load(), juce::dontSendNotification);
-        monitor.onChange = [this] { engine.monitorMode = monitor.getSelectedItemIndex(); };
+        monitor.onChange = [this] { engine.monitorMode = monitor.getSelectedItemIndex(); engine.saveSettings(); };
 
         follow.setToggleState (engine.followArm.load(), juce::dontSendNotification);
-        follow.onClick = [this] { engine.followArm = follow.getToggleState(); };
+        follow.onClick = [this] { engine.followArm = follow.getToggleState(); engine.saveSettings(); };
 
         latency.setRange (-50.0, 50.0, 1.0);
         latency.setTextValueSuffix (" ms");
         latency.setTextBoxStyle (juce::Slider::TextBoxRight, false, 70, 24);
         latency.setValue (engine.tapeEngine.params.latencyOffsetMs.load(), juce::dontSendNotification);
         latency.onValueChange = [this] { engine.tapeEngine.params.latencyOffsetMs = (int) latency.getValue(); };
+        latency.onDragEnd = [this] { engine.saveSettings(); };
         latency.setTooltip ("Overdubs are shifted earlier by the driver's reported latency. "
                             "If they still land late or early, adjust here.");
 
-        for (auto* c : std::initializer_list<juce::Component*> { &mainOut, &phonesOut, &monitor, &follow, &latency })
+        mpe.setToggleState (engine.mpeEnabled.load(), juce::dontSendNotification);
+        mpe.onClick = [this] { engine.setMpe (mpe.getToggleState(), (int) bend.getValue()); updateEnablement(); };
+        bend.setRange (1.0, 96.0, 1.0);
+        bend.setTextValueSuffix (" semitones");
+        bend.setTextBoxStyle (juce::Slider::TextBoxRight, false, 110, 24);
+        bend.setValue (engine.mpeBendRange.load(), juce::dontSendNotification);
+        bend.onDragEnd = [this] { engine.setMpe (mpe.getToggleState(), (int) bend.getValue()); };
+        bend.setTooltip ("Must match the pitch-bend range your MPE controller sends (Osmose default: 48).");
+
+        for (auto* c : std::initializer_list<juce::Component*> { &mainOut, &phonesOut, &monitor, &follow, &latency, &mpe, &bend })
             addAndMakeVisible (c);
+
+        noMidi.setFont (DeckLookAndFeel::get().cond (17.0f));
+        noMidi.setColour (juce::Label::textColourId, Pal::faint);
+        addChildComponent (noMidi);
 
         engine.deviceManager.addChangeListener (this);
         refreshOutputs();
+        rebuildMidiList();
+        updateEnablement();
     }
 
     ~AudioPanel() override
@@ -75,20 +92,61 @@ public:
         row (phonesLabel, phonesOut);
         row (monitorLabel, monitor);
         row (latencyLabel, latency);
+
+        r.removeFromTop (10);
+        auto first = true;
+        for (auto* t : midiToggles)
+        {
+            auto line = r.removeFromTop (28);
+            auto lbl = line.removeFromLeft (200);
+            if (first) midiLabel.setBounds (lbl);
+            first = false;
+            line.removeFromLeft (10);
+            t->setBounds (line);
+        }
+        if (midiToggles.isEmpty())
+        {
+            auto line = r.removeFromTop (28);
+            midiLabel.setBounds (line.removeFromLeft (200));
+            line.removeFromLeft (10);
+            noMidi.setBounds (line);
+        }
+        r.removeFromTop (12);
+
         auto line = r.removeFromTop (30);
+        mpeLabel.setBounds (line.removeFromLeft (200));
+        line.removeFromLeft (10);
+        mpe.setBounds (line);
+        r.removeFromTop (8);
+        row (bendLabel, bend);
+        line = r.removeFromTop (30);
         line.removeFromLeft (210);
         follow.setBounds (line);
     }
 
-    int selectorHeight() const { return selector.getHeight() > 0 ? selector.getHeight() : 420; }
-    int preferredHeight() const { return selectorHeight() + 24 + 12 + 5 * 38; }
+    int selectorHeight() const { return selector.getHeight() > 0 ? selector.getHeight() : 360; }
+    int preferredHeight() const
+    {
+        return selectorHeight() + 24 + 12 + 4 * 38 + 10 + std::max (1, midiToggles.size()) * 28 + 12 + 3 * 38 + 24;
+    }
     std::function<void()> onPreferredHeightChanged;
 
 private:
-    void changeListenerCallback (juce::ChangeBroadcaster*) override { refreshOutputs(); }
+    void changeListenerCallback (juce::ChangeBroadcaster*) override
+    {
+        refreshOutputs();
+        // Never rebuild the MIDI list from inside one of its own clicks.
+        juce::Component::SafePointer<AudioPanel> safe (this);
+        juce::MessageManager::callAsync ([safe] { if (safe != nullptr) safe->rebuildMidiList(); });
+    }
+
     void componentMovedOrResized (juce::Component&, bool, bool wasResized) override
     {
-        if (! wasResized) return;
+        if (wasResized) relayoutLater();
+    }
+
+    void relayoutLater()
+    {
         // Re-lay out later, outside the selector's own resize, so the two never chase each other.
         juce::Component::SafePointer<AudioPanel> safe (this);
         juce::MessageManager::callAsync ([safe]
@@ -97,6 +155,45 @@ private:
             if (safe->onPreferredHeightChanged) safe->onPreferredHeightChanged();
             else safe->resized();
         });
+    }
+
+    void rebuildMidiList()
+    {
+        auto devices = engine.getMidiInputs();
+        juce::StringArray ids;
+        for (auto& d : devices) ids.add (d.identifier);
+
+        noMidi.setVisible (ids.isEmpty());
+        if (ids == midiIds && midiToggles.size() == ids.size())
+        {
+            for (int i = 0; i < midiToggles.size(); ++i)
+                midiToggles[i]->setToggleState (engine.isMidiInputEnabled (midiIds[i]), juce::dontSendNotification);
+            return;
+        }
+
+        midiIds = ids;
+        midiToggles.clear();
+        for (auto& d : devices)
+        {
+            auto* t = midiToggles.add (new juce::ToggleButton (d.name));
+            t->setToggleState (engine.isMidiInputEnabled (d.identifier), juce::dontSendNotification);
+            auto id = d.identifier;
+            auto& eng = engine;
+            t->onClick = [t, id, &eng]
+            {
+                auto on = t->getToggleState();
+                // Open or close the port after the click has finished.
+                juce::MessageManager::callAsync ([&eng, id, on] { eng.setMidiInputEnabled (id, on); });
+            };
+            addAndMakeVisible (t);
+        }
+        relayoutLater();
+    }
+
+    void updateEnablement()
+    {
+        bend.setEnabled (mpe.getToggleState());
+        follow.setEnabled (! mpe.getToggleState());
     }
 
     void refreshOutputs()
@@ -117,10 +214,16 @@ private:
     AudioEngine& engine;
     juce::AudioDeviceSelectorComponent selector;
     juce::Label mainLabel { {}, "Stereo out" }, phonesLabel { {}, "Phones" },
-                monitorLabel { {}, "Input monitoring" }, latencyLabel { {}, "Overdub timing" };
+                monitorLabel { {}, "Input monitoring" }, latencyLabel { {}, "Overdub timing" },
+                midiLabel { {}, "MIDI inputs" }, mpeLabel { {}, "MPE" }, bendLabel { {}, "MPE pitch-bend range" },
+                noMidi { {}, "No MIDI inputs found. Connect a controller and reopen this window." };
     juce::ComboBox mainOut, phonesOut, monitor;
     juce::ToggleButton follow { "Keyboard plays the armed instrument track (off: track n listens on MIDI channel n)" };
+    juce::ToggleButton mpe { "MPE controller (Osmose, Seaboard, LinnStrument...): every instrument gets per-note bend, pressure and timbre" };
     juce::Slider latency { juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight };
+    juce::Slider bend { juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight };
+    juce::OwnedArray<juce::ToggleButton> midiToggles;
+    juce::StringArray midiIds;
 };
 
 //==============================================================================
@@ -312,15 +415,16 @@ private:
 } // namespace
 
 //==============================================================================
-SetupWindow::SetupWindow (AudioEngine& engine, juce::PropertiesFile& settings)
-    : juce::DocumentWindow (utf ("TAPE\xc2\xb7" "FOUR  Audio Setup"), Pal::panel, juce::DocumentWindow::closeButton)
+SetupWindow::SetupWindow (AudioEngine& engineRef, juce::PropertiesFile& settings)
+    : juce::DocumentWindow (utf ("TAPE\xc2\xb7" "FOUR  Audio Setup"), Pal::panel, juce::DocumentWindow::closeButton),
+      engine (engineRef)
 {
     setUsingNativeTitleBar (true);
     tabs = std::make_unique<juce::TabbedComponent> (juce::TabbedButtonBar::TabsAtTop);
     tabs->setTabBarDepth (36);
-    tabs->addTab ("AUDIO & MIDI", Pal::panel, new ScrollingAudioPanel (engine), true);
-    tabs->addTab ("TAPE", Pal::panel, new TapePanel (engine), true);
-    tabs->addTab ("INSTRUMENTS", Pal::panel, new InstrumentsPanel (engine, settings), true);
+    tabs->addTab ("AUDIO & MIDI", Pal::panel, new ScrollingAudioPanel (engineRef), true);
+    tabs->addTab ("TAPE", Pal::panel, new TapePanel (engineRef), true);
+    tabs->addTab ("INSTRUMENTS", Pal::panel, new InstrumentsPanel (engineRef, settings), true);
     setContentNonOwned (tabs.get(), false);
     setResizable (true, false);
     centreWithSize (780, 760);

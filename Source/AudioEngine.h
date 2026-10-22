@@ -10,7 +10,8 @@ namespace tf
     strips feeding the tape and the stereo mix, and the instruments plugged
     into the tracks. There is no undo anywhere in here, on purpose.
 */
-class AudioEngine : public juce::AudioIODeviceCallback
+class AudioEngine : public juce::AudioIODeviceCallback,
+                    private juce::ChangeListener
 {
 public:
     struct TrackParams
@@ -39,6 +40,8 @@ public:
     std::atomic<int>   mainOutPair { 0 }, phonesPair { -1 }, monitorMode { 0 };   // monitor: 0 auto (tape-style), 1 always input
     std::atomic<bool>  followArm { true }, midiFlash { false };
     std::atomic<int>   focusedTrack { 0 };
+    std::atomic<bool>  mpeEnabled { true };       // MPE controllers such as the Osmose
+    std::atomic<int>   mpeBendRange { 48 };       // per-note pitch-bend range, semitones
 
     // ---- tape (message thread) ----
     Tape* getTape() const noexcept { return tape.get(); }
@@ -62,6 +65,15 @@ public:
 
     void injectMidi (const juce::MidiMessage& m);
 
+    // ---- MIDI inputs and MPE (message thread) ----
+    juce::Array<juce::MidiDeviceInfo> getMidiInputs() const { return juce::MidiInput::getAvailableDevices(); }
+    bool isMidiInputEnabled (const juce::String& id) const { return deviceManager.isMidiInputDeviceEnabled (id); }
+    void setMidiInputEnabled (const juce::String& id, bool enabled);
+    void setMpe (bool enabled, int bendRange);
+
+    /** Set when the saved audio device couldn't be opened at start-up (the saved choice is kept). */
+    juce::String getStartupProblem() const { return startupProblem; }
+
     // ---- settings ----
     void saveSettings();
     void restoreSettings();
@@ -74,6 +86,10 @@ public:
     void audioDeviceStopped() override;
 
 private:
+    void changeListenerCallback (juce::ChangeBroadcaster*) override;
+    void saveDeviceState();
+    static void addMpeConfiguration (juce::MidiBuffer& b, bool on, int bendRange);
+
     struct Slot
     {
         juce::SpinLock lock;
@@ -102,5 +118,13 @@ private:
     juce::AudioBuffer<float> instBuffer;
     juce::MidiBuffer midiIn, trackMidi;
     bool wasReceiving[numTracks] {};
+    std::atomic<bool> mpeConfigPending[numTracks] {};
+    // A plug-in still loading (or missing): its saved settings are kept so they aren't lost.
+    std::unique_ptr<juce::XmlElement> pendingInstrument[numTracks];
+    bool pluginMissing[numTracks] {};
+
+    bool restoringDevice = false;              // saved device failed to open: don't overwrite the saved choice
+    std::unique_ptr<juce::XmlElement> stateAtStartup;
+    juce::String startupProblem;
 };
 } // namespace tf
