@@ -171,13 +171,48 @@ void TapeEngine::calibrateHiss()
     }
 }
 
-/** Sets up everything that comes from the cassette itself: headroom, treble saturation, noise. */
-void TapeEngine::configureModel (int m, int speedSel)
+TapeEngine::BiasEffect TapeEngine::biasEffect (int iecType, int switchPos) noexcept
+{
+    // Bias current per position, relative to NORMAL: Type II tapes take about 150%, Type IV about 250%.
+    static constexpr float biasLevelDb[] { 0.0f, 3.5f, 8.0f };
+    auto d = biasLevelDb[juce::jlimit (0, 2, switchPos)] - biasLevelDb[positionForIec (iecType)];
+    BiasEffect e { d, 0.0f, 0.0f, 0.0f, 0.0f, iecType >= 4 && switchPos == 0 };
+    if (d > 0.0f)
+    {
+        // Over-bias: the field reaches deeper and wipes the short wavelengths. Dull, a little cleaner.
+        e.treble10k = std::max (-16.0f, -2.0f * d);
+        e.midLevel  = -0.25f * d;
+        e.mol       = std::min (1.5f, 0.25f * d);
+    }
+    else if (d < 0.0f)
+    {
+        // Under-bias: treble rises towards its peak and then falls; distortion and grain rise fast.
+        auto u = -d;
+        e.treble10k = u <= 4.0f ? 0.75f * u : 3.0f - (u - 4.0f);
+        e.midLevel  = u > 3.0f ? -0.5f * (u - 3.0f) : 0.0f;
+        e.mol       = -1.5f * u;
+        e.extraModNoise = 1.2f * u;
+    }
+    return e;
+}
+
+void TapeEngine::setEqMismatch (Biquad& b, double fs, double recUs, double playUs) noexcept
+{
+    // The playback amplifier's response is (1 + s tau) / s: playing with tauP what wanted tauR
+    // leaves (1 + s tauP) / (1 + s tauR). Bilinear transform, first order.
+    auto k = 2.0 * fs, tp = playUs * 1.0e-6, tr = recUs * 1.0e-6;
+    b.set (1.0 + tp * k, 1.0 - tp * k, 0.0, 1.0 + tr * k, 1.0 - tr * k, 0.0);
+}
+
+/** Sets up everything that comes from the cassette itself (headroom, treble saturation, noise)
+    and from the tape switch while recording (bias). */
+void TapeEngine::configureModel (int m, int speedSel, int switchPos)
 {
     const auto& tm = tapeModels[juce::jlimit (0, numTapeModels - 1, m)];
+    const auto bias = biasEffect (tm.iecType, switchPos);
 
-    // tanh(k x) / k reaches 3% third harmonic at the tape's MOL (400 Hz).
-    auto molPeak = tapeRefPeak * dbToGain (tm.mol400);
+    // tanh(k x) / k reaches 3% third harmonic at the tape's MOL (400 Hz), moved by any bias mismatch.
+    auto molPeak = tapeRefPeak * dbToGain (tm.mol400 + bias.mol);
     satK = tanhThirdHarmonicPoint() / molPeak;
 
     // Full saturation of tanh sits this far above its 3% point...
@@ -193,13 +228,13 @@ void TapeEngine::configureModel (int m, int speedSel)
     {
         Biquad b;
         double g = targetDb;
-        for (int it = 0; it < 8 && targetDb > 0.0f; ++it)
+        for (int it = 0; it < 8 && targetDb != 0.0f; ++it)
         {
             if (high) b.setHighShelf (sr, fc, g, 0.7); else b.setLowShelf (sr, fc, g, 0.7);
             auto got = 20.0 * std::log10 (magnitudeAt (b, f, sr));
             g += targetDb - got;
         }
-        return targetDb > 0.0f ? g : 0.0;
+        return targetDb != 0.0f ? g : 0.0;
     };
     auto hiDb = fit (true, hiFc, 10000.0, hiTarget);
     auto loDb = fit (false, 160.0, 100.0, loTarget);
@@ -211,14 +246,23 @@ void TapeEngine::configureModel (int m, int speedSel)
         emphLo[t].setLowShelf (sr, 160.0, loDb, 0.7);
         deemphLo[t].setLowShelf (sr, 160.0, -loDb, 0.7);
         for (auto* b : { &emphHi[t], &deemphHi[t], &emphLo[t], &deemphLo[t] }) b->reset();
+        auto biasDb = fit (true, hiFc, 10000.0, bias.treble10k);
+        biasHi[t].setHighShelf (sr, hiFc, biasDb, 0.7);
+        biasHi[t].reset();
         if (tm.eqMicroseconds == 70) hissShape[t].setHighShelf (sr, 2200.0, -4.7);
         else                         hissShape[t] = Biquad();
     }
 
     sensGain = dbToGain (tm.sensitivity);
     modDepth = dbToGain (tm.modNoise);
+    biasMidGain = dbToGain (bias.midLevel);
+    recModDepth = bias.extraModNoise > 0.0f
+                      ? std::sqrt (std::max (0.0f, std::pow (10.0f, (tm.modNoise + bias.extraModNoise) / 10.0f) - std::pow (10.0f, tm.modNoise / 10.0f)))
+                      : 0.0f;
+    eraseBleed = bias.eraseBleed;
     cfgModel = m;
     cfgSpeed = speedSel;
+    cfgPos = switchPos;
 }
 
 void TapeEngine::prepare (double sampleRate, int maxBlockSize)
@@ -232,7 +276,9 @@ void TapeEngine::prepare (double sampleRate, int maxBlockSize)
 
     companderType = -1;
     lastHfCut = lastAaCut = -1;
-    cfgModel = cfgSpeed = -1;
+    cfgModel = cfgSpeed = cfgPos = -1;
+    hissEqKey = -1;
+    for (auto& k : sigEqKey) k = -1;
     calibrateHiss();
 
     // Modulation noise: a slow random wobble of the signal's level, unit RMS.
@@ -249,10 +295,12 @@ void TapeEngine::prepare (double sampleRate, int maxBlockSize)
     }
 }
 
-void TapeEngine::setTape (Tape* t) noexcept
+void TapeEngine::setTape (Tape* t, bool newTape) noexcept
 {
     tape = t;
     pos = t != nullptr ? t->position.load() : 0.0;
+    // A tape going in sets the switch to its own type; moving it after that is up to you.
+    if (t != nullptr && newTape) params.tapeSwitch = t->naturalPosition();
     windVel = 0;
     mode = (int) Mode::stop;
     rtz = false;
@@ -309,8 +357,9 @@ void TapeEngine::beginBlock (int n, const bool* armed, int deviceLatencySamples)
         configureCompanders (ct);
 
     auto spdSel = juce::jlimit (1, 2, params.speedSel.load());
-    if (tape->getModel() != cfgModel || spdSel != cfgSpeed)
-        configureModel (tape->getModel(), spdSel);
+    auto sw = juce::jlimit (0, 2, params.tapeSwitch.load());
+    if (tape->getModel() != cfgModel || spdSel != cfgSpeed || sw != cfgPos)
+        configureModel (tape->getModel(), spdSel, sw);
 
     // Entering record: start the encoders fresh, like a punch-in.
     if (m == Mode::rec && lastMode != (int) Mode::rec)
@@ -428,6 +477,20 @@ void TapeEngine::readAll (float* const* out, int n) noexcept
     auto dropProb = drop * drop * 2.0f / (float) sr;
     auto nrOn = params.nrOn.load();
 
+    // Playback EQ: the switch picks 120 or 70 us. Hiss follows the tape's own formulation,
+    // the recording follows the position it was recorded at.
+    auto sw = juce::jlimit (0, 2, params.tapeSwitch.load());
+    auto eqUs = [] (int pos) { return pos == 0 ? 120 : 70; };
+    const int playUs = eqUs (sw);
+    {
+        auto key = tm->eqMicroseconds * 1000 + playUs;
+        if (key != hissEqKey)
+        {
+            for (auto& b : hissEq) setEqMismatch (b, sr, tm->eqMicroseconds, playUs);
+            hissEqKey = key;
+        }
+    }
+
     for (int t = 0; t < numTracks; ++t)
     {
         auto* o = out[t];
@@ -451,6 +514,15 @@ void TapeEngine::readAll (float* const* out, int n) noexcept
             modLp[t] = modRng[t].next() * (1.0f - modCoef) + modLp[t] * modCoef;
             v *= sensGain * (1.0f + modDepth * modNorm * modLp[t]);
 
+            // playback EQ against the EQ this stretch was recorded with
+            if (tape != nullptr)
+            {
+                auto recUs = eqUs (tape->recordedPosition (t, tape->blockAt (posBuf[(size_t) i])));
+                auto key = recUs * 1000 + playUs;
+                if (key != sigEqKey[t]) { setEqMismatch (sigEq[t], sr, recUs, playUs); sigEqKey[t] = key; }
+                if (recUs != playUs) v = sigEq[t].process (v);
+            }
+
             // dropouts
             if (dropProb > 0.0f && dropTimer[t] <= 0 && hissNoise[t].uniform01() < dropProb)
             {
@@ -464,7 +536,10 @@ void TapeEngine::readAll (float* const* out, int n) noexcept
 
             // hiss: half white, half pink
             if (hissGain > 0.0f)
-                v += hissGain * hissShape[t].process (hissSample (hissNoise[t], pink[t]));
+            {
+                auto h = hissShape[t].process (hissSample (hissNoise[t], pink[t]));
+                v += hissGain * (tm->eqMicroseconds != playUs ? hissEq[t].process (h) : h);
+            }
 
             v = hfLoss[t][1].process (hfLoss[t][0].process (v));
 
@@ -487,6 +562,7 @@ void TapeEngine::writeTrack (int t, const float* in, int n) noexcept
     auto invDrive = 1.0f / drive;
     auto spd = nominalSpeed.load();
     auto k = satK, invK = 1.0f / satK;
+    auto sw = cfgPos;
 
     auto aaCut = (float) std::min (0.45 * spd * cellRate, 0.45 * sr);
     if (std::abs (aaCut - lastAaCut) > 1.0f)
@@ -513,16 +589,25 @@ void TapeEngine::writeTrack (int t, const float* in, int n) noexcept
         v = emphHi[t].process (emphLo[t].process (v));
         v = std::tanh (k * v) * invK;
         v = deemphLo[t].process (deemphHi[t].process (v)) * invDrive;
+
+        // bias against this tape: treble and level, and the grain of under-bias
+        v = biasHi[t].process (v) * biasMidGain;
+        if (recModDepth > 0.0f)
+        {
+            recModLp[t] = modRng[t].next() * (1.0f - modCoef) + recModLp[t] * modCoef;
+            v *= 1.0f + recModDepth * modNorm * recModLp[t];
+        }
         v = antiAlias[t][1].process (antiAlias[t][0].process (v));
 
-        writeSpan (t, posBuf[(size_t) i] - latencyCells, v, nrOn, spd);
+        writeSpan (t, posBuf[(size_t) i] - latencyCells, v, nrOn, spd, sw);
     }
 }
 
-void TapeEngine::writeSpan (int t, double p, float v, bool nr, float spd) noexcept
+void TapeEngine::writeSpan (int t, double p, float v, bool nr, float spd, int pos) noexcept
 {
     if (! hasPrev[t] || p <= prevPos[t] || p - prevPos[t] > 64.0)
     {
+        eraseLp[t] = 0.0f;
         prevPos[t] = p;
         prevVal[t] = v;
         hasPrev[t] = true;
@@ -534,7 +619,16 @@ void TapeEngine::writeSpan (int t, double p, float v, bool nr, float spd) noexce
     for (auto c = c0; c <= c1; ++c)
     {
         auto f = (float) (((double) c - a) / (b - a));
-        tape->writeCell (t, c, prevVal[t] + (v - prevVal[t]) * f, nr, spd);
+        auto val = prevVal[t] + (v - prevVal[t]) * f;
+        if (eraseBleed)
+        {
+            // A NORMAL-position erase head can't fully erase metal tape: the old recording,
+            // mostly its bass, survives about 30 dB down under the new one.
+            const float a = std::exp (-juce::MathConstants<float>::twoPi * 250.0f / (cellRate * std::max (0.5f, spd)));
+            eraseLp[t] = tape->readCell (t, c) * (1.0f - a) + eraseLp[t] * a;
+            val += 0.0316f * eraseLp[t];
+        }
+        tape->writeCell (t, c, val, nr, spd, pos);
     }
     prevPos[t] = b;
     prevVal[t] = v;

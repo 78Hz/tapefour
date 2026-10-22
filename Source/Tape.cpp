@@ -50,7 +50,7 @@ float Tape::readInterpolated (int track, double pos) const noexcept
     return ((c3 * f + c2) * f + c1) * f + y1;
 }
 
-void Tape::writeCell (int track, int64_t c, float v, bool nrEncoded, float speed) noexcept
+void Tape::writeCell (int track, int64_t c, float v, bool nrEncoded, float speed, int pos) noexcept
 {
     if (c < 0 || c >= lengthCells)
         return;
@@ -58,7 +58,7 @@ void Tape::writeCell (int track, int64_t c, float v, bool nrEncoded, float speed
     data[track][c] = (int16_t) juce::roundToInt (juce::jlimit (-1.0f, 1.0f, v * fluxScale) * 32767.0f);
 
     auto b = (int) (c / blockCells);
-    flags[track][b].store ((uint8_t) (1 | (nrEncoded ? 2 : 0)), std::memory_order_relaxed);
+    flags[track][b].store ((uint8_t) (1 | (nrEncoded ? 2 : 0) | ((juce::jlimit (0, 2, pos) + 1) << 2)), std::memory_order_relaxed);
     speedMilli[track][b].store ((uint16_t) juce::jlimit (0, 65535, juce::roundToInt (speed * 1000.0f)), std::memory_order_relaxed);
     dirty[track][(size_t) (c / cellRate)].store (1, std::memory_order_relaxed);
     dataDirty.store (true, std::memory_order_relaxed);

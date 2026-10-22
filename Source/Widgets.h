@@ -12,8 +12,8 @@ public:
     LcdButton() : juce::Button ("lcd") { setWantsKeyboardFocus (false); setMouseClickGrabsKeyboardFocus (false); }
 
     juce::String top, sub, low;
-    bool showLamps = false, nrLamp = false, midiLamp = false;
-    juce::Colour nrColour = Pal::amber;
+    bool showLamps = false, nrLamp = false, eqLamp = false, midiLamp = false;
+    juce::Colour nrColour = Pal::amber, eqColour = Pal::green;
     float topSize = 17.0f;
 
     void paintButton (juce::Graphics& g, bool over, bool) override
@@ -38,11 +38,15 @@ public:
         auto bottom = in.removeFromBottom (14);
         if (showLamps)
         {
-            auto lamps = bottom.removeFromRight (92);
+            auto lamps = bottom.removeFromRight (136);
             g.setFont (lf.mono (12.0f));
             g.setColour (Pal::lcdDim);
             g.drawText ("NR", lamps.removeFromLeft (20), juce::Justification::centredLeft);
             drawLamp (g, lamps.removeFromLeft (12).toFloat().withSizeKeepingCentre (8, 8), nrLamp, nrColour);
+            lamps.removeFromLeft (10);
+            g.setColour (Pal::lcdDim);
+            g.drawText ("EQ", lamps.removeFromLeft (20), juce::Justification::centredLeft);
+            drawLamp (g, lamps.removeFromLeft (12).toFloat().withSizeKeepingCentre (8, 8), eqLamp, eqColour);
             lamps.removeFromLeft (10);
             g.setColour (Pal::lcdDim);
             g.drawText ("MIDI", lamps.removeFromLeft (36), juce::Justification::centredLeft);
@@ -361,6 +365,90 @@ public:
             auto y = bottom - (float) m.pos * (bottom - top);
             g.drawText (m.text, juce::Rectangle<float> (56.0f, y - 7.0f, 40.0f, 14.0f), juce::Justification::centredLeft);
         }
+    }
+};
+//==============================================================================
+/**
+    The deck's tape switch: NORMAL / CHROME / METAL. Each position shows its type and
+    playback EQ; the lamp of the loaded cassette's own type lights green when the switch
+    matches it and amber when it doesn't.
+*/
+class TapeSwitch : public juce::Component, public juce::SettableTooltipClient
+{
+public:
+    TapeSwitch()
+    {
+        setWantsKeyboardFocus (false);
+        setMouseClickGrabsKeyboardFocus (false);
+        setTitle ("Tape type switch");
+    }
+
+    int position = 0, tapeType = 0;
+    bool hasTape = true;
+    std::function<void (int)> onChange;
+
+    static constexpr int labelW = 62, segW = 102;
+
+    void paint (juce::Graphics& g) override
+    {
+        auto& lf = DeckLookAndFeel::get();
+        auto r = getLocalBounds();
+        auto label = r.removeFromLeft (labelW);
+        g.setColour (Pal::muted);
+        g.setFont (lf.cond (12.0f, true).withExtraKerningFactor (0.22f));
+        g.drawText ("TAPE", label.withTrimmedBottom (label.getHeight() / 2), juce::Justification::bottomLeft);
+        g.drawText (juce::CharPointer_UTF8 ("BIAS \xc2\xb7 EQ"), label.withTrimmedTop (label.getHeight() / 2 + 3), juce::Justification::topLeft);
+
+        auto track = r.toFloat();
+        g.setColour (Pal::darker);
+        g.fillRoundedRectangle (track, 7.0f);
+        g.setColour (juce::Colours::black.withAlpha (0.8f));
+        g.drawRoundedRectangle (track.reduced (0.5f), 7.0f, 1.0f);
+
+        static const char* names[] { "NORMAL", "CHROME", "METAL" };
+        static const char* subs[]  { "TYPE I \xc2\xb7 120\xc2\xb5s", "TYPE II \xc2\xb7 70\xc2\xb5s", "TYPE IV \xc2\xb7 70\xc2\xb5s" };
+        for (int i = 0; i < 3; ++i)
+        {
+            auto seg = segment (i).toFloat();
+            const bool sel = i == position, own = hasTape && i == tapeType;
+            if (sel)
+            {
+                g.setColour (juce::Colour (0xff6f6a5f));
+                g.fillRoundedRectangle (seg.translated (0, 3), 5.0f);
+                g.setGradientFill (juce::ColourGradient (juce::Colour (0xffebe5d8), 0, seg.getY(), juce::Colour (0xffc9c2b2), 0, seg.getBottom(), false));
+                g.fillRoundedRectangle (seg, 5.0f);
+            }
+            auto in = seg.reduced (8, 0);
+            auto lampR = in.removeFromLeft (9).withSizeKeepingCentre (9, 9);
+            auto lampColour = own ? (position == tapeType ? Pal::green : Pal::amber) : (sel ? juce::Colour (0xff8a8578) : juce::Colour (0xff2c2a26));
+            if (own) drawLamp (g, lampR, true, lampColour);
+            else { g.setColour (lampColour); g.fillEllipse (lampR); }
+            in.removeFromLeft (8);
+            g.setColour (sel ? juce::Colour (0xff1a1917) : Pal::muted);
+            g.setFont (lf.cond (14.0f, true).withExtraKerningFactor (0.14f));
+            g.drawText (names[i], in.withTrimmedBottom (in.getHeight() * 0.5f - 1), juce::Justification::bottomLeft);
+            g.setColour (sel ? juce::Colour (0xff5c564a) : juce::Colour (0xff8c877b));
+            g.setFont (lf.cond (11.0f, true).withExtraKerningFactor (0.04f));
+            g.drawText (juce::CharPointer_UTF8 (subs[i]), in.withTrimmedTop (in.getHeight() * 0.5f + 2), juce::Justification::topLeft);
+        }
+    }
+
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        for (int i = 0; i < 3; ++i)
+            if (segment (i).contains (e.getPosition()) && i != position)
+            {
+                position = i;
+                repaint();
+                if (onChange) onChange (i);
+            }
+    }
+
+private:
+    juce::Rectangle<int> segment (int i) const
+    {
+        auto r = getLocalBounds().withTrimmedLeft (labelW).reduced (4);
+        return r.withWidth (segW).translated (i * segW, 0);
     }
 };
 } // namespace tf

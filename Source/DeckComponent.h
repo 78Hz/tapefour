@@ -76,6 +76,7 @@ private:
     CassetteComponent cassette;
     FlatButton eject { "EJECT" };
     InlayThumb inlayThumb;
+    TapeSwitch tapeSwitch;
 
     // transport
     FlatButton resetBtn { "RESET" }, rtzBtn { "RTZ" };

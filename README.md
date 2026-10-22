@@ -87,6 +87,19 @@ What these mean on the deck:
 
 The automated tests record tones through each cassette and check that these figures come out. Tapes made before this version play as SD. The cassette shell, its print, and the inlay colours match the tape you choose.
 
+### The tape switch
+
+The **TAPE · BIAS · EQ** switch under the cassette (NORMAL / CHROME / METAL) sets the record bias, the record EQ and the playback EQ, as on a real deck. When a tape goes in, the switch moves to that tape's type. After that it stays where you put it, so you can try mismatches. The lamp for the cassette's own type is green when the switch matches it and amber when it doesn't, and the status display says which way the bias is off.
+
+- **Bias:** a Type II tape takes about 1.5× the bias of a Type I, and a Type IV about 2.5×.
+  - **Under-biased** (a tape recorded at a lower position than its own): brighter, distorts and compresses sooner, grainier. For example, a chrome tape at NORMAL gains about +2.5 dB at 10 kHz and loses about 5 dB of MOL.
+  - **Over-biased** (a tape recorded at a higher position than its own): duller and slightly quieter. For example, a normal tape at METAL loses about 16 dB at 10 kHz.
+
+  The bias figures are estimates from how real decks behave; they are not from a published measurement.
+- **Playback EQ:** NORMAL plays back at 120 µs, CHROME and METAL at 70 µs. Every stretch of tape remembers the position it was recorded at. Playing a 70 µs recording at NORMAL lifts the treble by up to 4.7 dB (bright, hissy), and the reverse cuts it. The **EQ** lamp on each track turns red when the playback EQ differs from the recording's. Blank tape's hiss follows the same rule.
+- **Erase:** recording over a metal tape at NORMAL doesn't fully erase it. The old recording, mostly its bass, stays about 30 dB down under the new one.
+- **With noise reduction:** the decoder enlarges any level or treble error, just as on a real deck. With 2:1 a 1 dB error becomes 2 dB, and with B and C a mismatch's treble error "breathes" as the music gets louder and quieter.
+
 ### Tape character
 
 **Setup → Tape** shows the current cassette's figures. The sliders adjust things on top of those figures:

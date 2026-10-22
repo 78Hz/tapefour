@@ -78,6 +78,9 @@ DeckComponent::DeckComponent (AudioEngine& e, juce::PropertiesFile& settings)
     addAndMakeVisible (cassette);
     eject.onClick = [this] { showEjectMenu(); };
     addAndMakeVisible (eject);
+    tapeSwitch.onChange = [this] (int p) { engine.tapeEngine.params.tapeSwitch = p; repaint (bayPanel); };
+    tapeSwitch.setTooltip ("Record bias and EQ, and playback EQ. A tape going in sets it to its own type; move it to hear mismatches.");
+    addAndMakeVisible (tapeSwitch);
     inlayThumb.onClick = [this] { openInlay(); };
     inlayThumb.setTooltip ("The cassette inlay: title, songs, counter numbers and track notes");
     addAndMakeVisible (inlayThumb);
@@ -198,7 +201,8 @@ void DeckComponent::resized()
 
     cassette.setBounds (bayPanel.getX() + 38, bayPanel.getY() + 42, 400, 255);
     inlayThumb.setBounds (bayPanel.getX() + 500, bayPanel.getY() + 44, 136, 232);
-    eject.setBounds (bayPanel.getX() + 20, bayPanel.getY() + 310, 120, 40);
+    eject.setBounds (bayPanel.getX() + 20, bayPanel.getY() + 311, 112, 42);
+    tapeSwitch.setBounds (bayPanel.getX() + 150, bayPanel.getY() + 309, TapeSwitch::labelW + 3 * TapeSwitch::segW + 8, 46);
 
     auto tp = transportPanel;
     resetBtn.setBounds (tp.getX() + 152, tp.getY() + 36, 70, 26);
@@ -271,13 +275,12 @@ void DeckComponent::paint (juce::Graphics& g)
 
     if (auto* t = engine.getTape())
     {
-        auto info = t->productName() + utf (" \xc2\xb7 TYPE ") + juce::String (t->getModelInfo().iecType == 4 ? "IV" : t->getModelInfo().iecType == 2 ? "II" : "I")
-                    + utf (" \xc2\xb7 ")
+        auto info = t->productName() + utf (" \xc2\xb7 ") + iecTypeName (t->naturalPosition()) + "\n"
                     + formatTime (t->getLengthSeconds() / engine.tapeEngine.params.speedSel.load())
                     + " @ " + speedLabel() + " IPS";
         g.setFont (lf.mono (16.0f));
         g.setColour (Pal::muted);
-        g.drawText (info, juce::Rectangle<int> (bayPanel.getX() + 160, bayPanel.getY() + 310, 296, 40), juce::Justification::centredRight);
+        g.drawFittedText (info, juce::Rectangle<int> (bayPanel.getX() + 530, bayPanel.getY() + 309, 126, 46), juce::Justification::centredRight, 2, 0.8f);
     }
 
     // ---- transport ----
@@ -394,7 +397,10 @@ void DeckComponent::timerCallback()
     if (message.isNotEmpty() && juce::Time::getMillisecondCounterHiRes() * 0.001 < messageUntil)
         text = message;
     status.top = text;
-    status.sub = tape != nullptr ? "REMAIN " + formatTime ((tape->getLengthCells() - pos) / cellRate / std::max (0.1f, nominal))
+    status.sub = tape != nullptr && engine.tapeEngine.params.tapeSwitch.load() != tape->naturalPosition()
+                     ? juce::String (engine.tapeEngine.params.tapeSwitch.load() < tape->naturalPosition() ? "BIAS LOW: " : "BIAS HIGH: ")
+                           + iecTypeName (tape->naturalPosition()) + " TAPE AT " + positionName (engine.tapeEngine.params.tapeSwitch.load())
+                 : tape != nullptr ? "REMAIN " + formatTime ((tape->getLengthCells() - pos) / cellRate / std::max (0.1f, nominal))
                                  : juce::String ("NO TAPE");
     status.repaint();
 
@@ -405,6 +411,14 @@ void DeckComponent::timerCallback()
     for (auto* k : { &recKey, &rewKey, &ffKey, &playKey, &stopKey }) k->repaint();
     recLamp = mode == Mode::rec;
     playLamp = mode == Mode::play || mode == Mode::rec;
+
+    if (tape != nullptr && (tapeSwitch.position != engine.tapeEngine.params.tapeSwitch.load() || tapeSwitch.tapeType != tape->naturalPosition()))
+    {
+        tapeSwitch.position = engine.tapeEngine.params.tapeSwitch.load();
+        tapeSwitch.tapeType = tape->naturalPosition();
+        tapeSwitch.repaint();
+    }
+    tapeSwitch.hasTape = tape != nullptr;
 
     nrButton.lampOn = engine.tapeEngine.params.nrOn.load();
     nrButton.repaint();

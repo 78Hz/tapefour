@@ -63,6 +63,12 @@ inline constexpr TapeModel tapeModels[] {
     { "XR",    "CHROME EXTRA RANGE", "TYPE II \xc2\xb7 HIGH", 2, 70, 3.4f, 4.4f, -11.2f, 60.9f, -47.2f, 1.1f, "TDK SA", 0xff3f7fe0 },
     { "MX",    "REFERENCE \xc2\xb7 MAXIMUM OUTPUT", "TYPE IV \xc2\xb7 METAL", 4, 70, 8.0f, 9.1f, -6.8f, 62.7f, -50.4f, 0.8f, "Maxell MX", 0xffc98a4b } };
 inline constexpr int numTapeModels = 4;
+
+/** The deck's tape switch: NORMAL, CHROME, METAL. */
+inline constexpr int numTapePositions = 3;
+inline int positionForIec (int iecType) noexcept { return iecType >= 4 ? 2 : iecType >= 2 ? 1 : 0; }
+inline const char* positionName (int p) noexcept { return p == 2 ? "METAL" : p == 1 ? "CHROME" : "NORMAL"; }
+inline const char* iecTypeName (int p) noexcept  { return p == 2 ? "TYPE IV" : p == 1 ? "TYPE II" : "TYPE I"; }
 inline constexpr int defaultTapeModel = 1;   // tapes made before models existed play as SD
 
 // Dolby level (the tape's 0 dB) sits at 0 VU on the meters: -12 dBFS peak.

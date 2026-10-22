@@ -877,7 +877,7 @@ void AudioEngine::audioDeviceAboutToStart (juce::AudioIODevice* dev)
     {
         const juce::SpinLock::ScopedLockType sl (tapeLock);
         tapeEngine.prepare (sampleRate, maxBlock);
-        tapeEngine.setTape (tape.get());
+        tapeEngine.setTape (tape.get(), false);   // same tape: leave the switch where it is
     }
     for (auto& p : midiPorts) p->collector.reset (sampleRate);
     for (auto& p : mpeConfigPending) p = true;

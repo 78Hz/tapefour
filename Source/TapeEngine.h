@@ -45,12 +45,13 @@ public:
         std::atomic<float> hiss { 0.55f }, wow { 0.30f }, flutter { 0.25f }, sat { 0.50f },
                            hf { 0.20f }, xtalk { 0.30f }, drop { 0.10f }, drift { 0.20f };
         std::atomic<int>   latencyOffsetMs { 0 };
+        std::atomic<int>   tapeSwitch { 0 };     // 0 NORMAL, 1 CHROME, 2 METAL: record bias and EQ, playback EQ
     };
 
     Params params;
 
     void prepare (double sampleRate, int maxBlockSize);
-    void setTape (Tape* t) noexcept;          // only call while the audio callback is locked out
+    void setTape (Tape* t, bool newTape = true) noexcept;          // only call while the audio callback is locked out
 
     void command (Command c) noexcept         { pendingCommand.store ((int) c); }
     Mode getMode() const noexcept             { return (Mode) mode.load(); }
@@ -68,9 +69,9 @@ public:
     bool isRecordingNow() const noexcept      { return blockHasRecording; }
 
 private:
-    void writeSpan (int t, double p, float v, bool nr, float spd) noexcept;
+    void writeSpan (int t, double p, float v, bool nr, float spd, int pos) noexcept;
     void configureCompanders (int type);
-    void configureModel (int model, int speedSel);
+    void configureModel (int model, int speedSel, int switchPos);
     void calibrateHiss();
 
 public:
@@ -79,6 +80,12 @@ public:
     static float driveDb (float satParam) noexcept          { return (satParam - 0.5f) * 12.0f; }
     static float tanhThirdHarmonicPoint();                  // input peak giving 3% H3 through tanh
     static float magnitudeAt (const Biquad& b, double f, double sampleRate);
+
+    /** What recording a tape at a switch position does, in dB, from how far the bias is off the tape's own. */
+    struct BiasEffect { float biasDb, treble10k, midLevel, mol, extraModNoise; bool eraseBleed; };
+    static BiasEffect biasEffect (int tapeIecType, int switchPos) noexcept;
+    /** First-order filter for playing tape recorded with one EQ time constant through another. */
+    static void setEqMismatch (Biquad& b, double sampleRate, double recordedUs, double playbackUs) noexcept;
 
 private:
     double sr = 48000.0;
@@ -120,7 +127,14 @@ private:
     float lastHfCut = -1, lastAaCut = -1;
 
     // the tape model
-    int cfgModel = -1, cfgSpeed = -1;
+    int cfgModel = -1, cfgSpeed = -1, cfgPos = -1;
+    Biquad biasHi[numTracks];
+    float biasMidGain = 1.0f, recModDepth = 0.0f, recModLp[numTracks] {};
+    bool eraseBleed = false;
+    float eraseLp[numTracks] {};
+    // playback EQ against what's on the tape
+    Biquad sigEq[numTracks], hissEq[numTracks];
+    int sigEqKey[numTracks] { -1, -1, -1, -1 }, hissEqKey = -1;
     float satK = 1.0f, sensGain = 1.0f, modDepth = 0.0f, hissLevel = 0.0f;
     Biquad emphLo[numTracks], emphHi[numTracks], deemphLo[numTracks], deemphHi[numTracks];
     Biquad preAA[numTracks][2];

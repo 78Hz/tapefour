@@ -1,6 +1,7 @@
 // Headless checks of the tape engine: record real signals, play them back, measure.
 #include "../Source/TapeEngine.h"
 #include <cstdio>
+#include <complex>
 
 using namespace tf;
 
@@ -59,7 +60,7 @@ struct Rig
         eng.beginBlock (1, armed, 0); eng.endBlock();
         eng.setTape (nullptr);
         tape.position = cells;
-        eng.setTape (&tape);
+        eng.setTape (&tape, false);
     }
 };
 
@@ -316,6 +317,75 @@ int main()
         auto mxBack = Tape::load (dir);
         check (mxBack != nullptr && mxBack->getModel() == 3 && mxBack->productName() == "MX46", "tape model saved with the tape", mxBack != nullptr ? mxBack->getModel() : -1, 3);
         dir.deleteRecursively();
+    }
+
+    {   // 10. the tape switch: bias, EQ, erase
+        // record a quiet tone with the switch at recPos, play it back at playPos; level in dB re input
+        auto through = [] (int model, int recPos, int playPos, double hz, double amp = tapeRefPeak * 0.1)
+        {
+            Rig r (model);
+            r.eng.params.tapeSwitch = recPos;
+            r.run (1.5, TapeEngine::Command::rec, true, hz, (float) amp);
+            r.rewindTo (0);
+            r.eng.params.tapeSwitch = playPos;
+            auto out = r.run (1.5, TapeEngine::Command::play, false, 0, 0);
+            return db (tone (out, hz, 0.3, 1.2) / amp);
+        };
+
+        {
+            Rig r (2);
+            check (r.eng.params.tapeSwitch.load() == 1, "switch: an XR tape going in sets CHROME", r.eng.params.tapeSwitch.load(), 1);
+            r.eng.params.tapeSwitch = 0;
+            r.run (0.5, TapeEngine::Command::rec, true, 1000.0, 0.1f);
+            check (r.tape.recordedPosition (0, 2) == 0, "switch: position stored with the recording", r.tape.recordedPosition (0, 2), 0);
+            check (r.tape.recordedPosition (1, 2) == 1, "switch: unrecorded tape reads as its own type", r.tape.recordedPosition (1, 2), 1);
+        }
+
+        // playback EQ: 70 us recording through 120 us is brighter by about 20 log(120/70) at the top
+        auto want8k = 20.0 * std::log10 (std::abs (std::complex<double> (1.0, 2 * juce::MathConstants<double>::pi * 8000 * 120e-6))
+                                          / std::abs (std::complex<double> (1.0, 2 * juce::MathConstants<double>::pi * 8000 * 70e-6)));
+        auto bright = through (2, 1, 0, 8000.0) - through (2, 1, 1, 8000.0);
+        check (std::abs (bright - want8k) < 0.6, "EQ: chrome recording played at NORMAL, 8 kHz (dB)", bright, want8k);
+        auto low = through (2, 1, 0, 200.0) - through (2, 1, 1, 200.0);
+        check (std::abs (low) < 0.4, "EQ: ...200 Hz unchanged (dB)", low, 0.0);
+        auto dull = through (1, 0, 1, 8000.0) - through (1, 0, 0, 8000.0);
+        check (std::abs (dull + want8k) < 0.6, "EQ: normal recording played at CHROME, 8 kHz (dB)", dull, -want8k);
+
+        // bias: normal tape at METAL is heavily over-biased (dull); chrome tape at NORMAL under-biased (bright)
+        auto over = through (1, 2, 2, 10000.0) - through (1, 0, 0, 10000.0);
+        check (over < -12.0, "bias: SD at METAL loses treble (10 kHz, dB)", over, -16.0);
+        // (30 dB down: under-biased tape saturates treble early, which would hide the lift)
+        auto under = through (2, 0, 0, 10000.0, tapeRefPeak * 0.03) - through (2, 1, 1, 10000.0, tapeRefPeak * 0.03);
+        check (under > 1.5 && under < 4.0, "bias: XR at NORMAL gains treble (10 kHz, dB)", under, 2.6);
+
+        // under-bias distorts earlier: metal tape at CHROME at its own MOL
+        {
+            Rig r (3);
+            r.eng.params.tapeSwitch = 1;
+            auto molPeak = tapeRefPeak * std::pow (10.0, tapeModels[3].mol400 / 20.0);
+            r.run (2.0, TapeEngine::Command::rec, true, 400.0, (float) molPeak);
+            r.rewindTo (0);
+            auto out = r.run (2.0, TapeEngine::Command::play, false, 0, 0);
+            auto h3 = 100.0 * tone (out, 1200.0, 0.4, 1.6) / tone (out, 400.0, 0.4, 1.6);
+            check (h3 > 8.0, "bias: MX at CHROME distorts at its MOL (H3 %)", h3, 8.0);
+        }
+
+        // erase: metal tape recorded over at NORMAL keeps a ghost of the old recording
+        auto ghost = [] (int overPos)
+        {
+            Rig r (3);
+            r.run (2.0, TapeEngine::Command::rec, true, 300.0, tapeRefPeak);
+            r.rewindTo (0);
+            r.eng.params.tapeSwitch = overPos;
+            r.run (2.0, TapeEngine::Command::rec, true, 1000.0, tapeRefPeak * 0.5f);
+            r.rewindTo (0);
+            r.eng.params.tapeSwitch = overPos;
+            auto out = r.run (2.0, TapeEngine::Command::play, false, 0, 0);
+            return db (tone (out, 300.0, 0.3, 1.7) / tapeRefPeak);
+        };
+        auto bleed = ghost (0), clean = ghost (2);
+        check (bleed > -40.0 && bleed < -28.0, "erase: MX overwritten at NORMAL, old 300 Hz (dB)", bleed, -33.0);
+        check (clean < -70.0, "erase: MX overwritten at METAL, old 300 Hz gone (dB)", clean, -70.0);
     }
 
     std::printf ("\n%s (%d failure%s)\n", failures == 0 ? "ALL PASSED" : "SOME FAILED", failures, failures == 1 ? "" : "s");

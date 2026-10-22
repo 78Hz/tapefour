@@ -156,6 +156,8 @@ void StripComponent::refresh (bool blink)
     // What's on the tape under the head: noise reduction and recorded speed.
     lcd.nrLamp = false;
     lcd.nrColour = Pal::amber;
+    lcd.eqLamp = false;
+    lcd.eqColour = Pal::green;
     if (tape != nullptr)
     {
         auto block = tape->blockAt (tape->position.load());
@@ -163,6 +165,7 @@ void StripComponent::refresh (bool blink)
         if (recordingHere)
         {
             lcd.nrLamp = engine.tapeEngine.params.nrOn.load();
+            lcd.eqLamp = true;
         }
         else if (tape->isRecorded (t, block))
         {
@@ -176,6 +179,16 @@ void StripComponent::refresh (bool blink)
             else
             {
                 lcd.nrLamp = enc;
+            }
+
+            // EQ: green when this stretch was recorded with the switch's playback EQ, red when not
+            auto eqOf = [] (int p) { return p == 0 ? 120 : 70; };
+            if (eqOf (tape->recordedPosition (t, block)) == eqOf (engine.tapeEngine.params.tapeSwitch.load()))
+                lcd.eqLamp = true;
+            else
+            {
+                lcd.eqLamp = listening ? blink : true;
+                lcd.eqColour = Pal::red;
             }
 
             if (listening)

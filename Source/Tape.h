@@ -45,11 +45,18 @@ public:
     }
 
     float readInterpolated (int track, double pos) const noexcept;
-    void writeCell (int track, int64_t c, float v, bool nrEncoded, float speed) noexcept;
+    void writeCell (int track, int64_t c, float v, bool nrEncoded, float speed, int position) noexcept;
 
     // ---- metadata (safe to read from any thread) ----
     bool isRecorded (int track, int block) const noexcept   { return (flags[track][block].load (std::memory_order_relaxed) & 1) != 0; }
     bool isNrEncoded (int track, int block) const noexcept  { return (flags[track][block].load (std::memory_order_relaxed) & 2) != 0; }
+    /** The tape switch position this stretch was recorded at (0 normal, 1 chrome, 2 metal), or the tape's own if not known. */
+    int recordedPosition (int track, int block) const noexcept
+    {
+        auto f = (flags[track][block].load (std::memory_order_relaxed) >> 2) & 3;
+        return f == 0 ? naturalPosition() : f - 1;
+    }
+    int naturalPosition() const noexcept        { return positionForIec (getModelInfo().iecType); }
     float recordedSpeed (int track, int block) const noexcept { return speedMilli[track][block].load (std::memory_order_relaxed) / 1000.0f; }
     double usedSeconds() const;
     int tracksUsed() const;
