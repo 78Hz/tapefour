@@ -370,8 +370,8 @@ public:
 //==============================================================================
 /**
     The deck's tape switch: NORMAL / CHROME / METAL. Each position shows its type and
-    playback EQ; the lamp of the loaded cassette's own type lights green when the switch
-    matches it and amber when it doesn't.
+    playback EQ. A lamp shows the position it's at: green when that suits the loaded
+    cassette, amber when it doesn't.
 */
 class TapeSwitch : public juce::Component, public juce::SettableTooltipClient
 {
@@ -410,7 +410,7 @@ public:
         for (int i = 0; i < 3; ++i)
         {
             auto seg = segment (i).toFloat();
-            const bool sel = i == position, own = hasTape && i == tapeType;
+            const bool sel = i == position;
             if (sel)
             {
                 g.setColour (juce::Colour (0xff6f6a5f));
@@ -420,9 +420,9 @@ public:
             }
             auto in = seg.reduced (8, 0);
             auto lampR = in.removeFromLeft (9).withSizeKeepingCentre (9, 9);
-            auto lampColour = own ? (position == tapeType ? Pal::green : Pal::amber) : (sel ? juce::Colour (0xff8a8578) : juce::Colour (0xff2c2a26));
-            if (own) drawLamp (g, lampR, true, lampColour);
-            else { g.setColour (lampColour); g.fillEllipse (lampR); }
+            // One lamp: the position the switch is at. Green when it suits the tape, amber when it doesn't.
+            if (sel) drawLamp (g, lampR, true, ! hasTape || position == tapeType ? Pal::green : Pal::amber);
+            else { g.setColour (juce::Colour (0xff2c2a26)); g.fillEllipse (lampR); }
             in.removeFromLeft (8);
             g.setColour (sel ? juce::Colour (0xff1a1917) : Pal::muted);
             g.setFont (lf.cond (14.0f, true).withExtraKerningFactor (0.14f));

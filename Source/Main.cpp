@@ -1,4 +1,5 @@
 #include "DeckComponent.h"
+#include "PluginScan.h"
 
 namespace tf
 {
@@ -59,10 +60,21 @@ class TapeFourApplication : public juce::JUCEApplication
 public:
     const juce::String getApplicationName() override    { return JUCE_APPLICATION_NAME_STRING; }
     const juce::String getApplicationVersion() override { return JUCE_APPLICATION_VERSION_STRING; }
-    bool moreThanOneInstanceAllowed() override          { return false; }
-
-    void initialise (const juce::String&) override
+    bool moreThanOneInstanceAllowed() override
     {
+        // Plug-in scan helpers are extra copies of TapeFour started by the first one.
+        return tf::PluginScan::isHelperCommandLine (getCommandLineParameters());
+    }
+
+    void initialise (const juce::String& commandLine) override
+    {
+        if (tf::PluginScan::isHelperCommandLine (commandLine))
+        {
+            setApplicationReturnValue (tf::PluginScan::runHelper (commandLine));
+            quit();
+            return;
+        }
+
         lookAndFeel = std::make_unique<tf::DeckLookAndFeel>();
         juce::LookAndFeel::setDefaultLookAndFeel (lookAndFeel.get());
 

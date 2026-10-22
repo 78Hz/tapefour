@@ -1,4 +1,5 @@
 #include "AudioEngine.h"
+#include "PluginScan.h"
 
 namespace tf
 {
@@ -18,6 +19,7 @@ AudioEngine::AudioEngine (juce::PropertiesFile& settings)
     : props (settings)
 {
     juce::addDefaultFormatsToManager (formatManager);
+    knownPlugins.setCustomScanner (PluginScan::makeOutOfProcessScanner());
 
     if (auto known = props.getXmlValue ("knownPlugins"))
         knownPlugins.recreateFromXml (*known);
@@ -104,12 +106,14 @@ AudioEngine::AudioEngine (juce::PropertiesFile& settings)
     stateAtStartup = deviceManager.createStateXml();
     deviceManager.addChangeListener (this);
     deviceManager.addAudioCallback (this);
+    midiListConnection = juce::MidiDeviceListConnection::make ([this] { midiDevicesChanged(); });
     startingUp = false;
     saveSettings();
 }
 
 AudioEngine::~AudioEngine()
 {
+    midiListConnection = {};
     deviceManager.removeChangeListener (this);
     deviceManager.removeAudioCallback (this);
 
@@ -134,9 +138,21 @@ void AudioEngine::changeListenerCallback (juce::ChangeBroadcaster*)
     // Any change the user makes in Audio Setup is written to disk straight away.
     if (restoringDevice)
     {
-        auto now = deviceManager.createStateXml();
-        bool changed = (now == nullptr) != (stateAtStartup == nullptr)
-                       || (now != nullptr && ! now->isEquivalentTo (stateAtStartup.get(), true));
+        // Only an audio change counts: MIDI devices coming and going mustn't overwrite the saved interface.
+        auto audioOnly = [] (std::unique_ptr<juce::XmlElement> x)
+        {
+            if (x != nullptr)
+            {
+                x->deleteAllChildElementsWithTagName ("MIDIINPUT");
+                x->removeAttribute ("defaultMidiOutput");
+                x->removeAttribute ("defaultMidiOutputDevice");
+            }
+            return x;
+        };
+        auto now = audioOnly (deviceManager.createStateXml());
+        auto then = audioOnly (stateAtStartup != nullptr ? std::make_unique<juce::XmlElement> (*stateAtStartup) : nullptr);
+        bool changed = (now == nullptr) != (then == nullptr)
+                       || (now != nullptr && ! now->isEquivalentTo (then.get(), true));
         if (! changed) return;
         restoringDevice = false;
         startupProblem = {};
@@ -199,6 +215,34 @@ int AudioEngine::findOrCreateOutputSlot (const juce::String& id, const juce::Str
     return -1;
 }
 
+int AudioEngine::adoptNewMidiInputs()
+{
+    int added = 0;
+    for (auto& d : availableInputs())
+    {
+        bool known = false;
+        for (int k = 1; k < maxMidiPorts; ++k)
+            known = known || (midiPorts[k]->id.isNotEmpty() && (midiPorts[k]->id == d.identifier || midiPorts[k]->name == d.name));
+        auto k = findOrCreateInputSlot (d.identifier, d.name);
+        if (! known && k > 0)
+        {
+            midiPorts[k]->active = true;
+            ++added;
+        }
+    }
+    return added;
+}
+
+void AudioEngine::midiDevicesChanged()
+{
+    // A controller or interface was plugged in or out while running.
+    adoptNewMidiInputs();
+    for (auto& d : availableOutputs()) findOrCreateOutputSlot (d.identifier, d.name);
+    refreshMidiDevices();
+    for (int t = 0; t < numTracks; ++t) mpeConfigPending[t] = true;
+    saveSettings();
+}
+
 void AudioEngine::refreshMidiDevices()
 {
     auto ins = availableInputs();
@@ -206,9 +250,13 @@ void AudioEngine::refreshMidiDevices()
     {
         auto& p = *midiPorts[k];
         if (p.id.isEmpty()) continue;
-        bool want = p.active.load() && contains (ins, p.id);
+        const bool available = contains (ins, p.id);
+        bool want = p.active.load() && available;
         if (want)
         {
+            // Back after being unplugged: the old connection is dead, so open it afresh.
+            if (! p.wasAvailable && deviceManager.isMidiInputDeviceEnabled (p.id))
+                deviceManager.setMidiInputDeviceEnabled (p.id, false);
             deviceManager.setMidiInputDeviceEnabled (p.id, true);
             if (! p.registered)
             {
@@ -224,9 +272,10 @@ void AudioEngine::refreshMidiDevices()
                 deviceManager.removeMidiInputDeviceCallback (p.id, &p.collector);
                 p.registered = false;
             }
-            if (contains (ins, p.id))
+            if (deviceManager.isMidiInputDeviceEnabled (p.id))
                 deviceManager.setMidiInputDeviceEnabled (p.id, false);
         }
+        p.wasAvailable = available;
     }
 
     auto outs = availableOutputs();
@@ -780,8 +829,8 @@ void AudioEngine::restoreHardware (const juce::XmlElement* hw, const juce::XmlEl
             o.alias = x->getStringAttribute ("alias");
             o.active = x->getBoolAttribute ("active");
         }
-        // Controllers plugged in for the first time stay off until ticked.
-        for (auto& d : availableInputs())  findOrCreateInputSlot (d.identifier, d.name);
+        // Controllers plugged in for the first time come in switched on; synth outputs wait to be ticked.
+        adoptNewMidiInputs();
         for (auto& d : availableOutputs()) findOrCreateOutputSlot (d.identifier, d.name);
     }
     else
@@ -899,9 +948,11 @@ void AudioEngine::audioDeviceStopped()
 void AudioEngine::updateEq (int t)
 {
     auto l = track[t].low.load(), m = track[t].mid.load(), h = track[t].high.load();
-    if (l != eqState[t][0]) { eq[t][0].setLowShelf (sampleRate, 100.0, l * 12.0); eqState[t][0] = l; }
+    // Shelves voiced like a cassette portastudio's: LOW is at full strength by 100 Hz (half at 250 Hz),
+    // HIGH at nearly full strength by 10 kHz (half at 4.5 kHz), so both are heard well inside the tape's range.
+    if (l != eqState[t][0]) { eq[t][0].setLowShelf (sampleRate, 250.0, l * 12.0); eqState[t][0] = l; }
     if (m != eqState[t][1]) { eq[t][1].setPeak (sampleRate, 1200.0, 0.8, m * 12.0); eqState[t][1] = m; }
-    if (h != eqState[t][2]) { eq[t][2].setHighShelf (sampleRate, 10000.0, h * 12.0); eqState[t][2] = h; }
+    if (h != eqState[t][2]) { eq[t][2].setHighShelf (sampleRate, 4500.0, h * 12.0); eqState[t][2] = h; }
 }
 
 void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputs, int numInputs,

@@ -242,6 +242,36 @@ int main()
     }
 
 
+    // EQ: the shelves are heard where a portastudio's are (live input, armed, stopped)
+    {
+        Rig m;
+        auto& me = *m.engine;
+        me.setAudioSource (0, 0);
+        me.track[0].armed = true;
+        auto level = [&] (double hz, float hi, float lo)
+        {
+            me.track[0].high = hi; me.track[0].low = lo;
+            m.f[0] = hz; m.amp[0] = 0.05f;
+            auto out = m.run (0.4);
+            return 20.0 * std::log10 (tone (out, hz, 0.15, 0.4));
+        };
+        struct Pt { double hz; float hi, lo; double minDb, maxDb; const char* what; };
+        const Pt pts[] {
+            { 10000, 1, 0,  10.0, 12.5, "EQ: HIGH +12 at 10 kHz (dB)" },
+            {  5000, 1, 0,   5.0,  9.0, "EQ: HIGH +12 at 5 kHz (dB)" },
+            {   500, 1, 0,  -0.1,  0.6, "EQ: HIGH leaves 500 Hz alone (dB)" },
+            {   100, 0, 1,  10.0, 12.5, "EQ: LOW +12 at 100 Hz (dB)" },
+            {   250, 0, 1,   4.5,  8.0, "EQ: LOW +12 at 250 Hz (dB)" },
+            {  2000, 0, 1,  -0.1,  0.6, "EQ: LOW leaves 2 kHz alone (dB)" },
+            { 10000,-1, 0, -12.5,-10.0, "EQ: HIGH -12 at 10 kHz (dB)" } };
+        for (auto& p : pts)
+        {
+            auto flat = level (p.hz, 0, 0), eqd = level (p.hz, p.hi, p.lo);
+            auto d = eqd - flat;
+            check (d >= p.minDb && d <= p.maxDb, p.what, d, 0.5 * (p.minDb + p.maxDb));
+        }
+    }
+
     // Per-track MIDI: two controllers, two instruments, each plays only its own track.
     {
         Rig m;

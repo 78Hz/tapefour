@@ -47,7 +47,8 @@ target_sources(TapeFour PRIVATE
     Source/DeckComponent.cpp
     Source/PatchCard.cpp
     Source/InlayCard.cpp
-    Source/SetupWindow.cpp)
+    Source/SetupWindow.cpp
+    Source/PluginScan.cpp)
 
 target_compile_definitions(TapeFour PRIVATE
     JUCE_WEB_BROWSER=0
@@ -88,8 +89,16 @@ endif()
 if(TAPEFOUR_TESTS)
     juce_add_console_app(MixerTest PRODUCT_NAME "MixerTest")
     target_sources(MixerTest PRIVATE Tests/MixerTest.cpp Source/Tape.cpp Source/TapeEngine.cpp
-                                     Source/Instruments.cpp Source/AudioEngine.cpp)
+                                     Source/Instruments.cpp Source/AudioEngine.cpp Source/PluginScan.cpp)
     target_compile_definitions(MixerTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_PLUGINHOST_VST3=1)
     target_link_libraries(MixerTest PRIVATE juce::juce_audio_utils juce::juce_dsp
+        PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+endif()
+
+if(TAPEFOUR_TESTS)
+    juce_add_console_app(ScanTest PRODUCT_NAME "ScanTest")
+    target_sources(ScanTest PRIVATE Tests/ScanTest.cpp Source/PluginScan.cpp)
+    target_compile_definitions(ScanTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_PLUGINHOST_VST3=1)
+    target_link_libraries(ScanTest PRIVATE juce::juce_audio_utils
         PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
 endif()

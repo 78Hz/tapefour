@@ -123,7 +123,7 @@ private:
         std::atomic<int> bendRange { 48 };
         juce::MidiMessageCollector collector;
         juce::MidiBuffer buffer;               // audio thread
-        bool registered = false;
+        bool registered = false, wasAvailable = false;
     };
 
     struct MidiOutPort
@@ -149,6 +149,9 @@ private:
     int findOrCreateInputSlot (const juce::String& id, const juce::String& name);
     int findOrCreateOutputSlot (const juce::String& id, const juce::String& name);
     void refreshMidiDevices();
+    void midiDevicesChanged();
+    int adoptNewMidiInputs();                  // new controllers come in switched on
+    juce::MidiDeviceListConnection midiListConnection;
     static bool looksLikeMpeController (const juce::String& name);
     static void addMpeConfiguration (juce::MidiBuffer& b, bool on, int bendRange);
     void updateEq (int t);
