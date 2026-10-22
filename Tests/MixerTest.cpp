@@ -113,6 +113,8 @@ int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInit;
     const double pan = std::cos (juce::MathConstants<double>::pi / 4.0);
+    // Each pass through the tape changes the level by the cassette's sensitivity.
+    const double gen = std::pow (10.0, tapeModels[defaultTapeModel].sensitivity / 20.0);
 
     Rig r;
     auto& e = *r.engine;
@@ -163,8 +165,8 @@ int main()
     auto bounced = r.run (2.0);
     r.cmd (TapeEngine::Command::stop);
     r.run (0.05);
-    check (std::abs (tone (bounced, 500, 0.3, 1.8) - 0.3 * pan) < 0.015, "bounced track 3 holds track 1 (500 Hz)", tone (bounced, 500, 0.3, 1.8), 0.3 * pan);
-    check (std::abs (tone (bounced, 1500, 0.3, 1.8) - 0.3 * pan) < 0.015, "bounced track 3 holds track 2 (1500 Hz)", tone (bounced, 1500, 0.3, 1.8), 0.3 * pan);
+    check (std::abs (tone (bounced, 500, 0.3, 1.8) - 0.3 * pan * gen * gen) < 0.015, "bounced track 3 holds track 1 (500 Hz)", tone (bounced, 500, 0.3, 1.8), 0.3 * pan * gen * gen);
+    check (std::abs (tone (bounced, 1500, 0.3, 1.8) - 0.3 * pan * gen * gen) < 0.015, "bounced track 3 holds track 2 (1500 Hz)", tone (bounced, 1500, 0.3, 1.8), 0.3 * pan * gen * gen);
 
     // Fader and pan act on the mix.
     e.track[2].pan = -1.0f;
@@ -174,7 +176,7 @@ int main()
     auto hardLeft = r.run (1.0);
     r.cmd (TapeEngine::Command::stop);
     r.run (0.05);
-    check (std::abs (tone (hardLeft, 500, 0.3, 0.9) - 0.3) < 0.015, "pan hard left puts the full level in the left output", tone (hardLeft, 500, 0.3, 0.9), 0.3);
+    check (std::abs (tone (hardLeft, 500, 0.3, 0.9) - 0.3 * gen * gen) < 0.015, "pan hard left puts the full level in the left output", tone (hardLeft, 500, 0.3, 0.9), 0.3 * gen * gen);
 
     // Play the built-in synth on track 4 from MIDI and record it.
     r.cmd (TapeEngine::Command::rtz);

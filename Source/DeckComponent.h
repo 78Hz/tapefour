@@ -48,7 +48,7 @@ private:
     void loadStartupTape();
     void tapeChanged();
     bool saveTape (bool announce);
-    void insertBlank (int type);
+    void insertBlank (int type, int model);
     void loadFromShelf (const juce::String& id);
     void showEjectMenu();
 

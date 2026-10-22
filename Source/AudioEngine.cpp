@@ -615,7 +615,6 @@ std::unique_ptr<juce::XmlElement> AudioEngine::createDeckState() const
     x->setAttribute ("pitch", tp.pitchStep.load());
     x->setAttribute ("nr", tp.nrOn.load());
     x->setAttribute ("nrType", tp.nrType.load());
-    x->setAttribute ("formulation", tp.formulation.load());
     x->setAttribute ("hiss", tp.hiss.load());
     x->setAttribute ("wow", tp.wow.load());
     x->setAttribute ("flutter", tp.flutter.load());
@@ -703,7 +702,6 @@ void AudioEngine::applyDeckState (const juce::XmlElement& deck)
         tp.pitchStep   = x->getIntAttribute ("pitch");
         tp.nrOn        = x->getBoolAttribute ("nr", true);
         tp.nrType      = x->getIntAttribute ("nrType");
-        tp.formulation = x->getIntAttribute ("formulation");
         tp.hiss    = (float) x->getDoubleAttribute ("hiss", 0.55);
         tp.wow     = (float) x->getDoubleAttribute ("wow", 0.30);
         tp.flutter = (float) x->getDoubleAttribute ("flutter", 0.25);

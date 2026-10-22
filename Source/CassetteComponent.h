@@ -6,10 +6,13 @@
 namespace tf
 {
 /**
-    A clear-shell compact cassette drawn at 3.98 px/mm (400 x 255 = 100.4 x 63.8 mm).
-    Spool sizes follow how much tape is wound on each; the tape leaves each pack
-    on the true tangent to the corner guide roller; spools turn at the speed a
-    real cassette's would for the current tape travel.
+    A compact cassette, drawn in its own shell design for each tape model
+    (BASIC, SD, XR, MX). Geometry is worked in tenths of a millimetre
+    (the shell is 100.4 x 63.8 mm, so 1004 x 638 units) and scaled to fit.
+
+    Spool sizes follow how much tape is wound on each; the tape leaves each
+    pack on the true tangent to the corner guide roller; spools turn at the
+    speed a real cassette's would for the current tape travel.
 */
 class CassetteComponent : public juce::Component
 {
@@ -20,21 +23,22 @@ public:
     void update (const Tape* tape, double positionCells);
 
     std::function<void (const juce::String&)> onNameChanged;
-    void setTapeName (const juce::String& name, const juce::String& typeName);
+    void setTape (const Tape* tape);
 
     void paint (juce::Graphics&) override;
     void resized() override;
 
 private:
-    float fraction = 0.0f, fullPackPx = 175.0f;
+    float fraction = 0.0f, fullPackUnits = 440.0f;
     double lastPos = -1.0;
     float angleL = 0.0f, angleR = 0.0f;
     bool hasTape = false;
-    juce::String typeName;
+    int model = defaultTapeModel, minutes = 30;
     juce::Label nameLabel;
 
     float packDiameter (float f) const;
     void drawPack (juce::Graphics&, juce::Point<float> c, float d) const;
     void drawHub (juce::Graphics&, juce::Point<float> c, float angle) const;
+    void drawPrint (juce::Graphics&) const;
 };
 } // namespace tf

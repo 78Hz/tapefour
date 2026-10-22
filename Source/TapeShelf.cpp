@@ -29,6 +29,7 @@ std::vector<TapeShelf::Entry> TapeShelf::list()
             e.name        = xml->getStringAttribute ("name");
             e.created     = xml->getStringAttribute ("created");
             e.type        = xml->getIntAttribute ("type", 1);
+            e.model       = juce::jlimit (0, numTapeModels - 1, xml->getIntAttribute ("model", defaultTapeModel));
             e.usedSeconds = xml->getDoubleAttribute ("usedSeconds");
             e.tracksUsed  = xml->getIntAttribute ("tracksUsed");
             e.modified    = meta.getLastModificationTime();
@@ -50,9 +51,9 @@ std::unique_ptr<Tape> TapeShelf::load (const juce::String& id)
     return Tape::load (folderFor (id));
 }
 
-std::unique_ptr<Tape> TapeShelf::createBlank (int type)
+std::unique_ptr<Tape> TapeShelf::createBlank (int type, int model)
 {
-    auto tape = std::make_unique<Tape> (type);
+    auto tape = std::make_unique<Tape> (type, model);
     tape->name = "tape " + juce::String ((int) list().size() + 1);
     return tape;
 }

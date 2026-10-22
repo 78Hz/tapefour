@@ -18,15 +18,15 @@ void check (bool ok, const char* what, double got, double want)
 
 struct Rig
 {
-    Tape tape { 1 };
+    Tape tape;
     TapeEngine eng;
     double phase = 0;
 
-    Rig()
+    explicit Rig (int model = defaultTapeModel) : tape (1, model)
     {
         eng.prepare (sr, bs);
         auto& p = eng.params;
-        p.hiss = 0; p.wow = 0; p.flutter = 0; p.sat = 0; p.hf = 0; p.xtalk = 0; p.drop = 0; p.drift = 0;
+        p.hiss = 0; p.wow = 0; p.flutter = 0; p.sat = 0.5f; p.hf = 0; p.xtalk = 0; p.drop = 0; p.drift = 0;
         p.nrOn = false;
         eng.setTape (&tape);
     }
@@ -79,6 +79,43 @@ double freq (const std::vector<float>& v, double from, double to)
 }
 
 double db (double x) { return 20.0 * std::log10 (std::max (1e-9, x)); }
+
+// amplitude of one frequency in [from, to) seconds (Hann window)
+double tone (const std::vector<float>& v, double hz, double from, double to)
+{
+    auto a = (size_t) (from * sr), b = std::min (v.size(), (size_t) (to * sr));
+    double re = 0, im = 0, wsum = 0;
+    for (auto i = a; i < b; ++i)
+    {
+        auto w = 0.5 - 0.5 * std::cos (juce::MathConstants<double>::twoPi * (double) (i - a) / (double) (b - a));
+        auto ph = juce::MathConstants<double>::twoPi * hz * (double) i / sr;
+        re += w * v[i] * std::cos (ph); im += w * v[i] * std::sin (ph);
+        wsum += w;
+    }
+    return 2.0 * std::sqrt (re * re + im * im) / wsum;
+}
+
+// A-weighted RMS, written out from IEC 61672 pole frequencies independently of the engine's own.
+double aWeighted (const std::vector<float>& v, double from, double to)
+{
+    auto f = [] (double hz) { return std::exp (-juce::MathConstants<double>::twoPi * hz / sr); };
+    // four poles at 20.6 Hz (2), 107.7, 737.9 as one-pole high-passes; two at 12194 Hz as one-pole low-passes
+    double hpA[4] { f (20.6), f (20.6), f (107.7), f (737.9) }, lpA = f (12194.0);
+    double xs[4] {}, ys[4] {}, l1 = 0, l2 = 0;
+    auto run = [&] (double x)
+    {
+        for (int k = 0; k < 4; ++k) { auto y = hpA[k] * (ys[k] + x - xs[k]); xs[k] = x; ys[k] = y; x = y; }
+        l1 = x * (1 - lpA) + l1 * lpA; l2 = l1 * (1 - lpA) + l2 * lpA;
+        return l2;
+    };
+    // gain at 1 kHz, to normalise
+    double g1 = 0; { double s2 = 0; for (int i = 0; i < (int) sr * 2; ++i) { auto y = run (std::sin (juce::MathConstants<double>::twoPi * 1000.0 * i / sr)); if (i > sr) s2 += y * y; } g1 = std::sqrt (s2 / sr) * std::sqrt (2.0); }
+    for (auto& x : xs) x = 0; for (auto& y : ys) y = 0; l1 = l2 = 0;
+    auto a = (size_t) (from * sr), b = std::min (v.size(), (size_t) (to * sr));
+    double s2 = 0; size_t n = 0;
+    for (size_t i = 0; i < b; ++i) { auto y = run (v[i]); if (i >= a) { s2 += y * y; ++n; } }
+    return std::sqrt (s2 / std::max<size_t> (1, n)) / g1;
+}
 } // namespace
 
 int main()
@@ -87,11 +124,13 @@ int main()
 
     {   // 1. clean record and playback at 1 7/8
         Rig r;
-        r.run (2.0, TapeEngine::Command::rec, true, 1000.0, 0.5f);
+        r.run (2.0, TapeEngine::Command::rec, true, 1000.0, tapeRefPeak);
         r.rewindTo (0);
         auto out = r.run (2.0, TapeEngine::Command::play, false, 0, 0);
+        auto sens = tapeModels[defaultTapeModel].sensitivity;
         check (std::abs (freq (out, 0.5, 1.5) - 1000.0) < 3.0, "clean: pitch of 1 kHz recorded and played at 1 7/8", freq (out, 0.5, 1.5), 1000.0);
-        check (std::abs (db (rms (out, 0.5, 1.5) / sineRms)) < 0.5, "clean: level (dB re input)", db (rms (out, 0.5, 1.5) / sineRms), 0.0);
+        check (std::abs (db (rms (out, 0.5, 1.5) / (tapeRefPeak / std::sqrt (2.0))) - sens) < 0.5, "clean: 0 VU plays back at about the tape's sensitivity (dB)",
+               db (rms (out, 0.5, 1.5) / (tapeRefPeak / std::sqrt (2.0))), sens);
         check (r.tape.isRecorded (0, 5) && ! r.tape.isRecorded (1, 5), "clean: only track 1 marked recorded", r.tape.tracksUsed(), 1);
     }
 
@@ -107,7 +146,9 @@ int main()
             auto out = r.run (2.0, TapeEngine::Command::play, false, 0, 0);
             auto lvl = db (rms (out, 0.5, 1.5) / (0.01 / std::sqrt (2.0)));
             juce::String name = "NR type " + juce::String (type) + ": encode+decode level (dB)";
-            check (std::abs (lvl) < 1.5, name.toRawUTF8(), lvl, 0.0);
+            // 2:1 decoding doubles any level error, including the tape's sensitivity
+            auto want = 2.0 * tapeModels[defaultTapeModel].sensitivity;
+            check (std::abs (lvl - want) < 1.5, name.toRawUTF8(), lvl, want);
 
             r.rewindTo (0);
             r.eng.params.nrOn = false;
@@ -129,7 +170,7 @@ int main()
         auto withNr = r.run (1.0, TapeEngine::Command::play, false, 0, 0, 1);
         auto a = db (rms (plain, 0.3, 0.9)), b = db (rms (withNr, 0.3, 0.9));
         check (b < a - 10.0, "hiss with NR decode is >10 dB lower than without (dBFS)", b, a - 10.0);
-        check (a > -60.0 && a < -56.0, "hiss level at default setting (dBFS)", a, -58.0);
+        juce::ignoreUnused (sineRms);
     }
 
     {   // 4. recorded at 3 3/4, played at 1 7/8: an octave down
@@ -190,6 +231,90 @@ int main()
         check (saved && same, "save/load: audio identical", same ? 1 : 0, 1);
         check (loaded != nullptr && loaded->name == "round trip" && loaded->trackSheet[1] == "1 - test tone"
                && loaded->isNrEncoded (0, 3), "save/load: label, track sheet, NR flags", 1, 1);
+        dir.deleteRecursively();
+    }
+
+    {   // 9. tape models: each behaves as its real cassette measured
+        double modSide[numTapeModels] {};
+        for (int m = 0; m < numTapeModels; ++m)
+        {
+            const auto& tm = tapeModels[m];
+            auto label = [&] (const char* what) { return (juce::String (tm.name) + ": " + what).toStdString(); };
+            const double refRms = tapeRefPeak / std::sqrt (2.0);
+
+            // MOL: 400 Hz at the tape's MOL gives 3% third harmonic
+            {
+                Rig r (m);
+                auto molPeak = tapeRefPeak * std::pow (10.0, tm.mol400 / 20.0);
+                r.run (2.0, TapeEngine::Command::rec, true, 400.0, (float) molPeak);
+                r.rewindTo (0);
+                auto out = r.run (2.0, TapeEngine::Command::play, false, 0, 0);
+                auto h3 = 100.0 * tone (out, 1200.0, 0.4, 1.6) / tone (out, 400.0, 0.4, 1.6);
+                check (h3 > 2.0 && h3 < 4.5, label ("third harmonic at MOL 400 Hz (%)").c_str(), h3, 3.0);
+            }
+            // SOL: 10 kHz driven far past saturation tops out near the tape's SOL
+            // (measured against a quiet 10 kHz tone, so the deck's own treble response cancels out)
+            {
+                auto play10k = [&] (double amp)
+                {
+                    Rig r (m);
+                    r.run (1.5, TapeEngine::Command::rec, true, 10000.0, (float) amp);
+                    r.rewindTo (0);
+                    auto out = r.run (1.5, TapeEngine::Command::play, false, 0, 0);
+                    return db (tone (out, 10000.0, 0.3, 1.2) / amp);
+                };
+                auto quiet = play10k (tapeRefPeak * 0.05);
+                auto hot = tapeRefPeak * std::pow (10.0, (tm.sol10k + 12.0) / 20.0);
+                auto lvl = tm.sol10k + 12.0 + play10k (hot) - quiet;
+                check (std::abs (lvl - tm.sol10k) < 2.0, label ("10 kHz saturates at SOL (dB re Dolby level)").c_str(), lvl, tm.sol10k);
+            }
+            // S/N: blank tape hiss, A-weighted, below Dolby level
+            {
+                Rig r (m);
+                r.eng.params.hiss = 0.5f;
+                auto out = r.run (2.5, TapeEngine::Command::play, false, 0, 0, 1);
+                auto snr = db (refRms / aWeighted (out, 0.8, 2.4));
+                check (std::abs (snr - tm.snr) < 1.0, label ("hiss S/N, A-weighted (dB)").c_str(), snr, tm.snr);
+            }
+            // sensitivity and modulation noise on a 1 kHz tone at Dolby level
+            {
+                Rig r (m);
+                r.run (3.0, TapeEngine::Command::rec, true, 1000.0, tapeRefPeak);
+                r.rewindTo (0);
+                auto out = r.run (3.0, TapeEngine::Command::play, false, 0, 0);
+
+                Rig q (m);   // sensitivity is measured 20 dB down, clear of compression
+                q.run (2.0, TapeEngine::Command::rec, true, 1000.0, tapeRefPeak * 0.1f);
+                q.rewindTo (0);
+                auto quiet = q.run (2.0, TapeEngine::Command::play, false, 0, 0);
+                auto lvl = db (tone (quiet, 1000.0, 0.5, 1.5) / (tapeRefPeak * 0.1));
+                check (std::abs (lvl - tm.sensitivity) < 0.2, label ("sensitivity, 1 kHz at -20 dB (dB)").c_str(), lvl, tm.sensitivity);
+                double side = 0;
+                for (double f = 760; f <= 960; f += 20)  side += std::pow (tone (out, f, 0.5, 2.5), 2) + std::pow (tone (out, 2000.0 - f, 0.5, 2.5), 2);
+                modSide[m] = db (std::sqrt (side) / tone (out, 1000.0, 0.5, 2.5));
+            }
+        }
+        double spread = modSide[0] - modSide[3], want = (double) (tapeModels[0].modNoise - tapeModels[3].modNoise);
+        check (std::abs (spread - want) < 3.0, "modulation noise: BASIC vs MX sidebands (dB)", spread, want);
+        check (modSide[0] > modSide[1] && modSide[1] > modSide[2] && modSide[2] > modSide[3], "modulation noise falls BASIC > SD > XR > MX", modSide[0], modSide[3]);
+
+        // An old tape (before models) still plays at the level it was recorded.
+        Tape old (1);
+        auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("tf_model_test");
+        dir.deleteRecursively();
+        old.save (dir);
+        auto xml = juce::XmlDocument::parse (dir.getChildFile ("tape.xml"));
+        xml->removeAttribute ("model");
+        xml->removeAttribute ("fluxScale");
+        xml->writeTo (dir.getChildFile ("tape.xml"));
+        auto loaded = Tape::load (dir);
+        check (loaded != nullptr && loaded->getModel() == defaultTapeModel, "old tapes load as SD", loaded != nullptr ? loaded->getModel() : -1, defaultTapeModel);
+        dir.deleteRecursively();
+
+        Tape mx (0, 3);
+        mx.save (dir);
+        auto mxBack = Tape::load (dir);
+        check (mxBack != nullptr && mxBack->getModel() == 3 && mxBack->productName() == "MX46", "tape model saved with the tape", mxBack != nullptr ? mxBack->getModel() : -1, 3);
         dir.deleteRecursively();
     }
 

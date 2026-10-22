@@ -35,6 +35,39 @@ inline constexpr TapeTypeInfo tapeTypes[] { { "C-46", 23, 40.0f },
                                             { "C-90", 45, 48.0f } };
 inline constexpr int numTapeTypes = 3;
 
+/**
+    A tape formulation, from published measurements of a real cassette
+    (Roberson's comparison of retail tapes, dB re 400 Hz Dolby level, 1 7/8 ips).
+
+    mol100 / mol400: level giving 3% third-harmonic distortion at 100 / 400 Hz.
+    sol10k:          saturation output at 10 kHz (treble headroom).
+    snr:             A-weighted bias noise below Dolby level, no noise reduction.
+    modNoise:        modulation noise (noise that rides on the signal), dB re signal.
+    sensitivity:     output at a given record level, re the IEC reference tape.
+*/
+struct TapeModel
+{
+    const char* name;          // printed on the shell, e.g. "SD"
+    const char* line;          // the strap line
+    const char* position;      // "TYPE I · NORMAL"
+    int iecType;               // 1, 2 or 4
+    int eqMicroseconds;        // playback EQ: 120 (normal) or 70 (high/metal)
+    float mol100, mol400, sol10k, snr, modNoise, sensitivity;
+    const char* basedOn;       // the real tape the numbers come from
+    juce::uint32 accent;       // print colour, for the inlay and menus
+};
+
+inline constexpr TapeModel tapeModels[] {
+    { "BASIC", "EVERYDAY RECORDING",   "TYPE I \xc2\xb7 NORMAL", 1, 120, 2.0f, 2.4f, -10.3f, 54.3f, -36.1f, -1.0f, "Sony HF", 0xfff2c230 },
+    { "SD",    "STUDIO DYNAMIC",       "TYPE I \xc2\xb7 NORMAL", 1, 120, 3.8f, 6.2f,  -8.2f, 60.3f, -44.3f, -0.3f, "TDK AD", 0xffe8702a },
+    { "XR",    "CHROME EXTRA RANGE", "TYPE II \xc2\xb7 HIGH", 2, 70, 3.4f, 4.4f, -11.2f, 60.9f, -47.2f, 1.1f, "TDK SA", 0xff3f7fe0 },
+    { "MX",    "REFERENCE \xc2\xb7 MAXIMUM OUTPUT", "TYPE IV \xc2\xb7 METAL", 4, 70, 8.0f, 9.1f, -6.8f, 62.7f, -50.4f, 0.8f, "Maxell MX", 0xffc98a4b } };
+inline constexpr int numTapeModels = 4;
+inline constexpr int defaultTapeModel = 1;   // tapes made before models existed play as SD
+
+// Dolby level (the tape's 0 dB) sits at 0 VU on the meters: -12 dBFS peak.
+inline constexpr float tapeRefPeak = 0.2512f;
+
 enum class Mode : int { stop = 0, play, rec, ff, rew };
 // Values are stored in settings and tapes: only ever append.
 enum class Source : int { none = 0, audio, instrument, bounce, hardware };

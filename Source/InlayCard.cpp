@@ -133,20 +133,22 @@ void InlayCard::paint (juce::Graphics& g)
     g.fillRect (0, 0, fx + frontW, cardH);
     g.setColour (band);
     g.fillRect (0, 0, fx + frontW, headerH);
-    g.setColour (Pal::orange);
+    const auto accent = juce::Colour (tape.getModelInfo().accent);
+    g.setColour (accent);
     g.fillRect (0, cardH - 10, fx + frontW, 10);
     g.setColour (fold);
     for (auto x : { flapW, fx })
         for (int y = headerH; y < cardH - 10; y += 8)
             g.fillRect (x, y, 1, 4);
 
-    auto typeName = juce::String (tape.getTypeInfo().name);
+    auto typeName = tape.productName();
 
     // back flap
     brandText (g, { 12.0f, (float) headerH + 14, (float) flapW - 16, 24 }, 20.0f, juce::Justification::topLeft, ink);
     g.setColour (juce::Colour (0xff5c564a));
     g.setFont (lf.cond (15.0f, true).withExtraKerningFactor (0.08f));
-    g.drawMultiLineText (typeName + "\n" + juce::String (tape.getTypeInfo().minutes) + " MIN\nSIDE A",
+    g.drawMultiLineText (typeName + "\n" + juce::String (tape.getTypeInfo().name) + "\nTYPE " + juce::String (tape.getModelInfo().iecType == 4 ? "IV" : tape.getModelInfo().iecType == 2 ? "II" : "I")
+                             + "\n" + juce::String (tape.getTypeInfo().minutes) + " MIN\nSIDE A",
                          12, headerH + 64, flapW - 20);
     g.setColour (Pal::ink);
     g.setFont (lf.hand (22.0f));
@@ -166,19 +168,19 @@ void InlayCard::paint (juce::Graphics& g)
         juce::Graphics::ScopedSaveState s (g);
         g.addTransform (juce::AffineTransform::rotation (-juce::MathConstants<float>::halfPi)
                             .translated ((float) flapW + spineW * 0.5f, (float) headerH * 0.5f));
-        g.setColour (Pal::orange);
+        g.setColour (accent);
         g.setFont (lf.brand (26.0f));
-        g.drawText (typeName, juce::Rectangle<int> (-60, -16, 120, 32), juce::Justification::centred);
+        g.drawFittedText (typeName, juce::Rectangle<int> (-60, -16, 120, 32), juce::Justification::centred, 1, 0.6f);
     }
 
     // front header
-    g.setColour (Pal::orange);
+    g.setColour (accent);
     g.setFont (lf.brand (60.0f));
-    g.drawText (typeName, fx + pad, 14, 260, 64, juce::Justification::centredLeft);
+    g.drawText (typeName, fx + pad, 14, 300, 64, juce::Justification::centredLeft);
     brandText (g, { (float) fx + frontW - pad - 200, 26.0f, 200.0f, 36.0f }, 30.0f, juce::Justification::centredRight, Pal::cream);
     g.setColour (gold);
     g.setFont (lf.cond (15.0f, true).withExtraKerningFactor (0.22f));
-    g.drawText (utf ("SIDE A \xc2\xb7 4 TRACKS ONE DIRECTION \xc2\xb7 ") + juce::String (tape.getTypeInfo().minutes) + " MIN",
+    g.drawText (utf (tape.getModelInfo().position) + utf (" \xc2\xb7 SIDE A \xc2\xb7 4 TRACKS ONE DIRECTION \xc2\xb7 ") + juce::String (tape.getTypeInfo().minutes) + " MIN",
                 fx + pad, headerH - 38, frontW - 2 * pad, 20, juce::Justification::centredLeft);
 
     // front body
@@ -246,10 +248,11 @@ void InlayThumb::paintButton (juce::Graphics& g, bool over, bool)
     auto head = c.removeFromTop (30.0f);
     g.setColour (band);
     g.fillRect (head);
-    g.setColour (Pal::orange);
+    auto accent = tape != nullptr ? juce::Colour (tape->getModelInfo().accent) : Pal::orange;
+    g.setColour (accent);
     g.fillRect (c.removeFromBottom (6.0f));
     g.setFont (lf.brand (17.0f));
-    g.drawText (tape != nullptr ? juce::String (tape->getTypeInfo().name) : juce::String(), head.reduced (6, 0), juce::Justification::centredLeft);
+    g.drawText (tape != nullptr ? tape->productName() : juce::String(), head.reduced (6, 0), juce::Justification::centredLeft);
     g.setColour (Pal::cream);
     g.setFont (lf.brand (9.0f));
     g.drawText (utf ("TAPE\xc2\xb7" "FOUR"), head.reduced (6, 0), juce::Justification::centredRight);

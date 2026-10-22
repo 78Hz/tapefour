@@ -271,7 +271,8 @@ void DeckComponent::paint (juce::Graphics& g)
 
     if (auto* t = engine.getTape())
     {
-        auto info = juce::String (t->getTypeInfo().name) + utf (" \xc2\xb7 ")
+        auto info = t->productName() + utf (" \xc2\xb7 TYPE ") + juce::String (t->getModelInfo().iecType == 4 ? "IV" : t->getModelInfo().iecType == 2 ? "II" : "I")
+                    + utf (" \xc2\xb7 ")
                     + formatTime (t->getLengthSeconds() / engine.tapeEngine.params.speedSel.load())
                     + " @ " + speedLabel() + " IPS";
         g.setFont (lf.mono (16.0f));
@@ -470,7 +471,7 @@ void DeckComponent::loadStartupTape()
 void DeckComponent::tapeChanged()
 {
     auto* t = engine.getTape();
-    cassette.setTapeName (t != nullptr ? t->name : juce::String(), t != nullptr ? juce::String (t->getTypeInfo().name) : juce::String());
+    cassette.setTape (t);
     inlayThumb.tape = t;
     inlayThumb.repaint();
     if (t != nullptr)
@@ -500,13 +501,13 @@ bool DeckComponent::saveTape (bool announce)
     return true;
 }
 
-void DeckComponent::insertBlank (int type)
+void DeckComponent::insertBlank (int type, int model)
 {
     if (! saveTape (false)) return;
     closeOverlay();
-    auto tape = TapeShelf::createBlank (type);
+    auto tape = TapeShelf::createBlank (type, model);
     TapeShelf::save (*tape);
-    auto label = "NEW BLANK " + juce::String (tape->getTypeInfo().name);
+    auto label = "NEW BLANK " + tape->productName();
     engine.swapTape (std::move (tape));
     tapeChanged();
     say (label);
@@ -547,9 +548,15 @@ void DeckComponent::showEjectMenu()
 
     juce::PopupMenu m;
     m.addSectionHeader ("INSERT NEW BLANK TAPE");
-    for (int i = 0; i < numTapeTypes; ++i)
-        m.addItem (juce::String (tapeTypes[i].name) + "   " + juce::String (tapeTypes[i].minutes) + " MIN PER SIDE",
-                   [this, i] { insertBlank (i); });
+    for (int k = 0; k < numTapeModels; ++k)
+    {
+        const auto& tm = tapeModels[k];
+        juce::PopupMenu lengths;
+        for (int i = 0; i < numTapeTypes; ++i)
+            lengths.addItem (juce::String (tm.name) + juce::String (tapeTypes[i].minutes * 2) + "   " + juce::String (tapeTypes[i].minutes) + " MIN PER SIDE",
+                             [this, i, k] { insertBlank (i, k); });
+        m.addSubMenu (juce::String (tm.name) + utf ("   \xc2\xb7   ") + utf (tm.position) + utf ("   \xc2\xb7   ") + utf (tm.line), lengths);
+    }
 
     m.addSeparator();
     m.addSectionHeader ("TAPE SHELF");
@@ -560,7 +567,7 @@ void DeckComponent::showEjectMenu()
     for (auto& e : shelf)
     {
         auto text = (e.name.isNotEmpty() ? e.name : juce::String ("(no label)")) + utf ("   \xc2\xb7   ")
-                    + tapeTypes[juce::jlimit (0, numTapeTypes - 1, e.type)].name + "  " + formatTime (e.usedSeconds) + " used  "
+                    + tapeModels[e.model].name + juce::String (tapeTypes[juce::jlimit (0, numTapeTypes - 1, e.type)].minutes * 2) + "  " + formatTime (e.usedSeconds) + " used  "
                     + juce::String (e.tracksUsed) + "/4 trk  " + e.created;
         auto id = e.id;
         m.addItem (text, true, cur != nullptr && cur->id == id, [this, id] { loadFromShelf (id); });
@@ -629,10 +636,10 @@ void DeckComponent::openInlay()
     closeOverlay();
     auto card = std::make_unique<InlayCard> (*t);
     card->onClose = [this] { closeOverlay(); };
-    card->onTitleChanged = [this] (const juce::String& title)
+    card->onTitleChanged = [this] (const juce::String&)
     {
         if (auto* tape = engine.getTape())
-            cassette.setTapeName (title, juce::String (tape->getTypeInfo().name));
+            cassette.setTape (tape);
         inlayThumb.repaint();
     };
     // Centre the card itself; the close button hangs off to its right.

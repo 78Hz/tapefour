@@ -23,11 +23,15 @@ namespace Inlay
 class Tape
 {
 public:
-    explicit Tape (int typeIndex);
+    explicit Tape (int typeIndex, int modelIndex = defaultTapeModel);
     ~Tape();
 
     int getType() const noexcept                { return type; }
     const TapeTypeInfo& getTypeInfo() const     { return tapeTypes[type]; }
+    int getModel() const noexcept               { return model; }
+    const TapeModel& getModelInfo() const       { return tapeModels[model]; }
+    /** What's printed on the shell: "SD60", "MX46"... */
+    juce::String productName() const            { return juce::String (getModelInfo().name) + juce::String (getTypeInfo().minutes * 2); }
     int64_t getLengthCells() const noexcept     { return lengthCells; }
     double getLengthSeconds() const noexcept    { return (double) lengthCells / cellRate; }
     int getNumBlocks() const noexcept           { return numBlocks; }
@@ -37,7 +41,7 @@ public:
     inline float readCell (int track, int64_t c) const noexcept
     {
         if (c < 0 || c >= lengthCells) return 0.0f;
-        return (float) data[track][c] * (1.0f / 32767.0f);
+        return (float) data[track][c] * readScale;
     }
 
     float readInterpolated (int track, double pos) const noexcept;
@@ -68,7 +72,11 @@ public:
     void markMetaChanged() noexcept { metaDirty = true; }
 
 private:
-    int type;
+    int type, model;
+    // Cells hold flux at half scale, so a hot metal tape has room above 0 dBFS.
+    // Tapes made before that stored it at full scale (fluxScale 1).
+    float fluxScale = 0.5f, readScale = 1.0f / (32767.0f * 0.5f);
+    void setFluxScale (float s) noexcept { fluxScale = s; readScale = 1.0f / (32767.0f * s); }
     int64_t lengthCells;
     int numBlocks, numSeconds;
     int16_t* data[numTracks] {};

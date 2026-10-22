@@ -381,16 +381,21 @@ private:
 };
 
 //==============================================================================
-class TapePanel : public juce::Component
+class TapePanel : public juce::Component,
+                  private juce::Timer
 {
 public:
     explicit TapePanel (AudioEngine& e) : engine (e)
     {
         auto& tp = engine.tapeEngine.params;
-        add ("HISS",            &tp.hiss,    [] (double v) { return v <= 0 ? juce::String ("OFF") : juce::String (-80.0 + v * 40.0, 0) + " dB"; });
+        auto signedDb = [] (float db) { return (db > 0.05f ? "+" : "") + juce::String (db, 1) + " dB"; };
+        add ("HISS",            &tp.hiss,    [signedDb] (double v)
+             {
+                 return v <= 0 ? juce::String ("OFF") : "TAPE " + signedDb (TapeEngine::hissOffsetDb ((float) v));
+             });
         add ("WOW",             &tp.wow,     [] (double v) { return juce::String (v * 0.5, 2) + " %"; });
         add ("FLUTTER",         &tp.flutter, [] (double v) { return juce::String (v * 0.3, 2) + " %"; });
-        add ("SATURATION",      &tp.sat,     [] (double v) { return juce::String (juce::roundToInt (v * 100)) + " %"; });
+        add ("TAPE DRIVE",      &tp.sat,     [signedDb] (double v) { return "0 VU " + signedDb (TapeEngine::driveDb ((float) v)); });
         add ("HF LOSS",         &tp.hf,      [] (double v) { return "-" + juce::String (v * 12.0, 1) + " dB @ 10k"; });
         add ("TRACK CROSSTALK", &tp.xtalk,   [] (double v) { return v <= 0 ? juce::String ("OFF") : juce::String (-80.0 + v * 50.0, 0) + " dB"; });
         add ("DROPOUTS",        &tp.drop,    [] (double v) { return v <= 0 ? juce::String ("NONE") : v < 0.25 ? juce::String ("RARE") : v < 0.6 ? juce::String ("OCCASIONAL") : juce::String ("FREQUENT"); });
@@ -407,16 +412,45 @@ public:
         nrType.addItemList ({ "2:1 compander (broadband, dbx-style)", "Sliding band B (up to 10 dB HF)", "Sliding band C (up to 20 dB HF)" }, 1);
         nrType.setSelectedItemIndex (tp.nrType.load(), juce::dontSendNotification);
         nrType.onChange = [this] { engine.tapeEngine.params.nrType = nrType.getSelectedItemIndex(); };
-        formulation.addItemList ({ "Type I  normal", "Type II  chrome" }, 1);
-        formulation.setSelectedItemIndex (tp.formulation.load(), juce::dontSendNotification);
-        formulation.onChange = [this] { engine.tapeEngine.params.formulation = formulation.getSelectedItemIndex(); };
-        for (auto* c : std::initializer_list<juce::Component*> { &nrType, &formulation, &nrLabel, &formLabel, &presetLabel })
+        for (auto* c : std::initializer_list<juce::Component*> { &nrType, &nrLabel, &presetLabel })
             addAndMakeVisible (c);
-        for (auto* l : { &nrLabel, &formLabel, &presetLabel })
+        for (auto* l : { &nrLabel, &presetLabel })
         {
             l->setFont (DeckLookAndFeel::get().cond (17.0f));
             l->setColour (juce::Label::textColourId, Pal::muted);
         }
+        controls[0]->slider.setDoubleClickReturnValue (true, 0.5);
+        controls[3]->slider.setDoubleClickReturnValue (true, 0.5);
+        controls[0]->slider.setTooltip ("Hiss relative to what this cassette really measures. Centre = as measured.");
+        controls[3]->slider.setTooltip ("How hard 0 VU drives the tape. Centre = Dolby level, as a calibrated deck would. "
+                                        "More drive: earlier saturation and treble compression.");
+        startTimerHz (2);
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        auto* tape = engine.getTape();
+        if (tape == nullptr || tapeInfo.isEmpty()) return;
+        auto& lf = DeckLookAndFeel::get();
+        const auto& m = tape->getModelInfo();
+        g.setColour (Pal::darker);
+        g.fillRoundedRectangle (tapeInfo.toFloat(), 6.0f);
+        auto r = tapeInfo.reduced (14, 10);
+        g.setColour (Pal::cream);
+        g.setFont (lf.cond (20.0f, true));
+        g.drawText ("THIS TAPE:  " + tape->productName() + utf ("  \xc2\xb7  ") + utf (m.position), r.removeFromTop (26), juce::Justification::centredLeft);
+        g.setColour (Pal::lcdText);
+        g.setFont (lf.mono (15.0f));
+        auto f1 = [] (float v) { return (v > 0 ? "+" : "") + juce::String (v, 1); };
+        g.drawText ("MOL 400 Hz " + f1 (m.mol400) + " dB   MOL 100 Hz " + f1 (m.mol100) + " dB   SOL 10 kHz " + f1 (m.sol10k) + " dB",
+                    r.removeFromTop (22), juce::Justification::centredLeft);
+        g.drawText ("S/N " + juce::String (m.snr, 1) + " dBA   MOD NOISE " + juce::String (m.modNoise, 1) + " dB   SENS " + f1 (m.sensitivity)
+                        + " dB   EQ " + juce::String (m.eqMicroseconds) + utf (" \xc2\xb5s"),
+                    r.removeFromTop (22), juce::Justification::centredLeft);
+        g.setColour (Pal::faint);
+        g.setFont (lf.cond (15.0f));
+        g.drawText (utf ("Measured on ") + m.basedOn + utf (" (dB re Dolby level, 1\xe2\x85\x9e ips, no NR). The cassette sets these; choose another at EJECT."),
+                    r.removeFromTop (22), juce::Justification::centredLeft);
     }
 
     void resized() override
@@ -439,10 +473,8 @@ public:
         auto l1 = r.removeFromTop (30);
         nrLabel.setBounds (l1.removeFromLeft (150));
         nrType.setBounds (l1.withWidth (360));
-        r.removeFromTop (8);
-        auto l2 = r.removeFromTop (30);
-        formLabel.setBounds (l2.removeFromLeft (150));
-        formulation.setBounds (l2.withWidth (360));
+        r.removeFromTop (18);
+        tapeInfo = r.removeFromTop (112);
     }
 
 private:
@@ -479,6 +511,13 @@ private:
         controls.push_back (std::move (c));
     }
 
+    void timerCallback() override
+    {
+        auto* t = engine.getTape();
+        auto key = t != nullptr ? t->id : juce::String();
+        if (key != shownTape) { shownTape = key; repaint(); }
+    }
+
     void applyPreset (int i)
     {
         static const float p[4][8] {
@@ -487,14 +526,17 @@ private:
             { 0.75f, 0.60f, 0.50f, 0.60f, 0.55f, 0.50f, 0.35f, 0.40f },
             { 0.90f, 0.90f, 0.80f, 0.75f, 0.80f, 0.70f, 0.75f, 0.70f } };
         for (size_t k = 0; k < controls.size(); ++k)
-            controls[k]->slider.setValue (p[i][k], juce::sendNotificationSync);
+            if (k != 3)   // drive is calibration, not wear
+                controls[k]->slider.setValue (p[i][k], juce::sendNotificationSync);
     }
 
     AudioEngine& engine;
     std::vector<std::unique_ptr<Control>> controls;
     juce::OwnedArray<juce::TextButton> presets;
-    juce::ComboBox nrType, formulation;
-    juce::Label nrLabel { {}, "Noise reduction" }, formLabel { {}, "Tape formulation" }, presetLabel { {}, "Tape condition" };
+    juce::ComboBox nrType;
+    juce::Label nrLabel { {}, "Noise reduction" }, presetLabel { {}, "Tape condition" };
+    juce::Rectangle<int> tapeInfo;
+    juce::String shownTape;
 };
 
 //==============================================================================

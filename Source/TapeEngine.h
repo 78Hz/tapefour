@@ -40,8 +40,9 @@ public:
         std::atomic<int>   pitchStep { 0 };      // -5..+5, 2.4% per step
         std::atomic<bool>  nrOn { true };
         std::atomic<int>   nrType { 0 };
-        std::atomic<int>   formulation { 0 };    // 0 = Type I normal, 1 = Type II chrome
-        std::atomic<float> hiss { 0.55f }, wow { 0.30f }, flutter { 0.25f }, sat { 0.40f },
+        // hiss: 0 = off, 0.5 = the tape as measured, +/-12 dB either side.
+        // sat ("tape drive"): where 0 VU lands on the tape, -6..+6 dB around Dolby level.
+        std::atomic<float> hiss { 0.55f }, wow { 0.30f }, flutter { 0.25f }, sat { 0.50f },
                            hf { 0.20f }, xtalk { 0.30f }, drop { 0.10f }, drift { 0.20f };
         std::atomic<int>   latencyOffsetMs { 0 };
     };
@@ -69,7 +70,17 @@ public:
 private:
     void writeSpan (int t, double p, float v, bool nr, float spd) noexcept;
     void configureCompanders (int type);
+    void configureModel (int model, int speedSel);
+    void calibrateHiss();
 
+public:
+    // Shared with the tests and the setup page.
+    static float hissOffsetDb (float hissParam) noexcept    { return (hissParam - 0.5f) * 24.0f; }
+    static float driveDb (float satParam) noexcept          { return (satParam - 0.5f) * 12.0f; }
+    static float tanhThirdHarmonicPoint();                  // input peak giving 3% H3 through tanh
+    static float magnitudeAt (const Biquad& b, double f, double sampleRate);
+
+private:
     double sr = 48000.0;
     int maxBlock = 0;
     Tape* tape = nullptr;
@@ -107,5 +118,15 @@ private:
     double prevPos[numTracks] {};
     float prevVal[numTracks] {};
     float lastHfCut = -1, lastAaCut = -1;
+
+    // the tape model
+    int cfgModel = -1, cfgSpeed = -1;
+    float satK = 1.0f, sensGain = 1.0f, modDepth = 0.0f, hissLevel = 0.0f;
+    Biquad emphLo[numTracks], emphHi[numTracks], deemphLo[numTracks], deemphHi[numTracks];
+    Biquad preAA[numTracks][2];
+    Biquad hissShape[numTracks];
+    float hissCal[2] { 1.0f, 1.0f };            // A-weighted RMS of the hiss generator: 120 us, 70 us
+    float modLp[numTracks] {}, modCoef = 0.0f, modNorm = 1.0f;
+    Noise modRng[numTracks] { Noise (71u), Noise (73u), Noise (79u), Noise (83u) };
 };
 } // namespace tf

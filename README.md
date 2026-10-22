@@ -34,7 +34,7 @@ Windows may warn that the program is from an unknown publisher, because it isn't
 | **Hardware synth** | Choose **Hardware synth** on the patch card, the controller that plays it, the MIDI output (**Send to**) and channel, and the input its audio comes back on (**Listen to**). Tracks are mono, so a stereo synth can come back on a pair of inputs, mixed to mono. A track plays either a VST/built-in instrument or a hardware synth, never both. |
 | **Bounce** | On the destination track's patch card choose **Bounce** and tick the tracks to mix from tape. Balance them with their own EQ and faders, arm the destination and record. |
 | **Counter** | **RESET** sets 000 where the tape is now. **RTZ** (or the Home key) rewinds to 000. |
-| **Tapes** | **EJECT** (tape stopped) inserts a new blank C-46/C-60/C-90 or loads one from the tape shelf. |
+| **Tapes** | **EJECT** (tape stopped) inserts a new blank tape (choose the cassette, then C-46, C-60 or C-90) or loads one from the tape shelf. |
 | **Label and inlay** | Double-click the cassette label to write on it. Click the inlay beside the cassette to take it out of the case and write the title, songs with their counter numbers, what's on each track, NR, speed and date. All of it is saved with the tape. |
 | **Deck with the tape** | Every tape remembers the deck it was recorded on: sources, instruments and their settings, MIDI routing, EQ, pan, faders, master, speed and pitch. Tick **Recall the deck with each tape** (Setup → MIDI & Deck) to have loading a tape put the deck back that way. |
 | **Keys** | Space = play/stop, R = record, Home = return to zero, Esc = close a card. |
@@ -66,9 +66,35 @@ With the default **Auto** setting:
 - **PITCH** moves the tape speed by up to ±12%.
 - **NOISE REDUCTION** encodes while recording and decodes on playback. The **NR** lamp on each track shows how the tape under the head was recorded. It flashes red when the switch doesn't match.
 
+### Cassettes
+
+There are four cassettes. Each one behaves like a real tape, using published measurements (Roberson's comparison of retail cassettes, at 1⅞ ips without noise reduction, in dB relative to Dolby level, which is 0 VU on the meters).
+
+| Cassette | Type | Measured on | MOL 400 Hz | SOL 10 kHz | S/N (A-wtd) | Mod. noise | Sensitivity |
+|---|---|---|---|---|---|---|---|
+| **BASIC** | I, normal | Sony HF | +2.4 | −10.3 | 54.3 | −36.1 | −1.0 |
+| **SD** | I, normal | TDK AD | +6.2 | −8.2 | 60.3 | −44.3 | −0.3 |
+| **XR** | II, chrome | TDK SA | +4.4 | −11.2 | 60.9 | −47.2 | +1.1 |
+| **MX** | IV, metal | Maxell MX | +9.1 | −6.8 | 62.7 | −50.4 | +0.8 |
+
+What these mean on the deck:
+
+- **MOL** (maximum output level) is where a 400 Hz tone reaches 3% distortion. A higher MOL means you can record louder before the tape starts to compress and distort. Bass gets slightly less room than mid-range, as on the real tape.
+- **SOL 10 kHz** is how loud treble can go before the tape saturates. Loud cymbals and bright synths compress and dull on tapes with a low SOL, especially at 1⅞ ips. At 3¾ ips the treble has more room.
+- **S/N** sets the hiss on blank tape. Type II and IV tapes use 70 µs playback EQ, so their hiss is less bright.
+- **Modulation noise** is a fine grain that rides on the signal itself. It is most noticeable on sustained notes on cheap tape.
+- **Sensitivity** is how loud the tape plays back what you recorded. It changes slightly with every bounce, and noise reduction doubles the difference, just as a real deck that hasn't been calibrated to the tape does.
+
+The automated tests record tones through each cassette and check that these figures come out. Tapes made before this version play as SD. The cassette shell, its print, and the inlay colours match the tape you choose.
+
 ### Tape character
 
-**Setup → Tape** sets hiss, wow, flutter, saturation, HF loss, track crosstalk, dropouts and speed drift. You can also choose the noise reduction type (2:1 compander, sliding band B or C) and the tape formulation (Type I or II). The presets go from **Clean** to **Chewed**.
+**Setup → Tape** shows the current cassette's figures. The sliders adjust things on top of those figures:
+
+- **HISS** is relative to the cassette's measured level. Centre is as measured; double-click to return there.
+- **TAPE DRIVE** sets where 0 VU lands on the tape, ±6 dB around Dolby level. More drive means earlier saturation.
+
+The other sliders are wow, flutter, HF loss, track crosstalk, dropouts and speed drift. You also choose the noise reduction type here (2:1 compander, sliding band B or C). The condition presets go from **Clean** to **Chewed**; they leave the drive alone.
 
 ## Where things are kept
 
@@ -86,7 +112,7 @@ cmake --build build --config Release
 
 JUCE 8.0.11 is downloaded during configuration. It includes the ASIO headers (Steinberg made ASIO available under GPLv3) and the VST3 SDK.
 
-Add `-DTAPEFOUR_TESTS=ON` to also build two headless test programs, `EngineTest` and `MixerTest`. They check the recording and playback paths: pitch and level, noise reduction, tape speed, punch-in, bounce, monitoring, the built-in synth via MIDI and MPE, per-track controllers, hardware synth routing, deck recall, settings surviving a restart, and saving and loading tapes.
+Add `-DTAPEFOUR_TESTS=ON` to also build two headless test programs, `EngineTest` and `MixerTest`. They check the recording and playback paths: each cassette's MOL, SOL, hiss, modulation noise and sensitivity; pitch and level; noise reduction, tape speed, punch-in, bounce, monitoring, the built-in synth via MIDI and MPE, per-track controllers, hardware synth routing, deck recall, settings surviving a restart, and saving and loading tapes.
 
 ## Licence
 

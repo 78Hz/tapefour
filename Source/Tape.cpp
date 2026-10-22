@@ -4,8 +4,9 @@
 
 namespace tf
 {
-Tape::Tape (int typeIndex)
-    : type (juce::jlimit (0, numTapeTypes - 1, typeIndex))
+Tape::Tape (int typeIndex, int modelIndex)
+    : type (juce::jlimit (0, numTapeTypes - 1, typeIndex)),
+      model (juce::jlimit (0, numTapeModels - 1, modelIndex))
 {
     lengthCells = (int64_t) tapeTypes[type].minutes * 60 * cellRate;
     numBlocks   = (int) ((lengthCells + blockCells - 1) / blockCells);
@@ -54,7 +55,7 @@ void Tape::writeCell (int track, int64_t c, float v, bool nrEncoded, float speed
     if (c < 0 || c >= lengthCells)
         return;
 
-    data[track][c] = (int16_t) juce::roundToInt (juce::jlimit (-1.0f, 1.0f, v) * 32767.0f);
+    data[track][c] = (int16_t) juce::roundToInt (juce::jlimit (-1.0f, 1.0f, v * fluxScale) * 32767.0f);
 
     auto b = (int) (c / blockCells);
     flags[track][b].store ((uint8_t) (1 | (nrEncoded ? 2 : 0)), std::memory_order_relaxed);
@@ -145,6 +146,8 @@ bool Tape::save (const juce::File& folder)
     meta.setAttribute ("name", name);
     meta.setAttribute ("created", created);
     meta.setAttribute ("type", type);
+    meta.setAttribute ("model", model);
+    meta.setAttribute ("fluxScale", fluxScale);
     meta.setAttribute ("position", position.load());
     meta.setAttribute ("counterZero", counterZero.load());
     meta.setAttribute ("usedSeconds", usedSeconds());
@@ -192,8 +195,9 @@ std::unique_ptr<Tape> Tape::load (const juce::File& folder)
         return {};
 
     std::unique_ptr<Tape> tape;
-    try { tape = std::make_unique<Tape> (xml->getIntAttribute ("type", 1)); }
+    try { tape = std::make_unique<Tape> (xml->getIntAttribute ("type", 1), xml->getIntAttribute ("model", defaultTapeModel)); }
     catch (...) { return {}; }
+    tape->setFluxScale ((float) juce::jlimit (0.1, 1.0, xml->getDoubleAttribute ("fluxScale", 1.0)));
 
     tape->id          = xml->getStringAttribute ("id", tape->id);
     tape->name        = xml->getStringAttribute ("name");
