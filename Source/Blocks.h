@@ -73,8 +73,8 @@ public:
     juce::String getName() const override;
     juce::String getMaker() const override;
     BlockRole role() const override         { return naturalRole; }
-    bool canProcessInput() const override   { return naturalRole == BlockRole::instrument && processor->getTotalNumInputChannels() > 0; }
-    bool producesMidi() const override      { return processor->producesMidi(); }
+    bool canProcessInput() const override   { return naturalRole == BlockRole::instrument && numIns > 0; }
+    bool producesMidi() const override      { return makesMidi; }
     bool isHosted() const override          { return kind == Kind::hosted; }
     float mixInPad() const override         { return kind == Kind::hosted ? 0.25f : 1.0f; }
 
@@ -84,7 +84,7 @@ public:
     int latencySamples() const override     { return processor->getLatencySamples(); }
 
     juce::AudioProcessor* getProcessor() noexcept override { return processor.get(); }
-    bool hasEditor() const override         { return processor->hasEditor(); }
+    bool hasEditor() const override         { return editorAvailable; }
     void setEditorOpen (bool open) override { editorOpen = open; if (! open) stateMaybeChanged = true; }
     int takeTouchedParameter() override     { return touched.exchange (-1); }
 
@@ -102,6 +102,12 @@ private:
     const Kind kind;
     const int builtInIndex;
     BlockRole naturalRole = BlockRole::audioFx;
+
+    // Asked once, when the block is made. The front panel asks for these many times a second, and some
+    // answers are expensive: a VST3's hasEditor() makes and throws away a whole editor view each time.
+    juce::String name, maker;
+    bool editorAvailable = false, makesMidi = false;
+    int numIns = 0;
 
     juce::AudioBuffer<float> work;
     juce::MidiBuffer pieceMidi, midiOut;

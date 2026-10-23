@@ -188,6 +188,15 @@ struct Gain : TestProcessor
     void processBlock (juce::AudioBuffer<float>& b, juce::MidiBuffer&) override { b.applyGain (0.5f); }
 };
 
+// Counts what the front panel asks it. A VST3's hasEditor() builds and throws away a whole editor
+// view, so asking it every frame froze the deck with a big plug-in loaded.
+struct Nosy : Gain
+{
+    static inline std::atomic<int> editorQuestions { 0 }, nameQuestions { 0 };
+    bool hasEditor() const override { ++editorQuestions; return true; }
+    const juce::String getName() const override { ++nameQuestions; return "NOSY"; }
+};
+
 // The old one-source-per-track set-ups, as chains.
 void audioIn (AudioEngine& e, int t, int ch)
 {
@@ -769,6 +778,24 @@ int main()
         me.insertBlock (0, -1, BuiltIn::createSynth (BuiltIn::epiano));
         check (rms (playA (0.4), 0.1, 0.4) > 0.005, "chain: MIDI passes blocks that don't make MIDI", 1, 1);
         me.track[0].armed = false;
+
+        // The front panel reads the chain 30 times a second per strip; the plug-in is asked once.
+        me.insertBlock (2, -1, hostedBlock (std::make_unique<Nosy>()));
+        Nosy::editorQuestions = 0;
+        Nosy::nameQuestions = 0;
+        for (int frame = 0; frame < 300; ++frame)
+        {
+            for (int t = 0; t < numTracks; ++t)
+            {
+                me.getChain (t);
+                me.describeSource (t);
+                me.blockAbbreviations (t);
+            }
+        }
+        check (Nosy::editorQuestions.load() == 0 && Nosy::nameQuestions.load() == 0,
+               "chain: reading the chain doesn't keep asking the plug-in (hasEditor makes a VST3 view)",
+               Nosy::editorQuestions.load() + Nosy::nameQuestions.load(), 0);
+        me.clearChain (2);
     }
 
     // ---- Mute and solo ----

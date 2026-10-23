@@ -509,6 +509,14 @@ ProcessorBlock::ProcessorBlock (std::unique_ptr<juce::AudioProcessor> p, Kind k,
         else if (processor->acceptsMidi() && ins == 0 && outs > 0)                 naturalRole = BlockRole::instrument;
         else                                                                      naturalRole = BlockRole::audioFx;
     }
+    name = processor->getName();
+    if (kind != Kind::hosted)
+        maker = juce::String (juce::CharPointer_UTF8 ("TAPE\xc2\xb7" "FOUR"));
+    else if (auto* inst = dynamic_cast<juce::AudioPluginInstance*> (processor.get()))
+        maker = inst->getPluginDescription().manufacturerName;
+    editorAvailable = processor->hasEditor();
+    makesMidi = processor->producesMidi();
+    numIns = processor->getTotalNumInputChannels();
     processor->addListener (this);
 }
 
@@ -519,18 +527,8 @@ ProcessorBlock::~ProcessorBlock()
         processor->releaseResources();
 }
 
-juce::String ProcessorBlock::getName() const
-{
-    return processor->getName();
-}
-
-juce::String ProcessorBlock::getMaker() const
-{
-    if (kind != Kind::hosted) return juce::String (juce::CharPointer_UTF8 ("TAPE\xc2\xb7" "FOUR"));
-    if (auto* inst = dynamic_cast<juce::AudioPluginInstance*> (processor.get()))
-        return inst->getPluginDescription().manufacturerName;
-    return {};
-}
+juce::String ProcessorBlock::getName() const  { return name; }
+juce::String ProcessorBlock::getMaker() const { return maker; }
 
 void ProcessorBlock::audioProcessorParameterChanged (juce::AudioProcessor*, int, float)
 {
@@ -571,7 +569,7 @@ void ProcessorBlock::process (juce::AudioBuffer<float>& stereo, int numSamples, 
         if (m.numBytes > 0 && (m.data[0] & 0xf0) == 0xc0) { stateMaybeChanged = true; break; }
 
     const auto ins = processor->getTotalNumInputChannels(), outs = processor->getTotalNumOutputChannels();
-    const bool midiOutWanted = processor->producesMidi();
+    const bool midiOutWanted = makesMidi;
     if (midiOutWanted) midiOut.clear();
 
     // The processor was promised blocks no longer than the device's; a longer one goes in pieces.
