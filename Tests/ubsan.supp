@@ -1,0 +1,3 @@
+# JUCE's bundled LV2 libraries (serd, sord, lilv) pass C callbacks through generic function pointers
+# (a long-standing C idiom the function check reports). Only that check, only in that code.
+function:*/LV2_SDK/*

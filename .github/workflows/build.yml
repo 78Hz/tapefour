@@ -179,7 +179,7 @@ jobs:
       - name: Run them
         env:
           ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
-          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1:suppressions=${{ github.workspace }}/Tests/ubsan.supp
           TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1:suppressions=${{ github.workspace }}/Tests/tsan.supp
         run: |
           xvfb-run -a build/EngineTest_artefacts/RelWithDebInfo/EngineTest
