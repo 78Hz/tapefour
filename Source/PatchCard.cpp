@@ -223,10 +223,10 @@ PatchCard::PatchCard (AudioEngine& e, int track)
             auto current = (Source) engine.track[t].source.load();
             switch (i)
             {
-                case 0: if (current != Source::audio) { if (onClosePluginWindow) onClosePluginWindow (t); engine.setAudioSource (t, engine.track[t].inputChannel.load(), engine.track[t].inputPair.load()); } break;
+                case 0: if (current != Source::audio) { engine.setAudioSource (t, engine.track[t].inputChannel.load(), engine.track[t].inputPair.load()); } break;
                 case 1: if (current != Source::instrument) engine.setInstrument (t, BuiltIn::create (BuiltIn::poly)); break;
-                case 2: if (current != Source::hardware) { if (onClosePluginWindow) onClosePluginWindow (t); engine.setHardwareSource (t); } break;
-                case 3: if (current != Source::bounce) { if (onClosePluginWindow) onClosePluginWindow (t); engine.unplug (t); engine.track[t].bounceMask = 0; engine.track[t].source = (int) Source::bounce; } break;
+                case 2: if (current != Source::hardware) { engine.setHardwareSource (t); } break;
+                case 3: if (current != Source::bounce) { engine.unplug (t); engine.track[t].bounceMask = 0; engine.track[t].source = (int) Source::bounce; } break;
                 default: break;
             }
             changed();
@@ -299,14 +299,12 @@ void PatchCard::openBrowser (bool open)
 
 void PatchCard::pickBuiltIn (int kind)
 {
-    if (onClosePluginWindow) onClosePluginWindow (t);
     engine.setInstrument (t, BuiltIn::create (kind));
     changed();
 }
 
 void PatchCard::pickPlugin (const juce::PluginDescription& desc)
 {
-    if (onClosePluginWindow) onClosePluginWindow (t);
     engine.loadPlugin (t, desc, {}, [safe = juce::Component::SafePointer<PatchCard> (this)] (const juce::String&)
     {
         if (safe != nullptr) safe->rebuild();
@@ -360,7 +358,7 @@ void PatchCard::rebuild()
     {
         addRow ("PLAY WITH", "MIDI in");
         auto current = p.midiPort.load();
-        addChip ("ANY", current == AudioEngine::midiAnyWhenArmed, [this] { engine.setTrackMidiPort (t, AudioEngine::midiAnyWhenArmed); });
+        addChip ("ANY", current == AudioEngine::midiAny, [this] { engine.setTrackMidiPort (t, AudioEngine::midiAny); });
         for (auto& in : engine.getMidiInputs())
         {
             if (! in.active) continue;

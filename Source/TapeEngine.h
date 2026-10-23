@@ -61,15 +61,23 @@ public:
     float getNominalSpeed() const noexcept    { return nominalSpeed.load(); }   // incl. pitch, rel. to 1 7/8
 
     // ---- audio thread ----
-    void beginBlock (int numSamples, const bool* armed, int deviceLatencySamples) noexcept;
+    void beginBlock (int numSamples, const bool* armed) noexcept;
     void readAll (float* const* out, int numSamples) noexcept;
-    void writeTrack (int track, const float* in, int numSamples) noexcept;
+    /** Records a block onto one track. latencySamples is how long ago, in the tape's terms, the sound
+        being recorded was meant to happen: what came in through the interface was played along to
+        what was heard (input + output latency); an instrument only waits for the output; a bounce
+        comes straight off the tape and needs none. */
+    void writeTrack (int track, const float* in, int numSamples, double latencySamples) noexcept;
     void endBlock() noexcept;
+
+    /** Punch-in and punch-out crossfade, like the gap between a deck's erase and record heads. */
+    static constexpr double punchFadeSeconds = 0.006;
     bool anyPlayback() const noexcept         { return blockHasPlayback; }
     bool isRecordingNow() const noexcept      { return blockHasRecording; }
 
 private:
     void writeSpan (int t, double p, float v, bool nr, float spd, int pos) noexcept;
+    void finishPunch (int t) noexcept;
     void configureCompanders (int type);
     void configureModel (int model, int speedSel, int switchPos);
     void calibrateHiss();
@@ -101,7 +109,6 @@ private:
     std::vector<uint8_t> playing, recording;
     bool blockHasPlayback = false, blockHasRecording = false;
     bool armedNow[numTracks] {};
-    double latencyCells = 0.0;
     int lastMode = 0;
 
     // modulation
@@ -121,9 +128,20 @@ private:
     std::vector<float> raw[numTracks];
 
     // writing
-    bool hasPrev[numTracks] {};
+    bool hasPrev[numTracks] {}, wroteThisBlock[numTracks] {};
     double prevPos[numTracks] {};
     float prevVal[numTracks] {};
+
+    // Punch crossfades: the new recording fades in over what was there; at punch-out the last
+    // stretch is blended back towards what it replaced, which is kept in this ring.
+    static constexpr int punchRing = 1024;
+    struct Replaced { int64_t cell; float old; };
+    Replaced replaced[numTracks][punchRing] {};
+    int replacedHead[numTracks] {}, replacedCount[numTracks] {};
+    int64_t runCells[numTracks] {};
+    bool runNr[numTracks] {};
+    float runSpeed[numTracks] {};
+    int runPos[numTracks] {};
     float lastHfCut = -1, lastAaCut = -1;
 
     // the tape model

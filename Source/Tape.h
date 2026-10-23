@@ -41,7 +41,7 @@ public:
     inline float readCell (int track, int64_t c) const noexcept
     {
         if (c < 0 || c >= lengthCells) return 0.0f;
-        return (float) data[track][c] * readScale;
+        return (float) data[track][c].load (std::memory_order_relaxed) * readScale;
     }
 
     float readInterpolated (int track, double pos) const noexcept;
@@ -72,11 +72,27 @@ public:
     /** The deck as it was when this tape was last saved (faders, patches, plug-in settings...). */
     std::unique_ptr<juce::XmlElement> deckState;
 
-    // ---- persistence (message thread, with the transport stopped) ----
+    // ---- persistence ----
+    // Saving comes in three parts so the slow one can run on a background thread, even while recording:
+    //   createMetadata() and deckState are read on the message thread;
+    //   writeAudio() writes the seconds of tape that changed, safely, from any thread;
+    //   writeMetadata() / writeDeck() replace their files atomically.
+    std::unique_ptr<juce::XmlElement> createMetadata() const;
+    bool writeAudio (const juce::File& folder);
+    static bool writeMetadata (const juce::XmlElement& meta, const juce::File& folder);
+    static bool writeDeck (const juce::XmlElement& deck, const juce::File& folder);
+    void restoreDirtyAfterFailedSave() noexcept { dataDirty = true; metaDirty = true; }
+
+    /** Everything at once, on the calling thread. */
     bool save (const juce::File& folder);
     static std::unique_ptr<Tape> load (const juce::File& folder);
     bool needsSaving() const noexcept;
+    bool hasUnsavedAudio() const noexcept       { return dataDirty.load(); }
     void markMetaChanged() noexcept { metaDirty = true; }
+    void markMetaSaved() noexcept   { metaDirty = false; }
+
+    /** The deck state has changed since it was last written to deck.xml. */
+    bool deckNeedsWriting = false;
 
 private:
     int type, model;
@@ -86,7 +102,11 @@ private:
     void setFluxScale (float s) noexcept { fluxScale = s; readScale = 1.0f / (32767.0f * s); }
     int64_t lengthCells;
     int numBlocks, numSeconds;
-    int16_t* data[numTracks] {};
+    // Written by the audio thread while a background thread saves: relaxed atomics, which cost
+    // nothing on any current CPU but make the sharing well-defined.
+    using Cell = std::atomic<int16_t>;
+    static_assert (sizeof (Cell) == sizeof (int16_t) && Cell::is_always_lock_free);
+    Cell* data[numTracks] {};
     std::unique_ptr<std::atomic<uint8_t>[]>  flags[numTracks];
     std::unique_ptr<std::atomic<uint16_t>[]> speedMilli[numTracks];
     std::unique_ptr<std::atomic<uint8_t>[]>  dirty[numTracks];   // per second of tape

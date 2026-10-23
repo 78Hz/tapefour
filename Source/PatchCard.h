@@ -34,7 +34,7 @@ public:
     ~PatchCard() override;
 
     std::function<void()> onDone;
-    std::function<void (int track)> onShowPluginWindow, onClosePluginWindow;
+    std::function<void (int track)> onShowPluginWindow;
     std::function<void()> onFindInstruments;
 
     void paint (juce::Graphics&) override;

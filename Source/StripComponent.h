@@ -40,8 +40,8 @@ private:
     Fader fader;
     FlatButton arm { "REC ARM" };
     bool clickPending = false;
-    juce::String tag;
-    juce::Colour tagColour;
+    juce::String tag, shownTag;
+    juce::Colour tagColour, shownTagColour;
     int midiHold = 0;
 };
 

@@ -5,6 +5,7 @@
 #include "TapeShelf.h"
 #include "PatchCard.h"
 #include "InlayCard.h"
+#include "TapeWriter.h"
 
 namespace tf
 {
@@ -39,6 +40,8 @@ public:
     ~DeckComponent() override;
 
     void prepareToQuit();
+    /** Shows a message in the status display. */
+    void notice (const juce::String& message, double seconds) { say (message, seconds); }
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -52,7 +55,11 @@ private:
     // tape handling
     void loadStartupTape();
     void tapeChanged();
-    bool saveTape (bool announce);
+    /** Queues a save. withDeck also stores the deck with the tape (asking plug-ins for their
+        settings if fresh); while recording only the audio and track sheet are saved. */
+    void saveTape (bool announce, bool withDeck = true, bool fresh = false);
+    /** Saves the tape in the deck, then makes or loads the next one in the background and puts it in. */
+    void switchTape (std::function<std::unique_ptr<Tape>()> make, std::function<void (Tape&)> after, const juce::String& busyText);
     void insertBlank (int type, int model);
     void loadFromShelf (const juce::String& id);
     void showEjectMenu();
@@ -100,11 +107,13 @@ private:
     std::unique_ptr<SetupWindow> setupWindow;
     std::unique_ptr<PluginWindow> pluginWindows[numTracks];
     std::unique_ptr<Overlay> overlay;
+    TapeWriter writer;
+    bool tapeBusy = false;      // a tape is being loaded or made
 
     juce::String message;
     double messageUntil = 0;
-    int frame = 0, stoppedFrames = 0, midiHold = 0, midiOutHold = 0;
-    juce::String counterText { "000" };
+    int frame = 0, stoppedFrames = 0, recordingFrames = 0, midiHold = 0, midiOutHold = 0;
+    juce::String counterText { "000" }, shownTransport;
     bool recLamp = false, playLamp = false, midiLamp = false, midiOutLamp = false;
 
     // computer keyboard as a MIDI keyboard

@@ -1,5 +1,12 @@
 #include "PluginScan.h"
 
+#if JUCE_WINDOWS
+ #ifndef NOMINMAX
+  #define NOMINMAX
+ #endif
+ #include <windows.h>
+#endif
+
 namespace tf
 {
 namespace PluginScan
@@ -67,6 +74,11 @@ bool isHelperCommandLine (const juce::String& commandLine)
 
 int runHelper (const juce::String& commandLine)
 {
+   #if JUCE_WINDOWS
+    // A plug-in that crashes here should just end this helper, not put up a Windows error box.
+    SetErrorMode (SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
+   #endif
+
     auto args = juce::StringArray::fromTokens (commandLine, true);
     args.trim();
     for (auto& a : args) a = a.unquoted();

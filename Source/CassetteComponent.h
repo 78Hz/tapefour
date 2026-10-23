@@ -31,6 +31,7 @@ public:
 private:
     float fraction = 0.0f, fullPackUnits = 440.0f;
     double lastPos = -1.0;
+    const Tape* lastTape = nullptr;
     float angleL = 0.0f, angleR = 0.0f;
     bool hasTape = false;
     int model = defaultTapeModel, minutes = 30;

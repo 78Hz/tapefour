@@ -30,6 +30,7 @@ public:
         fenv.setParameters ({ 0.002f, 0.45f, 0.25f, 0.35f });
         amp.noteOn();
         fenv.noteOn();
+        coefCountdown = 0;
     }
 
     void noteStopped (bool allowTailOff) override
@@ -61,12 +62,19 @@ public:
             // smooth the expressive controls so slides and pressure don't zip
             sPressure += (pressure - sPressure) * 0.002f;
             sTimbre += (timbre - sTimbre) * 0.002f;
+            auto env = fenv.getNextSample();
 
-            auto cutoff = juce::jlimit (60.0, sr * 0.45, (500.0 + (400.0 + 5200.0 * vel) * fenv.getNextSample())
-                                                          * std::pow (2.0, 2.2 * sPressure + 2.0 * (sTimbre - 0.5)));
-            auto g = std::tan (juce::MathConstants<double>::pi * cutoff / sr);
-            auto k = 1.0 / 2.2;
-            auto a1 = 1.0 / (1.0 + g * (g + k)), a2 = g * a1, a3 = g * a2;
+            // The filter's coefficients follow the envelope every 16 samples (0.3 ms): the tan and pow
+            // were most of the synth's cost when done every sample, and the difference is inaudible.
+            if (--coefCountdown <= 0)
+            {
+                coefCountdown = 16;
+                auto cutoff = juce::jlimit (60.0, sr * 0.45, (500.0 + (400.0 + 5200.0 * vel) * env)
+                                                              * std::pow (2.0, 2.2 * sPressure + 2.0 * (sTimbre - 0.5)));
+                auto g = std::tan (juce::MathConstants<double>::pi * cutoff / sr);
+                auto k = 1.0 / 2.2;
+                a1 = 1.0 / (1.0 + g * (g + k)); a2 = g * a1; a3 = g * a2;
+            }
             auto v3 = s - ic2, v1 = a1 * ic1 + a2 * v3, v2 = ic2 + a2 * ic1 + a3 * v3;
             ic1 = 2.0 * v1 - ic1; ic2 = 2.0 * v2 - ic2;
 
@@ -88,8 +96,9 @@ private:
         timbre = note.timbre.asUnsignedFloat();
     }
 
-    double freq = 440, p1 = 0, p2 = 0.37, p3 = 0, ic1 = 0, ic2 = 0;
+    double freq = 440, p1 = 0, p2 = 0.37, p3 = 0, ic1 = 0, ic2 = 0, a1 = 1, a2 = 0, a3 = 0;
     float vel = 0, pressure = 0, timbre = 0.5f, sPressure = 0, sTimbre = 0.5f;
+    int coefCountdown = 0;
     juce::ADSR amp, fenv;
 };
 
@@ -198,7 +207,7 @@ public:
         synth.renderNextBlock (stereo, midi, 0, numSamples);
     }
 
-    std::unique_ptr<juce::XmlElement> saveState() const override
+    std::unique_ptr<juce::XmlElement> saveState (bool) override
     {
         auto x = std::make_unique<juce::XmlElement> ("INSTRUMENT");
         x->setAttribute ("kind", "builtin");
@@ -229,10 +238,12 @@ std::unique_ptr<Instrument> BuiltIn::create (int kind)
 PluginInstrument::PluginInstrument (std::unique_ptr<juce::AudioPluginInstance> p)
     : plugin (std::move (p))
 {
+    plugin->addListener (this);
 }
 
 PluginInstrument::~PluginInstrument()
 {
+    plugin->removeListener (this);
     if (prepared)
         plugin->releaseResources();
 }
@@ -242,43 +253,65 @@ void PluginInstrument::prepare (double sampleRate, int maxBlockSize)
     if (prepared)
         plugin->releaseResources();
 
-    plugin->setRateAndBufferSizeDetails (sampleRate, maxBlockSize);
-    plugin->prepareToPlay (sampleRate, maxBlockSize);
-    work.setSize (std::max ({ 2, plugin->getTotalNumInputChannels(), plugin->getTotalNumOutputChannels() }), maxBlockSize);
+    pieceSize = juce::jlimit (32, 8192, maxBlockSize);
+    plugin->setRateAndBufferSizeDetails (sampleRate, pieceSize);
+    plugin->prepareToPlay (sampleRate, pieceSize);
+    work.setSize (std::max ({ 2, plugin->getTotalNumInputChannels(), plugin->getTotalNumOutputChannels() }), pieceSize);
+    pieceMidi.ensureSize (8192);
     prepared = true;
 }
 
 void PluginInstrument::render (juce::AudioBuffer<float>& stereo, int numSamples, juce::MidiBuffer& midi)
 {
-    if (! prepared || numSamples > work.getNumSamples())
+    if (! prepared)
         return;
 
     const juce::ScopedTryLock sl (plugin->getCallbackLock());
     if (! sl.isLocked())
         return;
 
-    juce::AudioBuffer<float> view (work.getArrayOfWritePointers(), work.getNumChannels(), numSamples);
-    view.clear();
-    plugin->processBlock (view, midi);
+    // A program change from a controller changes the sound: worth saving next time.
+    for (const auto m : midi)
+        if (m.numBytes > 0 && (m.data[0] & 0xf0) == 0xc0) { stateMaybeChanged = true; break; }
 
     auto outs = plugin->getTotalNumOutputChannels();
-    if (outs <= 0) return;
     // Soft synths come out near 0 dBFS; a real synth into a tape deck's line input
     // sits around -12 dB below that, which is where the deck's 0 VU is.
     constexpr float pad = 0.25f;
-    stereo.addFrom (0, 0, view, 0, 0, numSamples, pad);
-    stereo.addFrom (1, 0, view, outs > 1 ? 1 : 0, 0, numSamples, pad);
+
+    // The plug-in was promised blocks no longer than the device's; a longer one goes in pieces.
+    for (int start = 0; start < numSamples; start += pieceSize)
+    {
+        const int len = std::min (pieceSize, numSamples - start);
+        pieceMidi.clear();
+        pieceMidi.addEvents (midi, start, len, -start);
+
+        juce::AudioBuffer<float> view (work.getArrayOfWritePointers(), work.getNumChannels(), len);
+        view.clear();
+        plugin->processBlock (view, pieceMidi);
+
+        if (outs <= 0) continue;
+        stereo.addFrom (0, start, view, 0, 0, len, pad);
+        stereo.addFrom (1, start, view, outs > 1 ? 1 : 0, 0, len, pad);
+    }
 }
 
-std::unique_ptr<juce::XmlElement> PluginInstrument::saveState() const
+std::unique_ptr<juce::XmlElement> PluginInstrument::saveState (bool fresh)
 {
+    // Asking a big sampler for its state can take a while and makes megabytes of text, so it is
+    // only done when the sound may have changed: a parameter moved, a program change came in,
+    // or its window is (or was) open.
+    if (fresh || cachedState.isEmpty() || editorOpen || stateMaybeChanged.exchange (false))
+    {
+        juce::MemoryBlock state;
+        plugin->getStateInformation (state);
+        cachedState = state.toBase64Encoding();
+    }
+
     auto x = std::make_unique<juce::XmlElement> ("INSTRUMENT");
     x->setAttribute ("kind", "plugin");
     x->addChildElement (plugin->getPluginDescription().createXml().release());
-
-    juce::MemoryBlock state;
-    plugin->getStateInformation (state);
-    x->setAttribute ("state", state.toBase64Encoding());
+    x->setAttribute ("state", cachedState);
     return x;
 }
 } // namespace tf

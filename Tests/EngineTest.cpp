@@ -44,9 +44,9 @@ struct Rig
         for (int b = 0; b < blocks; ++b)
         {
             for (auto& v : in) { v = amp * (float) std::sin (phase); phase += juce::MathConstants<double>::twoPi * freq / sr; }
-            eng.beginBlock (bs, armed, 0);
+            eng.beginBlock (bs, armed);
             eng.readAll (outPtrs, bs);
-            if (eng.isRecordingNow()) eng.writeTrack (0, in.data(), bs);
+            if (eng.isRecordingNow()) eng.writeTrack (0, in.data(), bs, 0.0);
             eng.endBlock();
             captured.insert (captured.end(), outs[(size_t) listen].begin(), outs[(size_t) listen].end());
         }
@@ -57,7 +57,7 @@ struct Rig
     {
         eng.command (TapeEngine::Command::stop);
         bool armed[numTracks] {};
-        eng.beginBlock (1, armed, 0); eng.endBlock();
+        eng.beginBlock (1, armed); eng.endBlock();
         eng.setTape (nullptr);
         tape.position = cells;
         eng.setTape (&tape, false);
@@ -386,6 +386,26 @@ int main()
         auto bleed = ghost (0), clean = ghost (2);
         check (bleed > -40.0 && bleed < -28.0, "erase: MX overwritten at NORMAL, old 300 Hz (dB)", bleed, -33.0);
         check (clean < -70.0, "erase: MX overwritten at METAL, old 300 Hz gone (dB)", clean, -70.0);
+    }
+
+    {   // 11. punch-in and punch-out crossfade: no click either side
+        Rig r;
+        // a steady 200 Hz tone already on the tape
+        for (int64_t c = 0; c < (int64_t) cellRate * 4; ++c)
+            r.tape.writeCell (0, c, 0.3f * (float) std::sin (juce::MathConstants<double>::twoPi * 200.0 * (double) c / cellRate), false, 1.0f, 0);
+        r.run (1.0, TapeEngine::Command::play, true, 0, 0);
+        r.run (0.5, TapeEngine::Command::rec, true, 0, 0);     // punch in silence...
+        r.run (1.0, TapeEngine::Command::play, true, 0, 0);    // ...and out again
+
+        float maxStep = 0, tone = 0.3f * (float) (juce::MathConstants<double>::twoPi * 200.0 / cellRate);
+        double gapRms = 0;
+        for (int64_t c = 1; c < (int64_t) cellRate * 3; ++c)
+            maxStep = std::max (maxStep, std::abs (r.tape.readCell (0, c) - r.tape.readCell (0, c - 1)));
+        for (int64_t c = (int64_t) (cellRate * 1.15); c < (int64_t) (cellRate * 1.4); ++c)
+            gapRms += std::pow (r.tape.readCell (0, c), 2.0);
+        gapRms = std::sqrt (gapRms / (cellRate * 0.25));
+        check (maxStep < tone * 1.6f, "punch in/out: no step bigger than the tone's own", maxStep, tone);
+        check (gapRms < 0.005, "punch: the punched-in stretch holds the new (silent) take", gapRms, 0.0);
     }
 
     std::printf ("\n%s (%d failure%s)\n", failures == 0 ? "ALL PASSED" : "SOME FAILED", failures, failures == 1 ? "" : "s");

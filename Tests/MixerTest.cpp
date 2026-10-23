@@ -1,5 +1,6 @@
 // Drives the whole audio path (inputs -> strips -> tape -> mix) with a fake audio device.
 #include "../Source/AudioEngine.h"
+#include "../Source/TapeWriter.h"
 #include <cstdio>
 
 using namespace tf;
@@ -9,6 +10,7 @@ namespace
 constexpr double sr = 48000.0;
 constexpr int bs = 256;
 int failures = 0;
+int fakeInputLatency = 0, fakeOutputLatency = 0;   // what the fake interface reports
 
 void check (bool ok, const char* what, double got, double want)
 {
@@ -37,8 +39,8 @@ public:
     int getCurrentBitDepth() override { return 24; }
     juce::BigInteger getActiveOutputChannels() const override { juce::BigInteger b; b.setRange (0, 2, true); return b; }
     juce::BigInteger getActiveInputChannels() const override  { juce::BigInteger b; b.setRange (0, 2, true); return b; }
-    int getOutputLatencyInSamples() override { return 0; }
-    int getInputLatencyInSamples() override { return 0; }
+    int getOutputLatencyInSamples() override { return fakeOutputLatency; }
+    int getInputLatencyInSamples() override { return fakeInputLatency; }
 };
 
 struct Rig
@@ -66,11 +68,18 @@ struct Rig
 
     ~Rig() { engine.reset(); props.reset(); propsFile.deleteFile(); }
 
+    // A cable from output 1 back into input 1, as long as the interface's round trip.
+    bool loopback = false;
+    std::vector<float> loopLine;
+    size_t loopPos = 0;
+
     std::vector<float> run (double seconds)
     {
         std::vector<float> in0 ((size_t) bs), in1 ((size_t) bs), out0 ((size_t) bs), out1 ((size_t) bs), captured;
         const float* ins[2] { in0.data(), in1.data() };
         float* outs[2] { out0.data(), out1.data() };
+        const auto delay = (size_t) (fakeInputLatency + fakeOutputLatency);
+        if (loopback && loopLine.size() != delay + 1) { loopLine.assign (delay + 1, 0.0f); loopPos = 0; }
         for (int b = 0; b < (int) (seconds * sr / bs); ++b)
         {
             for (int i = 0; i < bs; ++i)
@@ -79,7 +88,17 @@ struct Rig
                     (c == 0 ? in0 : in1)[(size_t) i] = amp[c] * (float) std::sin (ph[c]);
                     ph[c] += juce::MathConstants<double>::twoPi * f[c] / sr;
                 }
+            if (loopback)
+                for (int i = 0; i < bs; ++i)
+                    in0[(size_t) i] = loopLine[(loopPos + (size_t) i) % loopLine.size()];
             engine->audioDeviceIOCallbackWithContext (ins, 2, outs, 2, bs, {});
+            if (loopback)
+                for (int i = 0; i < bs; ++i)
+                {
+                    // what leaves output 1 now arrives back, round-trip later
+                    loopLine[(loopPos + (size_t) i + delay) % loopLine.size()] = out0[(size_t) i];
+                }
+            if (loopback) loopPos = (loopPos + (size_t) bs) % loopLine.size();
             captured.insert (captured.end(), out0.begin(), out0.end());
         }
         return captured;
@@ -317,7 +336,7 @@ int main()
         me.setInstrument (2, BuiltIn::create (BuiltIn::poly));
         me.setTrackMidiPort (0, keysA);
         me.setTrackMidiPort (1, keysB);
-        me.setTrackMidiPort (2, AudioEngine::midiAnyWhenArmed);
+        me.setTrackMidiPort (2, AudioEngine::midiAny);
         me.track[0].armed = true;  me.track[0].pan = -1.0f;   // left
         me.track[1].armed = true;  me.track[1].pan =  1.0f;   // right: nothing of it on the left output
         me.track[2].armed = false; me.track[2].pan = -1.0f;   // "any" but not armed: deaf
@@ -415,14 +434,190 @@ int main()
         // ...and the deck travels with the tape.
         auto& tape = *me.getTape();
         tape.deckState = me.createDeckState();
+        tape.deckNeedsWriting = true;
         auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("tf_deck_tape");
         dir.deleteRecursively();
         dir.createDirectory();
         tape.save (dir);
         auto loaded = Tape::load (dir);
         check (loaded != nullptr && loaded->deckState != nullptr && loaded->deckState->isEquivalentTo (tape.deckState.get(), false),
-               "deck state is saved inside the tape", loaded != nullptr && loaded->deckState != nullptr, 1);
+               "deck state is saved with the tape (deck.xml)", loaded != nullptr && loaded->deckState != nullptr, 1);
         dir.deleteRecursively();
+    }
+
+    // ---- Recording lines up with what you heard, on an interface with 25 ms each way ----
+    {
+        fakeInputLatency = 1200;
+        fakeOutputLatency = 1200;
+        auto clickAt = [] (Tape& tape, int t)
+        {
+            int64_t best = 0; float bv = 0;
+            for (int64_t c = 0; c < (int64_t) cellRate * 4; ++c)
+                if (auto v = std::abs (tape.readCell (t, c)); v > bv) { bv = v; best = c; }
+            return best;
+        };
+        auto putClick = [] (Tape& tape, int t, int64_t at)
+        {
+            for (int c = 0; c < 16; ++c) tape.writeCell (t, at + c, 0.4f, false, 1.0f, 0);
+        };
+
+        // Bounce: straight off the tape, no correction.
+        {
+            Rig m;
+            auto& me = *m.engine;
+            auto& tape = *me.getTape();
+            putClick (tape, 0, 64000);
+            me.toggleBounceSource (1, 0);
+            me.track[1].armed = true;
+            m.cmd (TapeEngine::Command::rec);
+            m.run (3.0);
+            m.cmd (TapeEngine::Command::stop);
+            m.run (0.05);
+            auto offset = (double) (clickAt (tape, 1) - clickAt (tape, 0));
+            check (std::abs (offset) < 24.0, "latency: a bounce lands where its sources are (cells)", offset, 0.0);
+        }
+
+        // Overdub through the interface: play along to what you hear (a loopback cable stands in for you).
+        {
+            Rig m;
+            auto& me = *m.engine;
+            auto& tape = *me.getTape();
+            putClick (tape, 0, 64000);
+            me.track[0].pan = -1.0f;     // track 1 to the left output, which loops back into IN 1
+            me.setAudioSource (1, 0);
+            me.track[1].pan = 1.0f;      // the overdub's own monitoring goes right, out of the loop
+            me.track[1].armed = true;
+            m.loopback = true;
+            m.cmd (TapeEngine::Command::rec);
+            m.run (3.0);
+            m.cmd (TapeEngine::Command::stop);
+            m.run (0.05);
+            m.loopback = false;
+            auto offset = (double) (clickAt (tape, 1) - clickAt (tape, 0));
+            check (std::abs (offset) < 24.0, "latency: an overdub through the interface lines up (cells)", offset, 0.0);
+        }
+
+        // The rule for each source.
+        check (AudioEngine::recordLatencySamples (Source::instrument, 1200, 900, 48) == 900.0
+               && AudioEngine::recordLatencySamples (Source::bounce, 1200, 900, 48) == 0.0
+               && AudioEngine::recordLatencySamples (Source::audio, 1200, 900, 48) == 2148.0
+               && AudioEngine::recordLatencySamples (Source::hardware, 1200, 900, 48) == 2148.0,
+               "latency: instruments wait for the output only; audio and synths for the round trip", 900, 900);
+        fakeInputLatency = fakeOutputLatency = 0;
+    }
+
+    // ---- Controls glide; arming crossfades ----
+    {
+        Rig m;
+        auto& me = *m.engine;
+        me.setAudioSource (0, 0);
+        m.f[0] = 1000; m.amp[0] = 0.3f;
+        me.track[0].armed = false;
+        m.run (0.2);
+        me.track[0].armed = true;   // tape is silent, so this is silence -> 0.3
+        auto fade = m.run (0.1);
+        float firstMs = 0;
+        for (int i = 0; i < 48; ++i) firstMs = std::max (firstMs, std::abs (fade[(size_t) i]));
+        check (firstMs < 0.06f && tone (fade, 1000, 0.05, 0.1) > 0.2, "arming fades the input in over ~12 ms (no click)", firstMs, 0.0);
+
+        me.track[0].mid = -1.0f;
+        m.run (0.3);
+        me.track[0].mid = 1.0f;     // -12 dB to +12 dB in one go
+        auto glide = m.run (0.3);
+        float maxStep = 0;
+        for (size_t i = 1; i < glide.size(); ++i) maxStep = std::max (maxStep, std::abs (glide[i] - glide[i - 1]));
+        auto peakNow = 0.3f * 3.98f * (float) (juce::MathConstants<double>::twoPi * 1000.0 / sr);
+        check (maxStep < peakNow * 1.3f, "EQ: a sudden knob jump glides (no step)", maxStep, peakNow);
+        me.track[0].mid = 0.0f;
+        me.track[0].armed = false;
+    }
+
+    // ---- The tape is saved while recording, safely ----
+    {
+        Rig m;
+        auto& me = *m.engine;
+        me.setAudioSource (0, 0);
+        me.track[0].armed = true;
+        m.f[0] = 440; m.amp[0] = 0.3f;
+        auto& tape = *me.getTape();
+        tape.id = "tf_writer_test";
+        auto dir = TapeShelf::folderFor (tape.id);
+        dir.deleteRecursively();
+
+        TapeWriter writer;
+        m.cmd (TapeEngine::Command::rec);
+        for (int i = 0; i < 6; ++i)
+        {
+            m.run (0.5);
+            writer.saveTape (tape);   // the audio is written on the writer's thread while this one records
+        }
+        m.cmd (TapeEngine::Command::stop);
+        m.run (0.05);
+        writer.waitUntilIdle();
+        writer.saveTape (tape);
+        writer.waitUntilIdle();
+
+        auto back = Tape::load (dir);
+        int64_t diff = 0;
+        for (int64_t c = 0; back != nullptr && c < (int64_t) cellRate * 3; ++c)
+            if (back->readCell (0, c) != tape.readCell (0, c)) ++diff;
+        check (back != nullptr && diff == 0 && back->isRecorded (0, 20), "saved while recording: the tape on disk matches", (double) diff, 0.0);
+        dir.deleteRecursively();
+        juce::MessageManager::getInstance()->runDispatchLoopUntil (50);   // let the writer's callbacks run while the tape exists
+    }
+
+    // ---- A plug-in that arrives after something else was chosen is thrown away ----
+    {
+        Rig m;
+        auto& me = *m.engine;
+        juce::PluginDescription ghost;
+        ghost.pluginFormatName = "VST3";
+        ghost.fileOrIdentifier = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("NoSuch.vst3").getFullPathName();
+        ghost.name = "Ghost";
+        juce::String result = "pending";
+        me.loadPlugin (0, ghost, {}, [&] (const juce::String& err) { result = err; });
+        me.setInstrument (0, BuiltIn::create (BuiltIn::epiano));   // chosen while the first was loading
+        auto until = juce::Time::getMillisecondCounter() + 3000;
+        while (result == "pending" && juce::Time::getMillisecondCounter() < until)
+            juce::MessageManager::getInstance()->runDispatchLoopUntil (20);
+        check (result == "superseded" && me.getInstrument (0) != nullptr && me.getInstrument (0)->getName() == BuiltIn::nameOf (BuiltIn::epiano),
+               "plug-in load race: the late arrival is discarded", result == "superseded", 1);
+
+        // A plug-in's window is told to close while the instrument still exists.
+        bool stillThere = false;
+        me.onInstrumentChanging = [&] (int t) { stillThere = me.getInstrument (t) != nullptr; };
+        me.setInstrument (0, BuiltIn::create (BuiltIn::poly));
+        check (stillThere, "an instrument's window closes before the instrument goes", stillThere, 1);
+        me.onInstrumentChanging = nullptr;
+    }
+
+    // ---- More than 64 MIDI devices over time: old unplugged ones give up their slots ----
+    {
+        Rig m;
+        auto& me = *m.engine;
+        auto kept = me.addVirtualMidiInput ("Kept");
+        me.setTrackMidiPort (0, kept);
+        int failed = 0;
+        for (int i = 0; i < 100; ++i)
+            if (me.addVirtualMidiInput ("Controller " + juce::String (i)) < 0) ++failed;
+        check (failed == 0 && me.midiPortLabel (me.track[0].midiPort.load()) == "KEPT",
+               "MIDI: slots are recycled, never from a track that uses one", failed, 0);
+    }
+
+    // ---- Settings are only written when something changed ----
+    {
+        Rig m;
+        auto& me = *m.engine;
+        me.saveSettings();
+        auto file = m.propsFile;
+        auto old = juce::Time::getCurrentTime() - juce::RelativeTime::hours (1);
+        file.setLastModificationTime (old);
+        me.saveSettings();
+        auto untouched = std::abs ((file.getLastModificationTime() - old).inSeconds()) < 2.0;
+        me.track[0].fader = 0.5f;
+        me.saveSettings();
+        auto written = file.getLastModificationTime() > old + juce::RelativeTime::minutes (30);
+        check (untouched && written, "settings: unchanged saves touch nothing on disk", untouched + 2 * written, 3);
     }
 
     std::printf ("\n%s (%d failure%s)\n", failures == 0 ? "ALL PASSED" : "SOME FAILED", failures, failures == 1 ? "" : "s");

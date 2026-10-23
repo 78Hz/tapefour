@@ -236,18 +236,27 @@ void StripComponent::refresh (bool blink)
     if (p.midiActivity.exchange (false)) midiHold = 4;
     lcd.midiLamp = midiHold > 0;
     if (midiHold > 0) --midiHold;
-    lcd.repaint();
+    lcd.repaintIfChanged();
 
     meter.setLevels (p.meter.exchange (0.0f));
 
     bool armed = p.armed.load();
     if (arm.getToggleState() != armed)
         arm.setToggleState (armed, juce::dontSendNotification);
-    arm.lampOn = armed && (mode == Mode::rec || blink);
-    arm.face = armed ? Pal::armRed : Pal::button;
-    arm.pressedLook = armed;
-    arm.repaint();
-    repaint (0, 0, getWidth(), 50);
+    const bool lamp = armed && (mode == Mode::rec || blink);
+    if (arm.lampOn != lamp || arm.pressedLook != armed)
+    {
+        arm.lampOn = lamp;
+        arm.face = armed ? Pal::armRed : Pal::button;
+        arm.pressedLook = armed;
+        arm.repaint();
+    }
+    if (tag != shownTag || tagColour != shownTagColour)
+    {
+        shownTag = tag;
+        shownTagColour = tagColour;
+        repaint (0, 0, getWidth(), 50);
+    }
 }
 
 void StripComponent::resized()

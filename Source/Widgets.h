@@ -14,6 +14,15 @@ public:
     juce::String top, sub, low;
     bool showLamps = false, nrLamp = false, eqLamp = false, midiLamp = false;
     juce::Colour nrColour = Pal::amber, eqColour = Pal::green;
+
+    /** Repaints only if something shown has changed since the last call. */
+    void repaintIfChanged()
+    {
+        auto now = top + "|" + sub + "|" + low + "|" + juce::String ((int) nrLamp + 2 * (int) eqLamp + 4 * (int) midiLamp)
+                   + "|" + juce::String::toHexString ((int) nrColour.getARGB()) + juce::String::toHexString ((int) eqColour.getARGB());
+        if (now != shown) { shown = now; repaint(); }
+    }
+    juce::String shown;
     float topSize = 17.0f;
 
     void paintButton (juce::Graphics& g, bool over, bool) override
@@ -322,7 +331,9 @@ public:
         auto upd = [] (float& disp, float v) { disp = std::max (v, disp * 0.86f); };
         upd (level[0], l);
         upd (level[1], r);
-        repaint();
+        // Only redraw when a segment lights or goes out.
+        auto lit = litSegments (level[0]) * 32 + litSegments (level[1]);
+        if (lit != lastLit) { lastLit = lit; repaint(); }
     }
 
     void paint (juce::Graphics& g) override
@@ -352,8 +363,18 @@ public:
     }
 
 private:
+    static int litSegments (float level)
+    {
+        static const float vu[20] { -30, -26, -22, -19, -16, -13, -11, -9, -7, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 6 };
+        auto db = juce::Decibels::gainToDecibels (level, -100.0f) + 12.0f;
+        int n = 0;
+        while (n < 20 && db >= vu[n]) ++n;
+        return n;
+    }
+
     int numChannels;
     float level[2] {};
+    int lastLit = -1;
 };
 
 //==============================================================================

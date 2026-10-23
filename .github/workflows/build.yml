@@ -1,0 +1,186 @@
+name: Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  BUILD_NUMBER: ${{ github.run_number }}
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache JUCE download
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: juce-8.0.11-${{ runner.os }}
+
+      - name: Configure
+        run: cmake -S . -B build -A x64 -DTAPEFOUR_TESTS=ON -DTAPEFOUR_BUILD_NUMBER=${{ env.BUILD_NUMBER }}
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Test the tape engine
+        run: build/EngineTest_artefacts/Release/EngineTest.exe
+
+      - name: Test the full audio path
+        run: build/MixerTest_artefacts/Release/MixerTest.exe
+
+      - name: Test that a crashing plug-in can't take the scan down
+        run: build/ScanTest_artefacts/Release/ScanTest.exe build/crashplugin
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory dist | Out-Null
+          Copy-Item build/TapeFour_artefacts/Release/TapeFour.exe dist/
+          Copy-Item README.md, LICENSE, Manual/TapeFour-Manual.pdf dist/
+          Copy-Item Resources/fonts/OFL.txt dist/FONTS-OFL.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TapeFour-windows-x64
+          path: dist/
+          if-no-files-found: error
+
+  linux:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libasound2-dev libjack-jackd2-dev libfreetype-dev libfontconfig1-dev \
+            libx11-dev libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev libxrender-dev \
+            libgl1-mesa-dev xvfb
+
+      - name: Cache JUCE download
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: juce-8.0.11-${{ runner.os }}
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DTAPEFOUR_TESTS=ON -DTAPEFOUR_BUILD_NUMBER=${{ env.BUILD_NUMBER }}
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test the tape engine
+        run: xvfb-run -a build/EngineTest_artefacts/Release/EngineTest
+
+      - name: Test the full audio path
+        run: xvfb-run -a build/MixerTest_artefacts/Release/MixerTest
+
+      - name: Test that a crashing plug-in can't take the scan down
+        run: xvfb-run -a build/ScanTest_artefacts/Release/ScanTest build/crashplugin
+
+      - name: Package
+        run: |
+          mkdir -p dist/TapeFour
+          cp build/TapeFour_artefacts/Release/TapeFour dist/TapeFour/
+          cp README.md LICENSE Manual/TapeFour-Manual.pdf dist/TapeFour/
+          cp Resources/fonts/OFL.txt dist/TapeFour/FONTS-OFL.txt
+          tar -C dist -czf TapeFour-linux-x64.tar.gz TapeFour
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TapeFour-linux-x64
+          path: TapeFour-linux-x64.tar.gz
+          if-no-files-found: error
+
+  macos:
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache JUCE download
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: juce-8.0.11-${{ runner.os }}
+
+      - name: Configure (Apple silicon and Intel in one app)
+        run: >
+          cmake -S . -B build -G Xcode -DTAPEFOUR_TESTS=ON -DTAPEFOUR_BUILD_NUMBER=${{ env.BUILD_NUMBER }}
+          "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Test the tape engine
+        run: build/EngineTest_artefacts/Release/EngineTest
+
+      - name: Test the full audio path
+        run: build/MixerTest_artefacts/Release/MixerTest
+
+      - name: Test that a crashing plug-in can't take the scan down
+        run: build/ScanTest_artefacts/Release/ScanTest build/crashplugin/Release
+
+      - name: Package
+        run: |
+          mkdir -p dist/TapeFour
+          cp -R build/TapeFour_artefacts/Release/TapeFour.app dist/TapeFour/
+          # Not notarised: signed ad hoc so it runs; the first launch needs right-click > Open.
+          codesign --force --deep --sign - dist/TapeFour/TapeFour.app
+          cp README.md LICENSE Manual/TapeFour-Manual.pdf dist/TapeFour/
+          cp Resources/fonts/OFL.txt dist/TapeFour/FONTS-OFL.txt
+          ditto -c -k --keepParent dist/TapeFour TapeFour-macos-universal.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TapeFour-macos-universal
+          path: TapeFour-macos-universal.zip
+          if-no-files-found: error
+
+  # Memory errors, undefined behaviour and data races, caught in the engine and its threads.
+  sanitizers:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer: [ address, thread ]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang libasound2-dev libjack-jackd2-dev libfreetype-dev libfontconfig1-dev \
+            libx11-dev libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev libxrender-dev \
+            libgl1-mesa-dev xvfb
+
+      - name: Cache JUCE download
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: juce-8.0.11-${{ runner.os }}-san
+
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DTAPEFOUR_TESTS=ON
+          -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DTAPEFOUR_SANITIZE=${{ matrix.sanitizer }}
+
+      - name: Build the tests
+        run: cmake --build build --parallel --target EngineTest MixerTest
+
+      - name: Run them
+        env:
+          ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+          TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1:suppressions=${{ github.workspace }}/Tests/tsan.supp
+        run: |
+          xvfb-run -a build/EngineTest_artefacts/RelWithDebInfo/EngineTest
+          xvfb-run -a build/MixerTest_artefacts/RelWithDebInfo/MixerTest

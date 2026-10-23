@@ -63,7 +63,7 @@ DeckComponent::DeckComponent (AudioEngine& e, juce::PropertiesFile& settings)
     // header
     setupLcd.topSize = 15.0f;
     setupLcd.onClick = [this] { openSetup (audioTab); };
-    setupLcd.setTooltip ("Setup: ASIO driver, sample rate, buffer, MIDI controllers and synths, tape character");
+    setupLcd.setTooltip ("Setup: audio driver and interface, sample rate, buffer, MIDI controllers and synths, tape character");
     addAndMakeVisible (setupLcd);
 
     // cassette bay
@@ -173,6 +173,8 @@ DeckComponent::DeckComponent (AudioEngine& e, juce::PropertiesFile& settings)
     {
         juce::MessageManager::callAsync ([safe] { if (safe != nullptr) safe->deckStateApplied(); });
     };
+    // A plug-in's window always closes before the plug-in itself goes.
+    engine.onInstrumentChanging = [this] (int t) { closePluginWindow (t); };
 
     loadStartupTape();
     if (engine.getStartupProblem().isNotEmpty())
@@ -184,6 +186,7 @@ DeckComponent::~DeckComponent()
 {
     stopTimer();
     engine.onDeckStateApplied = nullptr;
+    engine.onInstrumentChanging = nullptr;
     overlay.reset();
     for (int t = 0; t < numTracks; ++t)
         pluginWindows[t].reset();
@@ -196,7 +199,8 @@ void DeckComponent::prepareToQuit()
     engine.tapeEngine.command (TapeEngine::Command::stop);
     juce::Thread::sleep (60);   // let the audio thread stop the tape
     overlay.reset();
-    saveTape (false);
+    saveTape (false, true, true);
+    writer.waitUntilIdle();     // everything on disk before we go
     if (auto* t = engine.getTape())
         props.setValue ("lastTape", t->id);
     for (int t = 0; t < numTracks; ++t)
@@ -344,6 +348,11 @@ void DeckComponent::say (const juce::String& m, double seconds)
 
 void DeckComponent::transport (TapeEngine::Command c)
 {
+    if (tapeBusy)
+    {
+        say ("LOADING TAPE...");
+        return;
+    }
     if (engine.getTape() == nullptr)
     {
         say ("NO TAPE - PRESS EJECT");
@@ -413,13 +422,13 @@ void DeckComponent::timerCallback()
                            + iecTypeName (tape->naturalPosition()) + " TAPE AT " + positionName (engine.tapeEngine.params.tapeSwitch.load())
                  : tape != nullptr ? "REMAIN " + formatTime ((tape->getLengthCells() - pos) / cellRate / std::max (0.1f, nominal))
                                  : juce::String ("NO TAPE");
-    status.repaint();
+    status.repaintIfChanged();
 
-    recKey.latched  = mode == Mode::rec;
-    playKey.latched = mode == Mode::play || mode == Mode::rec;
-    ffKey.latched   = mode == Mode::ff;
-    rewKey.latched  = mode == Mode::rew;
-    for (auto* k : { &recKey, &rewKey, &ffKey, &playKey, &stopKey }) k->repaint();
+    auto latch = [] (KeyButton& k, bool on) { if (k.latched != on) { k.latched = on; k.repaint(); } };
+    latch (recKey, mode == Mode::rec);
+    latch (playKey, mode == Mode::play || mode == Mode::rec);
+    latch (ffKey, mode == Mode::ff);
+    latch (rewKey, mode == Mode::rew);
     recLamp = mode == Mode::rec;
     playLamp = mode == Mode::play || mode == Mode::rec;
 
@@ -431,13 +440,17 @@ void DeckComponent::timerCallback()
     }
     tapeSwitch.hasTape = tape != nullptr;
 
-    nrButton.lampOn = engine.tapeEngine.params.nrOn.load();
-    nrButton.repaint();
+    if (nrButton.lampOn != engine.tapeEngine.params.nrOn.load())
+    {
+        nrButton.lampOn = engine.tapeEngine.params.nrOn.load();
+        nrButton.repaint();
+    }
     static const char* nrNames[] { "2:1 COMPANDER", "SLIDING BAND B", "SLIDING BAND C" };
     nrType.top = "NR TYPE";
     nrType.sub = nrNames[juce::jlimit (0, 2, engine.tapeEngine.params.nrType.load())];
-    nrType.repaint();
+    nrType.repaintIfChanged();
 
+    const bool inBefore = midiLamp, outBefore = midiOutLamp;
     if (engine.midiFlash.exchange (false)) midiHold = 4;
     midiLamp = midiHold > 0;
     if (midiHold > 0) --midiHold;
@@ -452,45 +465,58 @@ void DeckComponent::timerCallback()
     {
         setupLcd.top = engine.getDeviceSummary();
         setupLcd.sub = utf ("SETUP \xe2\x80\xba");
-        setupLcd.repaint();
+        setupLcd.repaintIfChanged();
     }
 
-    repaint (transportPanel.getX(), transportPanel.getY(), transportPanel.getWidth(), 100);
-    repaint (1250, 20, 340, 44);
+    // The counter and lamps are painted by the deck itself: only when they change.
+    if (auto shown = counterText + (recLamp ? "R" : "") + (playLamp ? "P" : ""); shown != shownTransport)
+    {
+        shownTransport = shown;
+        repaint (transportPanel.getX(), transportPanel.getY(), transportPanel.getWidth(), 100);
+    }
+    if (inBefore != midiLamp || outBefore != midiOutLamp)
+        repaint (1250, 20, 340, 44);
 
     // Auto-save the tape once it has been stopped for a second, and again each second after any change.
+    // While recording, the new audio goes to disk every five seconds, so a crash costs seconds, not a take.
     stoppedFrames = mode == Mode::stop ? stoppedFrames + 1 : 0;
-    if (tape != nullptr && stoppedFrames >= 30 && frame % 30 == 0 && tape->needsSaving())
-        saveTape (false);
+    recordingFrames = mode == Mode::rec ? recordingFrames + 1 : 0;
+    if (tape != nullptr && ! tapeBusy && ! writer.isBusy())
+    {
+        if (stoppedFrames >= 30 && frame % 30 == 0 && tape->needsSaving())
+            saveTape (false);
+        else if (recordingFrames > 0 && recordingFrames % 150 == 0 && tape->hasUnsavedAudio())
+            saveTape (false, false);
+    }
 
-    // Knobs, faders and sources are kept too, every 20 seconds while stopped.
-    if (stoppedFrames > 0 && frame % 600 == 0)
+    // Knobs, faders and sources are kept too, every 5 seconds while stopped (only written if changed).
+    if (stoppedFrames > 0 && frame % 150 == 0)
         engine.saveSettings();
 }
 
 //==============================================================================
 void DeckComponent::loadStartupTape()
 {
-    std::unique_ptr<Tape> tape;
     auto last = props.getValue ("lastTape");
-    if (last.isNotEmpty())
-        tape = TapeShelf::load (last);
-
-    if (tape == nullptr)
-    {
-        auto shelf = TapeShelf::list();
-        if (! shelf.empty())
-            tape = TapeShelf::load (shelf.front().id);
-    }
-
-    if (tape == nullptr)
-    {
-        tape = TapeShelf::createBlank (1);
-        TapeShelf::save (*tape);
-    }
-
-    engine.swapTape (std::move (tape));
-    tapeChanged();
+    switchTape ([last]
+                {
+                    std::unique_ptr<Tape> tape;
+                    if (last.isNotEmpty())
+                        tape = TapeShelf::load (last);
+                    if (tape == nullptr)
+                    {
+                        auto shelf = TapeShelf::list();
+                        if (! shelf.empty())
+                            tape = TapeShelf::load (shelf.front().id);
+                    }
+                    if (tape == nullptr)
+                    {
+                        tape = TapeShelf::createBlank (1);
+                        TapeShelf::save (*tape);
+                    }
+                    return tape;
+                },
+                [] (Tape&) {}, "LOADING TAPE...");
 }
 
 void DeckComponent::tapeChanged()
@@ -504,67 +530,103 @@ void DeckComponent::tapeChanged()
     repaint();
 }
 
-bool DeckComponent::saveTape (bool announce)
+void DeckComponent::saveTape (bool announce, bool withDeck, bool fresh)
 {
     auto* t = engine.getTape();
-    if (t == nullptr) return true;
+    if (t == nullptr) return;
 
     // The deck as it is now goes with the tape, so it can come back with it.
-    auto deck = engine.createDeckState();
-    if (t->deckState == nullptr || ! t->deckState->isEquivalentTo (deck.get(), false))
+    if (withDeck)
     {
-        t->deckState = std::move (deck);
-        t->markMetaChanged();
+        auto deck = engine.createDeckState (fresh);
+        if (t->deckState == nullptr || ! t->deckState->isEquivalentTo (deck.get(), false))
+        {
+            t->deckState = std::move (deck);
+            t->deckNeedsWriting = true;
+        }
     }
 
-    if (! TapeShelf::save (*t))
+    writer.saveTape (*t, [safe = juce::Component::SafePointer<DeckComponent> (this), announce] (bool ok)
     {
-        say ("COULD NOT SAVE TAPE", 5.0);
-        return false;
-    }
-    if (announce) say ("SAVED");
-    return true;
+        if (safe == nullptr) return;
+        if (! ok)          safe->say ("COULD NOT SAVE TAPE", 5.0);
+        else if (announce) safe->say ("SAVED");
+    });
+}
+
+void DeckComponent::switchTape (std::function<std::unique_ptr<Tape>()> make, std::function<void (Tape&)> after, const juce::String& busyText)
+{
+    if (tapeBusy) return;
+    tapeBusy = true;
+    say (busyText, 120.0);
+    closeOverlay();
+
+    // Save what's in the deck first; the writer does one job at a time, in order.
+    saveTape (false, true, true);
+
+    auto made = std::make_shared<std::unique_ptr<Tape>>();
+    writer.enqueue ([made, make] { *made = make(); },
+                    [safe = juce::Component::SafePointer<DeckComponent> (this), made, after]
+                    {
+                        if (safe == nullptr) return;
+                        auto& d = *safe;
+                        d.tapeBusy = false;
+                        d.say ({}, 0.0);
+                        if (*made == nullptr)
+                        {
+                            d.say ("THAT TAPE WOULD NOT LOAD", 4.0);
+                            return;
+                        }
+                        d.writer.retire (d.engine.swapTape (std::move (*made)));
+                        d.tapeChanged();
+                        after (*d.engine.getTape());
+                    });
 }
 
 void DeckComponent::insertBlank (int type, int model)
 {
-    if (! saveTape (false)) return;
-    closeOverlay();
-    auto tape = TapeShelf::createBlank (type, model);
-    TapeShelf::save (*tape);
-    auto label = "NEW BLANK " + tape->productName();
-    engine.swapTape (std::move (tape));
-    tapeChanged();
-    say (label);
+    switchTape ([type, model]
+                {
+                    auto tape = TapeShelf::createBlank (type, model);
+                    TapeShelf::save (*tape);
+                    return tape;
+                },
+                [safe = juce::Component::SafePointer<DeckComponent> (this)] (Tape& t)
+                {
+                    if (safe != nullptr) safe->say ("NEW BLANK " + t.productName());
+                },
+                "MAKING A BLANK TAPE...");
 }
 
 void DeckComponent::loadFromShelf (const juce::String& id)
 {
     if (auto* cur = engine.getTape(); cur != nullptr && cur->id == id)
         return;
-    if (! saveTape (false)) return;
 
-    auto tape = TapeShelf::load (id);
-    if (tape == nullptr) { say ("THAT TAPE WOULD NOT LOAD", 4.0); return; }
-    auto label = "LOADED: " + tape->name.toUpperCase();
-    closeOverlay();
-    engine.swapTape (std::move (tape));
-    tapeChanged();
-
-    auto* loaded = engine.getTape();
-    if (engine.recallDeckWithTape.load() && loaded != nullptr && loaded->deckState != nullptr)
-    {
-        for (int t = 0; t < numTracks; ++t)
-            closePluginWindow (t);
-        auto state = std::make_unique<juce::XmlElement> (*loaded->deckState);
-        engine.applyDeckState (*state);
-        label += "  + DECK";
-    }
-    say (label);
+    switchTape ([id] { return TapeShelf::load (id); },
+                [safe = juce::Component::SafePointer<DeckComponent> (this)] (Tape& loaded)
+                {
+                    if (safe == nullptr) return;
+                    auto& d = *safe;
+                    auto label = "LOADED: " + loaded.name.toUpperCase();
+                    if (d.engine.recallDeckWithTape.load() && loaded.deckState != nullptr)
+                    {
+                        auto state = std::make_unique<juce::XmlElement> (*loaded.deckState);
+                        d.engine.applyDeckState (*state);   // plug-in windows close as their plug-ins go
+                        label += "  + DECK";
+                    }
+                    d.say (label);
+                },
+                "LOADING TAPE...");
 }
 
 void DeckComponent::showEjectMenu()
 {
+    if (tapeBusy)
+    {
+        say ("LOADING TAPE...");
+        return;
+    }
     if (engine.tapeEngine.getMode() != Mode::stop)
     {
         say ("STOP THE TAPE FIRST");
@@ -604,7 +666,10 @@ void DeckComponent::showEjectMenu()
 //==============================================================================
 void DeckComponent::closePluginWindow (int t)
 {
+    if (pluginWindows[t] == nullptr) return;
     pluginWindows[t].reset();
+    if (auto* inst = engine.getInstrument (t))
+        inst->setEditorOpen (false);
 }
 
 void DeckComponent::openPluginWindow (int t)
@@ -613,6 +678,7 @@ void DeckComponent::openPluginWindow (int t)
         if (auto* plugin = inst->getPlugin())
         {
             if (pluginWindows[t] != nullptr) { pluginWindows[t]->toFront (true); return; }
+            inst->setEditorOpen (true);
             pluginWindows[t] = std::make_unique<PluginWindow> (*plugin, [this, t]
             {
                 juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<DeckComponent> (this), t]
@@ -657,7 +723,6 @@ void DeckComponent::openPatch (int t)
     auto card = std::make_unique<PatchCard> (engine, t);
     card->onDone = [this] { closeOverlay(); };
     card->onShowPluginWindow = [this] (int track) { openPluginWindow (track); };
-    card->onClosePluginWindow = [this] (int track) { closePluginWindow (track); };
     card->onFindInstruments = [this] { closeOverlay(); openSetup (instrumentsTab); };
     showOverlay (std::move (card), juce::Rectangle<int> (820, 660).withCentre ({ designWidth / 2, designHeight / 2 }));
 }

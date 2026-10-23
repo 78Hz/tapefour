@@ -139,7 +139,7 @@ td:first-child { font-weight: 600; }
   <div class="title">Owner's manual</div>
   <div class="sub">How to record with TAPE·FOUR: the deck, the cassettes, the tape switch, noise reduction, instruments and MIDI. Each control comes with what you should expect to hear when you use it.</div>
   <img src="images/deck_full.png" alt="The TAPE·FOUR front panel">
-  <div class="foot"><span>FOR WINDOWS · ASIO · VST3</span><span>OCTOBER 2026</span></div>
+  <div class="foot"><span>WINDOWS · MACOS · LINUX</span><span>OCTOBER 2026</span></div>
 </section>
 
 <!-- ======================================================= CONTENTS -->
@@ -163,7 +163,7 @@ td:first-child { font-weight: 600; }
 
 <!-- ======================================================= 1 WELCOME -->
 <h1><span class="num">1</span>Welcome</h1>
-<p class="lede">TAPE·FOUR is a four-track cassette recorder that runs on your computer. It records onto a virtual cassette, works with your ASIO audio interface, and plays VST3 instruments as if they were plugged into the deck.</p>
+<p class="lede">TAPE·FOUR is a four-track cassette recorder that runs on your computer. It records onto a virtual cassette, works with any audio interface your computer has, on Windows, macOS or Linux, and plays VST3 instruments (and Audio Units on a Mac) as if they were plugged into the deck.</p>
 <p>It is deliberately not a DAW. Everything about it follows the workflow of a portable cassette multitracker:</p>
 <ul>
   <li><strong>Four mono tracks on one side of a tape, all running in one direction.</strong> The tape is a C-46, C-60 or C-90, and the length of your song is limited by the length of the tape.</li>
@@ -176,21 +176,41 @@ td:first-child { font-weight: 600; }
 <!-- ======================================================= 2 GETTING STARTED -->
 <h1><span class="num">2</span>Getting started</h1>
 <h2>Installing</h2>
-<p>Open the repository's <strong>Actions</strong> tab on GitHub, pick the latest green <strong>Build Windows</strong> run, and download <strong>TapeFour-windows-x64</strong>. Unzip it and run <span class="key">TapeFour.exe</span>. Nothing needs installing. Windows may warn that the program comes from an unknown publisher, because it isn't code-signed: choose <strong>More info → Run anyway</strong>.</p>
+<p>Open the repository's <strong>Actions</strong> tab on GitHub, pick the latest green <strong>Build</strong> run, and download the one for your computer. Nothing needs installing. The version number (0.2.<i>build</i>) is in the window's title bar.</p>
+<table>
+  <thead><tr><th>Computer</th><th>Download</th><th>Then</th></tr></thead>
+  <tbody>
+    <tr><td>Windows, 64-bit</td><td>TapeFour-windows-x64</td><td>Unzip and run <span class="key">TapeFour.exe</span>. Windows may warn that it comes from an unknown publisher, because it isn't code-signed: choose <strong>More info → Run anyway</strong>.</td></tr>
+    <tr><td>Mac, Apple silicon or Intel, macOS 11 or later</td><td>TapeFour-macos-universal</td><td>Unzip and move <span class="key">TapeFour.app</span> to Applications. It isn't notarised, so the first time, right-click it and choose <strong>Open</strong>. Allow microphone access when asked: macOS asks this for any program that records from an audio input.</td></tr>
+    <tr><td>Linux, 64-bit</td><td>TapeFour-linux-x64</td><td>Extract the archive and run <span class="key">TapeFour</span>. It uses ALSA, which every distribution has, and JACK when a JACK server is running.</td></tr>
+  </tbody>
+</table>
 
 <h2>Audio interface</h2>
 <p>Click the amber display at the top right of the deck (<span class="lcd">SETUP ›</span>) to open Setup, then go to the <strong>Audio</strong> tab.</p>
-<figure class="narrow"><img src="images/setup_audio.png" alt="Setup, Audio tab"><figcaption><b>Setup → Audio.</b> Choose ASIO and your interface's driver, then the sample rate and buffer size, and the outputs.</figcaption></figure>
+<figure class="narrow"><img src="images/setup_audio.png" alt="Setup, Audio tab"><figcaption><b>Setup → Audio.</b> Choose the audio system and your interface, then the sample rate and buffer size, and the outputs.</figcaption></figure>
 <table>
   <thead><tr><th>Setting</th><th>What it does</th><th>What to expect</th></tr></thead>
   <tbody>
-    <tr><td>Device type, device</td><td>Chooses the driver (ASIO, WASAPI or DirectSound) and the interface.</td><td>The setup display on the deck shows the driver, sample rate, buffer size and latency. If an ASIO driver is installed, it is picked automatically the first time you start.</td></tr>
+    <tr><td>Audio device type, device</td><td>Chooses the audio system (see the table below) and the interface.</td><td>The setup display on the deck shows the system, sample rate, buffer size and round-trip latency. The first time you start, TapeFour opens the computer's usual device; on Windows it picks an ASIO driver if one is installed.</td></tr>
     <tr><td>Sample rate, buffer</td><td>The interface's sample rate and block size.</td><td>A smaller buffer gives lower latency when you play live, but uses more CPU. 128 samples at 48 kHz is a good starting point.</td></tr>
     <tr><td>Stereo out</td><td>The output pair the mix goes to.</td><td>The master fader controls this pair.</td></tr>
     <tr><td>Phones</td><td>A second output pair, or the same as the stereo out.</td><td>The <span class="ctl">Phones</span> knob on the master strip sets its level, separately from the master fader.</td></tr>
-    <tr><td>Overdub timing</td><td>±50 ms trim on top of the latency the driver reports.</td><td>Use it if new parts land slightly early or late against what is already on tape. Positive values move recordings earlier.</td></tr>
+    <tr><td>Overdub timing</td><td>±50 ms trim on top of the latency the driver reports.</td><td>Use it if parts recorded through the interface (audio inputs and hardware synths) land slightly early or late against what is already on tape. Positive values move recordings earlier. Instruments and bounces don't go through the interface, so they aren't affected.</td></tr>
   </tbody>
 </table>
+<table>
+  <thead><tr><th>Audio system</th><th>On</th><th>What to expect</th></tr></thead>
+  <tbody>
+    <tr><td>ASIO</td><td>Windows</td><td>Your interface's own driver: the lowest latency. The best choice for overdubbing.</td></tr>
+    <tr><td>Windows Audio (WASAPI)</td><td>Windows</td><td>Works with any device, including the computer's own sound. <strong>Exclusive Mode</strong> and <strong>Low Latency Mode</strong> bring the latency down.</td></tr>
+    <tr><td>DirectSound</td><td>Windows</td><td>The oldest and slowest. For a device nothing else will open.</td></tr>
+    <tr><td>CoreAudio</td><td>macOS</td><td>Every Mac interface. To use two interfaces at once, combine them into an aggregate device in Audio MIDI Setup.</td></tr>
+    <tr><td>ALSA</td><td>Linux</td><td>Straight to the hardware. A <span class="lcd">hw:</span> device gives the lowest latency, but no other program can use the interface at the same time.</td></tr>
+    <tr><td>JACK</td><td>Linux</td><td>Listed when a JACK server (or PipeWire's JACK support) is running. TapeFour shares the interface with other programs.</td></tr>
+  </tbody>
+</table>
+<p>Whatever the system, recordings line up with what you heard while playing: TapeFour shifts each recording by the interface's reported latency. Parts played through the interface are shifted by the round trip (input and output); instruments only by the output, since they're made inside the computer; bounces not at all, since they come straight off the tape.</p>
 <p>Every change is saved straight away. If the saved driver can't be opened at start-up (for example, because another program is using it), the deck tells you, and keeps your choice for next time.</p>
 
 <h2>MIDI controllers and synths</h2>
@@ -397,7 +417,7 @@ td:first-child { font-weight: 600; }
     <tr><td>PLAY <span class="key">Space</span></td><td>Plays the tape.</td><td>Unarmed tracks play the tape; armed tracks keep playing their live input, so you can rehearse over the tape. The PLAY lamp lights.</td></tr>
     <tr><td>STOP <span class="key">Space</span></td><td>Stops.</td><td>One second later the tape is saved.</td></tr>
     <tr><td>REC <span class="key">R</span></td><td>Records on every armed track.</td><td>The REC lamp lights. If no track is armed, the status display says <span class="lcd">ARM A TRACK FIRST</span>.</td></tr>
-    <tr><td>REC while playing</td><td>Punch-in.</td><td>Recording starts at once on the armed tracks. Press PLAY to punch out and keep playing. Tape before and after the punch is untouched.</td></tr>
+    <tr><td>REC while playing</td><td>Punch-in.</td><td>Recording starts at once on the armed tracks. Press PLAY to punch out and keep playing. Tape before and after the punch is untouched. The new take fades in and out over 6 ms either side, like the gap between a deck's erase and record heads, so a punch never clicks.</td></tr>
     <tr><td>REW, F.FWD</td><td>Wind the tape.</td><td>The tape speeds up and slows down like real spools. Winding stops at either end of the tape.</td></tr>
     <tr><td>RESET</td><td>Sets the counter to 000 where the tape is now.</td><td>Use it to mark the start of a song.</td></tr>
     <tr><td>RTZ <span class="key">Home</span></td><td>Return to zero.</td><td>Rewinds and stops at 000. The status display reads <span class="lcd">RETURN TO ZERO</span>.</td></tr>
@@ -420,7 +440,7 @@ td:first-child { font-weight: 600; }
 <table>
   <thead><tr><th>Source</th><th>Settings</th><th>What to expect</th></tr></thead>
   <tbody>
-    <tr><td>Audio in</td><td><span class="ctl">Audio in</span>: <span class="ctl">IN n</span>, or <span class="ctl">IN n+m mono</span>.</td><td>The display shows <span class="lcd">ASIO IN 1</span> and the input's name. Tracks are mono; a stereo source on a pair is summed to mono at half level per side.</td></tr>
+    <tr><td>Audio in</td><td><span class="ctl">Audio in</span>: <span class="ctl">IN n</span>, or <span class="ctl">IN n+m mono</span>.</td><td>The display shows <span class="lcd">AUDIO IN 1</span> and the input's name. Tracks are mono; a stereo source on a pair is summed to mono at half level per side.</td></tr>
     <tr><td>Instrument</td><td><span class="ctl">Play with</span>: <span class="ctl">Any</span>, a named controller, or <span class="ctl">None</span>.<br><span class="ctl">Instrument</span>: TF Poly Synth, TF Tine Piano, any scanned VST3, chosen from the list (<span class="ctl">Change…</span>), <span class="ctl">Edit sound</span>.</td><td>An instrument only sounds while its track is armed. <strong>Any</strong>: any ticked controller plays it. <strong>A named controller</strong> plays only that track, so different keyboards can play different armed tracks at once. <span class="ctl">Change…</span> opens a searchable list of the built-in instruments and every scanned VST3, grouped by maker; type to filter and press <span class="key">Return</span> for the first match. Two plug-ins with the same name are both listed, with their folder and file so you can tell them apart. <span class="ctl">Edit sound</span> (or double-clicking the track display) opens the plug-in's own window to change its sound; the window stays on top, and <span class="key">Space</span>, <span class="key">R</span> and <span class="key">Home</span> still work the transport while it has focus. Plug-ins come in 12 dB below their own output, so a full-level synth sits near 0 VU.</td></tr>
     <tr><td>Hardware synth</td><td><span class="ctl">Play with</span> (as above)<br><span class="ctl">Send to</span>: a MIDI output, and a channel 1–16, or 0 for "as played".<br><span class="ctl">Listen to</span>: the input the synth is plugged into.</td><td>Notes go out to the synth on the chosen channel, and its audio is recorded from the input. An MPE controller's notes pass through on their own channels. Changing the route sends all-notes-off so nothing hangs. A track can't play a hardware synth and a plug-in at once.</td></tr>
     <tr><td>Bounce</td><td><span class="ctl">Mix from tape</span>: tick the source tracks.</td><td>While recording, you hear the sources once, through their own EQ, pan and fader. Use those to balance the bounce, then arm the destination and record. The bounce picks up another pass of the tape: a little more hiss and grain, and a level shift of the tape's sensitivity.</td></tr>
@@ -569,15 +589,16 @@ td:first-child { font-weight: 600; }
 <h2>Where things are kept</h2>
 <table>
   <tbody>
-    <tr><td>Tapes</td><td><span class="lcd">Documents\TapeFour\Tape Shelf\</span>: one folder per tape, holding the audio for each track and <span class="lcd">tape.xml</span> (label, inlay, flags and deck state).</td></tr>
-    <tr><td>Settings</td><td><span class="lcd">%APPDATA%\TapeFour\TapeFour.settings</span>: audio device, MIDI, deck and tape character.</td></tr>
+    <tr><td>Tapes</td><td><span class="lcd">Documents/TapeFour/Tape Shelf/</span>: one folder per tape, holding the audio for each track, <span class="lcd">tape.xml</span> (label, inlay and what's recorded where) and <span class="lcd">deck.xml</span> (the deck that goes with the tape). Tapes are saved in the background: every five seconds while recording, so a crash costs seconds rather than a take; a second after the transport stops; and on eject and quit.</td></tr>
+    <tr><td>Settings</td><td><span class="lcd">TapeFour.settings</span>: audio device, MIDI, deck and tape character. In <span class="lcd">%APPDATA%\TapeFour</span> on Windows, <span class="lcd">~/Library/Application Support/TapeFour</span> on a Mac, <span class="lcd">~/.config/TapeFour</span> on Linux. Only written when something has changed.</td></tr>
+    <tr><td>Crash reports</td><td><span class="lcd">Crashes</span>, next to the settings. If TapeFour ever crashes it writes a report there (the version and a stack trace, and on Windows a <span class="lcd">.dmp</span> file) and says so when it next starts.</td></tr>
   </tbody>
 </table>
 <h2>Troubleshooting</h2>
 <table>
   <thead><tr><th>Problem</th><th>Try this</th></tr></thead>
   <tbody>
-    <tr><td><span class="lcd">NO AUDIO DEVICE</span></td><td>Open Setup → Audio and choose your driver. If another program holds the ASIO driver, close it, then reselect the driver.</td></tr>
+    <tr><td><span class="lcd">NO AUDIO DEVICE</span></td><td>Open Setup → Audio and choose your device. If another program holds it (common with ASIO and exclusive-mode WASAPI), close that program, then reselect the device. On a Mac, check TapeFour is allowed the microphone in System Settings → Privacy &amp; Security.</td></tr>
     <tr><td>REC does nothing</td><td>Arm at least one track. The status display says <span class="lcd">ARM A TRACK FIRST</span>.</td></tr>
     <tr><td>A take seems to have recorded silence</td><td>While a track is armed you hear its live input, not the tape. Disarm it and play the take back.</td></tr>
     <tr><td>An instrument doesn't play</td><td>Tick the controller in Setup → MIDI &amp; Deck. Check the track's <span class="ctl">Play with</span> setting, and arm the track: instruments only sound while armed. Watch the MIDI IN lamp and the track's MIDI lamp.</td></tr>
@@ -587,6 +608,7 @@ td:first-child { font-weight: 600; }
     <tr><td>A plug-in shows as failed after a scan</td><td>It crashed or hung while being scanned, so TAPE·FOUR set it aside. Update the plug-in, select it in Setup → Instruments, choose <strong>Options… → Remove selected plug-in from list</strong>, and scan again.</td></tr>
     <tr><td>A controller plugged in later doesn't play</td><td>Check it's ticked in Setup → MIDI &amp; Deck, and that the track's <span class="ctl">Play with</span> names it or is set to <strong>Any</strong>, and that the track is armed.</td></tr>
     <tr><td>A plug-in is missing when a tape is recalled</td><td>Rescan in Setup → Instruments. The plug-in's settings are kept until it can be loaded again.</td></tr>
+    <tr><td><span class="lcd">LAST SESSION CRASHED</span></td><td>The report is in the Crashes folder (see above). The tape was saved up to five seconds before the crash.</td></tr>
     <tr><td>A ghost of an old take is audible</td><td>You recorded over a metal tape at NORMAL. Record over it again at METAL to erase it fully.</td></tr>
   </tbody>
 </table>

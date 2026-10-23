@@ -1,5 +1,6 @@
 #include "DeckComponent.h"
 #include "PluginScan.h"
+#include "CrashHandler.h"
 
 namespace tf
 {
@@ -30,7 +31,7 @@ class MainWindow : public juce::DocumentWindow
 {
 public:
     MainWindow (AudioEngine& engine, juce::PropertiesFile& settings)
-        : juce::DocumentWindow (utf ("TAPE\xc2\xb7" "FOUR"), juce::Colour (0xff141311), juce::DocumentWindow::allButtons)
+        : juce::DocumentWindow (utf ("TAPE\xc2\xb7" "FOUR  ") + JUCE_APPLICATION_VERSION_STRING, juce::Colour (0xff141311), juce::DocumentWindow::allButtons)
     {
         setUsingNativeTitleBar (true);
         content = new ScaledDeck (engine, settings);
@@ -75,18 +76,27 @@ public:
             return;
         }
 
+        tf::CrashHandler::install();
+
         lookAndFeel = std::make_unique<tf::DeckLookAndFeel>();
         juce::LookAndFeel::setDefaultLookAndFeel (lookAndFeel.get());
 
         juce::PropertiesFile::Options o;
         o.applicationName = "TapeFour";
         o.filenameSuffix = ".settings";
+       #if JUCE_LINUX || JUCE_BSD
+        o.folderName = ".config/TapeFour";   // the usual place on Linux, not a folder in your home
+       #else
         o.folderName = "TapeFour";
+       #endif
         o.osxLibrarySubFolder = "Application Support";
         appProperties.setStorageParameters (o);
 
         engine = std::make_unique<tf::AudioEngine> (*appProperties.getUserSettings());
         mainWindow = std::make_unique<tf::MainWindow> (*engine, *appProperties.getUserSettings());
+
+        if (auto crashes = tf::CrashHandler::takeNewReportCount (*appProperties.getUserSettings()); crashes > 0)
+            mainWindow->content->deck.notice ("LAST SESSION CRASHED - REPORT SAVED IN TAPEFOUR/CRASHES", 8.0);
     }
 
     void shutdown() override

@@ -14,7 +14,8 @@ Tape::Tape (int typeIndex, int modelIndex)
 
     for (int t = 0; t < numTracks; ++t)
     {
-        data[t] = static_cast<int16_t*> (std::calloc ((size_t) lengthCells, sizeof (int16_t)));
+        // calloc'd zeroes are valid int16 atomics, and pages stay untouched until recorded on.
+        data[t] = static_cast<Cell*> (std::calloc ((size_t) lengthCells, sizeof (Cell)));
         if (data[t] == nullptr)
             throw std::bad_alloc();
 
@@ -55,13 +56,14 @@ void Tape::writeCell (int track, int64_t c, float v, bool nrEncoded, float speed
     if (c < 0 || c >= lengthCells)
         return;
 
-    data[track][c] = (int16_t) juce::roundToInt (juce::jlimit (-1.0f, 1.0f, v * fluxScale) * 32767.0f);
+    data[track][c].store ((int16_t) juce::roundToInt (juce::jlimit (-1.0f, 1.0f, v * fluxScale) * 32767.0f), std::memory_order_relaxed);
 
     auto b = (int) (c / blockCells);
     flags[track][b].store ((uint8_t) (1 | (nrEncoded ? 2 : 0) | ((juce::jlimit (0, 2, pos) + 1) << 2)), std::memory_order_relaxed);
     speedMilli[track][b].store ((uint16_t) juce::jlimit (0, 65535, juce::roundToInt (speed * 1000.0f)), std::memory_order_relaxed);
-    dirty[track][(size_t) (c / cellRate)].store (1, std::memory_order_relaxed);
-    dataDirty.store (true, std::memory_order_relaxed);
+    // Release: a saver that sees the flag also sees the cell.
+    dirty[track][(size_t) (c / cellRate)].store (1, std::memory_order_release);
+    dataDirty.store (true, std::memory_order_release);
 }
 
 double Tape::usedSeconds() const
@@ -90,76 +92,93 @@ bool Tape::needsSaving() const noexcept
 //==============================================================================
 static juce::File pcmFile (const juce::File& folder, int t)  { return folder.getChildFile ("track" + juce::String (t + 1) + ".pcm"); }
 
-bool Tape::save (const juce::File& folder)
+bool Tape::writeAudio (const juce::File& folder)
 {
     if (! folder.createDirectory())
         return false;
+    if (! dataDirty.exchange (false, std::memory_order_acq_rel))
+        return true;
 
     bool ok = true;
+    std::vector<int16_t> chunk ((size_t) cellRate);
+    const size_t bytesPerSecond = (size_t) cellRate * sizeof (int16_t);
 
-    // Audio: only the seconds that changed, plus anything beyond the current end of the file.
-    if (dataDirty.exchange (false))
+    // Only the seconds that changed, plus anything beyond the current end of the file.
+    for (int t = 0; t < numTracks; ++t)
     {
-        const size_t bytesPerSecond = (size_t) cellRate * sizeof (int16_t);
+        int lastNeeded = -1;
+        for (int s = numSeconds - 1; s >= 0; --s)
+            if (dirty[t][s].load (std::memory_order_acquire) != 0) { lastNeeded = s; break; }
 
-        for (int t = 0; t < numTracks; ++t)
+        if (lastNeeded < 0)
+            continue;
+
+        auto file = pcmFile (folder, t);
+        auto existing = file.existsAsFile() ? file.getSize() : 0;
+        juce::FileOutputStream out (file);
+
+        if (! out.openedOk())
         {
-            int lastNeeded = -1;
-            for (int s = numSeconds - 1; s >= 0; --s)
-                if (dirty[t][s].load() != 0) { lastNeeded = s; break; }
+            ok = false;
+            continue;
+        }
 
-            if (lastNeeded < 0)
+        for (int s = 0; s <= lastNeeded; ++s)
+        {
+            auto offset = (int64_t) s * (int64_t) bytesPerSecond;
+            bool beyondEnd = offset >= existing;
+
+            // Clear the flag before copying: if the audio thread writes this second again
+            // while it's being copied, the flag goes back up and it is saved again next time.
+            if (dirty[t][s].exchange (0, std::memory_order_acq_rel) == 0 && ! beyondEnd)
                 continue;
 
-            auto file = pcmFile (folder, t);
-            auto existing = file.existsAsFile() ? file.getSize() : 0;
-            juce::FileOutputStream out (file);
+            auto firstCell = (int64_t) s * cellRate;
+            auto count = (size_t) std::min<int64_t> (cellRate, lengthCells - firstCell);
+            for (size_t i = 0; i < count; ++i)
+                chunk[i] = data[t][firstCell + (int64_t) i].load (std::memory_order_relaxed);
 
-            if (! out.openedOk()) { ok = false; dataDirty = true; continue; }
-
-            for (int s = 0; s <= lastNeeded; ++s)
+            out.setPosition (offset);
+            if (! out.write (chunk.data(), count * sizeof (int16_t)))
             {
-                auto offset = (int64_t) s * (int64_t) bytesPerSecond;
-                bool beyondEnd = offset >= existing;
-
-                if (dirty[t][s].exchange (0) == 0 && ! beyondEnd)
-                    continue;
-
-                auto firstCell = (int64_t) s * cellRate;
-                auto count = (size_t) std::min<int64_t> (cellRate, lengthCells - firstCell);
-                out.setPosition (offset);
-                if (! out.write (data[t] + firstCell, count * sizeof (int16_t)))
-                {
-                    ok = false;
-                    dirty[t][s] = 1;
-                    dataDirty = true;
-                }
+                ok = false;
+                dirty[t][s].store (1, std::memory_order_release);
             }
-            out.flush();
         }
+        out.flush();
+        if (out.getStatus().failed()) ok = false;
     }
 
-    // Everything else.
-    juce::XmlElement meta ("TAPEFOUR_TAPE");
-    meta.setAttribute ("version", 1);
-    meta.setAttribute ("id", id);
-    meta.setAttribute ("name", name);
-    meta.setAttribute ("created", created);
-    meta.setAttribute ("type", type);
-    meta.setAttribute ("model", model);
-    meta.setAttribute ("fluxScale", fluxScale);
-    meta.setAttribute ("position", position.load());
-    meta.setAttribute ("counterZero", counterZero.load());
-    meta.setAttribute ("usedSeconds", usedSeconds());
-    meta.setAttribute ("tracksUsed", tracksUsed());
+    if (! ok)
+    {
+        // Put back what didn't make it, so the next save tries again.
+        for (int t = 0; t < numTracks; ++t)
+            for (int s = 0; s < numSeconds; ++s)
+                if (dirty[t][s].load()) { dataDirty = true; break; }
+        dataDirty = true;
+    }
+    return ok;
+}
 
-    auto* sheet = meta.createNewChildElement ("TRACK_SHEET");
+std::unique_ptr<juce::XmlElement> Tape::createMetadata() const
+{
+    auto meta = std::make_unique<juce::XmlElement> ("TAPEFOUR_TAPE");
+    meta->setAttribute ("version", 2);
+    meta->setAttribute ("id", id);
+    meta->setAttribute ("name", name);
+    meta->setAttribute ("created", created);
+    meta->setAttribute ("type", type);
+    meta->setAttribute ("model", model);
+    meta->setAttribute ("fluxScale", fluxScale);
+    meta->setAttribute ("position", position.load());
+    meta->setAttribute ("counterZero", counterZero.load());
+    meta->setAttribute ("usedSeconds", usedSeconds());
+    meta->setAttribute ("tracksUsed", tracksUsed());
+
+    auto* sheet = meta->createNewChildElement ("TRACK_SHEET");
     sheet->setAttribute ("layout", "inlay1");
     for (auto& line : trackSheet)
         sheet->createNewChildElement ("LINE")->setAttribute ("text", line);
-
-    if (deckState != nullptr)
-        meta.addChildElement (new juce::XmlElement (*deckState));
 
     for (int t = 0; t < numTracks; ++t)
     {
@@ -173,18 +192,43 @@ bool Tape::save (const juce::File& folder)
             sp[b * 2] = (uint8_t) (v & 0xff);
             sp[b * 2 + 1] = (uint8_t) (v >> 8);
         }
-        auto* tr = meta.createNewChildElement ("TRACK");
+        auto* tr = meta->createNewChildElement ("TRACK");
         tr->setAttribute ("index", t);
         tr->setAttribute ("flags", fb.toBase64Encoding());
         tr->setAttribute ("speeds", sb.toBase64Encoding());
     }
+    return meta;
+}
 
-    auto tmp = folder.getChildFile ("tape.xml.tmp");
-    if (meta.writeTo (tmp) && tmp.moveFileTo (folder.getChildFile ("tape.xml")))
+static bool replaceAtomically (const juce::XmlElement& xml, const juce::File& target)
+{
+    auto tmp = target.getSiblingFile (target.getFileName() + ".tmp");
+    return xml.writeTo (tmp) && tmp.moveFileTo (target);
+}
+
+bool Tape::writeMetadata (const juce::XmlElement& meta, const juce::File& folder)
+{
+    return folder.createDirectory() && replaceAtomically (meta, folder.getChildFile ("tape.xml"));
+}
+
+bool Tape::writeDeck (const juce::XmlElement& deck, const juce::File& folder)
+{
+    return folder.createDirectory() && replaceAtomically (deck, folder.getChildFile ("deck.xml"));
+}
+
+bool Tape::save (const juce::File& folder)
+{
+    // Audio first: the metadata never claims a recording whose audio isn't on disk yet.
+    bool ok = writeAudio (folder);
+    if (deckState != nullptr && deckNeedsWriting)
+    {
+        if (writeDeck (*deckState, folder)) deckNeedsWriting = false;
+        else ok = false;
+    }
+    if (auto meta = createMetadata(); meta != nullptr && writeMetadata (*meta, folder))
         metaDirty = false;
     else
         ok = false;
-
     return ok;
 }
 
@@ -227,8 +271,15 @@ std::unique_ptr<Tape> Tape::load (const juce::File& folder)
         }
     }
 
-    if (auto* deck = xml->getChildByName ("DECK"))
+    // The deck lives in its own file, so a big plug-in state isn't rewritten with every autosave.
+    // Tapes from before kept it inside tape.xml.
+    if (auto deckFile = juce::XmlDocument::parse (folder.getChildFile ("deck.xml")); deckFile != nullptr && deckFile->hasTagName ("DECK"))
+        tape->deckState = std::move (deckFile);
+    else if (auto* deck = xml->getChildByName ("DECK"))
+    {
         tape->deckState = std::make_unique<juce::XmlElement> (*deck);
+        tape->deckNeedsWriting = true;   // move it out to deck.xml at the next save
+    }
 
     for (auto* tr : xml->getChildWithTagNameIterator ("TRACK"))
     {
@@ -255,13 +306,14 @@ std::unique_ptr<Tape> Tape::load (const juce::File& folder)
             if (in.openedOk())
             {
                 auto cells = std::min<int64_t> (in.getTotalLength() / (int64_t) sizeof (int16_t), tape->lengthCells);
-                in.read (tape->data[t], (int) std::min<int64_t> (cells * (int64_t) sizeof (int16_t), (int64_t) std::numeric_limits<int>::max()));
+                // Nothing else can see this tape yet, so read straight into it.
+                in.read (static_cast<void*> (tape->data[t]), (int) std::min<int64_t> (cells * (int64_t) sizeof (int16_t), (int64_t) std::numeric_limits<int>::max()));
             }
         }
     }
 
     tape->dataDirty = false;
-    tape->metaDirty = false;
+    tape->metaDirty = tape->deckNeedsWriting;
     return tape;
 }
 } // namespace tf

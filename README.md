@@ -1,6 +1,6 @@
 # TAPE·FOUR
 
-A four-track cassette multitracker for Windows. It records onto a virtual tape, uses ASIO audio interfaces, and plays VST3 instruments as if they were plugged into the deck.
+A four-track cassette multitracker for Windows, macOS and Linux. It records onto a virtual tape, works with any audio interface the computer has (ASIO, WASAPI or DirectSound on Windows; CoreAudio on macOS; ALSA or JACK on Linux), and plays VST3 instruments (and Audio Units on macOS) as if they were plugged into the deck.
 
 It works like the real thing: four mono tracks, one direction, a C-46, C-60 or C-90 of tape, and **no undo**. Recording erases whatever was on the tape under the armed tracks.
 
@@ -10,23 +10,40 @@ The owner's manual is [`Manual/TapeFour-Manual.pdf`](Manual/TapeFour-Manual.pdf)
 
 ## Getting it
 
-Open the repository's **Actions** tab, pick the latest green **Build Windows** run, and download **TapeFour-windows-x64**. Unzip it and run `TapeFour.exe`. Nothing needs installing.
+Open the repository's **Actions** tab, pick the latest green **Build** run, and download the one for your computer. Nothing needs installing. Each build has its own version number (0.2.*build*), shown in the window's title bar.
 
-Windows may warn that the program is from an unknown publisher, because it isn't code-signed. Choose **More info → Run anyway**.
+| Computer | Download | Then |
+|---|---|---|
+| Windows (64-bit) | **TapeFour-windows-x64** | Unzip and run `TapeFour.exe`. Windows may warn that it's from an unknown publisher, because it isn't code-signed: choose **More info → Run anyway**. |
+| Mac (Apple silicon or Intel, macOS 11+) | **TapeFour-macos-universal** | Unzip and move `TapeFour.app` to Applications. It isn't notarised, so the first time, right-click it and choose **Open**, then **Open** again. Allow microphone access when asked: that's how macOS lets a program record from any audio input. |
+| Linux (64-bit) | **TapeFour-linux-x64** | Extract the `.tar.gz` and run `TapeFour`. It needs ALSA (every distribution has it); JACK is used if a JACK server is running. |
 
 ## First run
 
 1. Click the amber display at the top right (**SETUP ›**). Under **Audio**:
-   - choose **ASIO** and your interface's driver;
+   - choose the audio system and your interface (see below);
    - choose the sample rate and buffer size.
 
    Under **MIDI & Deck**:
    - under **Controllers in**, tick the controllers you want to use, and tick **MPE** for MPE controllers (with their bend range);
    - under **Hardware synths out**, tick the MIDI outputs your synths are on, and give each a name for the deck if you like.
 
-   If an ASIO driver is installed, TapeFour picks it on first start. Every change is saved straight away. If the saved driver can't be opened at start-up (for example, another program has it), the deck says so and keeps your choice for next time.
+   On first start TapeFour opens the computer's usual audio device, or on Windows an ASIO driver if one is installed. Every change is saved straight away. If the saved driver can't be opened at start-up (for example, another program has it), the deck says so and keeps your choice for next time.
 2. To use your own instruments, go to the **Instruments** tab and choose **Options… → Scan for new or updated VST3 plug-ins**. The program also has two built-in instruments, a poly synth and a tine piano, so you can start without any plug-ins.
 3. Close the setup window. You're at the deck.
+
+### Audio systems
+
+| System | Platform | Notes |
+|---|---|---|
+| **ASIO** | Windows | Lowest latency, with your interface's own driver. Best for overdubbing. |
+| **Windows Audio** (WASAPI) | Windows | Works with any device, including built-in sound. *Exclusive Mode* and *Low Latency Mode* get the latency down. |
+| **DirectSound** | Windows | The oldest; highest latency. For devices nothing else will open. |
+| **CoreAudio** | macOS | Every Mac interface. Aggregate devices (made in Audio MIDI Setup) combine two interfaces. |
+| **ALSA** | Linux | Talks to the hardware directly. Choose a `hw:` device for the lowest latency. |
+| **JACK** | Linux | Appears when a JACK server (or PipeWire's JACK support) is running; TapeFour then shares the interface with other programs. |
+
+However it's connected, recordings line up with what you heard: TapeFour corrects for the interface's reported latency (see **Overdub timing** in Setup if a driver misreports it).
 
 ## Using the deck
 
@@ -115,21 +132,29 @@ The other sliders are wow, flutter, HF loss, track crosstalk, dropouts and speed
 
 ## Where things are kept
 
-- **Tapes**: `Documents\TapeFour\Tape Shelf\`, one folder per tape. Tapes are saved automatically whenever the transport has been stopped for a second, and on eject and on quit.
-- **Settings**: `%APPDATA%\TapeFour\TapeFour.settings`. This holds the audio device, MIDI controllers and synths, track sources (including each plug-in's state), knob positions and tape character.
+- **Tapes**: `Documents/TapeFour/Tape Shelf/`, one folder per tape (the audio, `tape.xml` for what's recorded where, and `deck.xml` for the deck that goes with it). Tapes are saved in the background: every five seconds while recording, so a crash costs seconds rather than a take; whenever the transport has been stopped for a second; and on eject and on quit.
+- **Settings**: `TapeFour.settings` in `%APPDATA%\TapeFour\` (Windows), `~/Library/Application Support/TapeFour/` (macOS) or `~/.config/TapeFour/` (Linux). This holds the audio device, MIDI controllers and synths, track sources (including each plug-in's state), knob positions and tape character. It's only written when something has changed.
+- **Crash reports**: if TapeFour ever crashes it writes a report to `TapeFour/Crashes/` next to the settings (a `.txt` with the version and a stack trace, and on Windows a `.dmp`), and says so the next time it starts. Sending one along with a description of what you were doing makes the problem findable.
 
 ## Building it yourself
 
-You need Visual Studio 2022 or later with the C++ workload, and CMake 3.22 or later.
+You need CMake 3.22 or later and a C++20 compiler.
 
-```
-cmake -S . -B build -A x64
-cmake --build build --config Release
-```
+| Platform | Also needs | Commands |
+|---|---|---|
+| Windows | Visual Studio 2022 with the C++ workload | `cmake -S . -B build -A x64` then `cmake --build build --config Release` |
+| macOS | Xcode 15 or later | `cmake -S . -B build -G Xcode "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"` then `cmake --build build --config Release` |
+| Linux | `libasound2-dev libjack-jackd2-dev libfreetype-dev libfontconfig1-dev libx11-dev libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev libxrender-dev` (Debian/Ubuntu names) | `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release` then `cmake --build build` |
 
-JUCE 8.0.11 is downloaded during configuration. It includes the ASIO headers (Steinberg made ASIO available under GPLv3) and the VST3 SDK.
+JUCE 8.0.11 is downloaded during configuration. It includes the ASIO headers (Steinberg made ASIO available under GPLv3) and the VST3 SDK. JACK is loaded only if it's installed, so the Linux build runs without it.
 
-Add `-DTAPEFOUR_TESTS=ON` to also build two headless test programs, `EngineTest` and `MixerTest`. They check the recording and playback paths: each cassette's MOL, SOL, hiss, modulation noise and sensitivity; pitch and level; noise reduction, tape speed, punch-in, bounce, monitoring, the built-in synth via MIDI and MPE, per-track controllers, hardware synth routing, deck recall, settings surviving a restart, and saving and loading tapes.
+Add `-DTAPEFOUR_TESTS=ON` to also build the headless test programs, which every build on GitHub runs on all three platforms:
+
+- `EngineTest`: each cassette's MOL, SOL, hiss, modulation noise and sensitivity; pitch and level; noise reduction, tape speed, the tape switch, and clean punch-ins and punch-outs.
+- `MixerTest`: the whole audio path: monitoring and arming crossfades, EQ, bounce, the built-in synth via MIDI and MPE, per-track controllers, hardware synth routing, recordings lining up on an interface with latency, saving while recording, plug-in load races, MIDI device slots, deck recall, and settings surviving a restart.
+- `ScanTest build/crashplugin`: scans a plug-in made to crash, to show the scan survives it.
+
+`-DTAPEFOUR_SANITIZE=address` or `thread` (with Clang or GCC) builds them with the address/undefined-behaviour or thread sanitizer; GitHub runs both on every push.
 
 ## Licence
 

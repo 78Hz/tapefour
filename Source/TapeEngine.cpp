@@ -305,6 +305,7 @@ void TapeEngine::setTape (Tape* t, bool newTape) noexcept
     mode = (int) Mode::stop;
     rtz = false;
     for (auto& h : hasPrev) h = false;
+    for (auto& c : replacedCount) c = 0;
 }
 
 void TapeEngine::configureCompanders (int type)
@@ -317,7 +318,7 @@ void TapeEngine::configureCompanders (int type)
     companderType = type;
 }
 
-void TapeEngine::beginBlock (int n, const bool* armed, int deviceLatencySamples) noexcept
+void TapeEngine::beginBlock (int n, const bool* armed) noexcept
 {
     n = std::min (n, maxBlock);
     bool anyArmed = false;
@@ -369,7 +370,7 @@ void TapeEngine::beginBlock (int n, const bool* armed, int deviceLatencySamples)
     auto nominal = speedSel * (1.0 + juce::jlimit (-5, 5, params.pitchStep.load()) * 0.024);
     nominalSpeed = (float) nominal;
     auto advNom = nominal * cellRate / sr;
-    latencyCells = (deviceLatencySamples + params.latencyOffsetMs.load() * sr / 1000.0) * advNom;
+    for (auto& w : wroteThisBlock) w = false;
 
     auto wowD = params.wow.load() * 0.005;
     auto flD  = params.flutter.load() * 0.003;
@@ -551,10 +552,11 @@ void TapeEngine::readAll (float* const* out, int n) noexcept
     }
 }
 
-void TapeEngine::writeTrack (int t, const float* in, int n) noexcept
+void TapeEngine::writeTrack (int t, const float* in, int n, double latencySamples) noexcept
 {
     if (tape == nullptr || ! blockHasRecording)
         return;
+    const double latencyCells = latencySamples * nominalSpeed.load() * cellRate / sr;
 
     n = std::min (n, maxBlock);
     auto nrOn = params.nrOn.load();
@@ -576,7 +578,7 @@ void TapeEngine::writeTrack (int t, const float* in, int n) noexcept
     {
         if (! (recording[(size_t) i] && armedNow[t]))
         {
-            hasPrev[t] = false;
+            if (hasPrev[t]) finishPunch (t);
             continue;
         }
 
@@ -605,14 +607,28 @@ void TapeEngine::writeTrack (int t, const float* in, int n) noexcept
 
 void TapeEngine::writeSpan (int t, double p, float v, bool nr, float spd, int pos) noexcept
 {
+    wroteThisBlock[t] = true;
+
     if (! hasPrev[t] || p <= prevPos[t] || p - prevPos[t] > 64.0)
     {
+        // A new run of recording: a punch-in (or the head jumped, which counts as one).
+        if (hasPrev[t]) finishPunch (t);
         eraseLp[t] = 0.0f;
         prevPos[t] = p;
         prevVal[t] = v;
         hasPrev[t] = true;
+        runCells[t] = 0;
+        replacedCount[t] = 0;
         return;
     }
+
+    runNr[t] = nr;
+    runSpeed[t] = spd;
+    runPos[t] = pos;
+    const auto fadeCells = std::max (1.0, punchFadeSeconds * cellRate * spd);
+    // A NORMAL-position erase head can't fully erase metal tape: the old recording,
+    // mostly its bass, survives about 30 dB down under the new one.
+    const float bleedCoef = eraseBleed ? std::exp (-juce::MathConstants<float>::twoPi * 250.0f / (cellRate * std::max (0.5f, spd))) : 0.0f;
 
     auto a = prevPos[t], b = p;
     auto c0 = (int64_t) std::floor (a) + 1, c1 = (int64_t) std::floor (b);
@@ -620,22 +636,60 @@ void TapeEngine::writeSpan (int t, double p, float v, bool nr, float spd, int po
     {
         auto f = (float) (((double) c - a) / (b - a));
         auto val = prevVal[t] + (v - prevVal[t]) * f;
+        const auto old = tape->readCell (t, c);
         if (eraseBleed)
         {
-            // A NORMAL-position erase head can't fully erase metal tape: the old recording,
-            // mostly its bass, survives about 30 dB down under the new one.
-            const float a = std::exp (-juce::MathConstants<float>::twoPi * 250.0f / (cellRate * std::max (0.5f, spd)));
-            eraseLp[t] = tape->readCell (t, c) * (1.0f - a) + eraseLp[t] * a;
+            eraseLp[t] = old * (1.0f - bleedCoef) + eraseLp[t] * bleedCoef;
             val += 0.0316f * eraseLp[t];
         }
+
+        // Fade in over what was on the tape.
+        if ((double) runCells[t] < fadeCells)
+        {
+            auto g = (float) (((double) runCells[t] + 1.0) / fadeCells);
+            val = old + (val - old) * g;
+        }
+        ++runCells[t];
+
+        auto& r = replaced[t][replacedHead[t]];
+        r.cell = c;
+        r.old = old;
+        replacedHead[t] = (replacedHead[t] + 1) % punchRing;
+        replacedCount[t] = std::min (replacedCount[t] + 1, punchRing);
+
         tape->writeCell (t, c, val, nr, spd, pos);
     }
     prevPos[t] = b;
     prevVal[t] = v;
 }
 
+void TapeEngine::finishPunch (int t) noexcept
+{
+    // Punch-out: blend the end of the new recording back into what it replaced.
+    hasPrev[t] = false;
+    if (tape == nullptr || replacedCount[t] == 0)
+        return;
+
+    const auto fadeCells = (int) std::max (1.0, punchFadeSeconds * cellRate * runSpeed[t]);
+    const auto k = std::min ({ fadeCells, replacedCount[t], (int) std::min<int64_t> (runCells[t], punchRing) });
+    for (int j = 0; j < k; ++j)
+    {
+        // j = 0 is the last cell written: almost all old; j = k-1 is almost all new.
+        const auto& r = replaced[t][(replacedHead[t] - 1 - j + punchRing) % punchRing];
+        const auto g = (float) (j + 0.5f) / (float) k;
+        const auto now = tape->readCell (t, r.cell);
+        tape->writeCell (t, r.cell, r.old + (now - r.old) * g, runNr[t], runSpeed[t], runPos[t]);
+    }
+    replacedCount[t] = 0;
+}
+
 void TapeEngine::endBlock() noexcept
 {
+    // A track that was recording and wrote nothing this block has been punched out.
+    for (int t = 0; t < numTracks; ++t)
+        if (hasPrev[t] && ! wroteThisBlock[t])
+            finishPunch (t);
+
     if (tape != nullptr)
         tape->position.store (pos);
     lastMode = mode.load();

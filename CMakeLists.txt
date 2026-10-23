@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(TapeFour VERSION 0.1.0 LANGUAGES C CXX)
+# CI passes its run number so every build has its own version: 0.2.<build>.
+set(TAPEFOUR_BUILD_NUMBER "0" CACHE STRING "Build number (patch version)")
+project(TapeFour VERSION 0.2.${TAPEFOUR_BUILD_NUMBER} LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -22,6 +24,32 @@ else()
     FetchContent_MakeAvailable(JUCE)
 endif()
 
+# Sanitizer builds for CI: -DTAPEFOUR_SANITIZE=address or thread
+set(TAPEFOUR_SANITIZE "" CACHE STRING "address, thread, or empty")
+if(TAPEFOUR_SANITIZE STREQUAL "address")
+    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=address,undefined)
+elseif(TAPEFOUR_SANITIZE STREQUAL "thread")
+    add_compile_options(-fsanitize=thread -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=thread)
+endif()
+
+# Every audio system each platform has: ASIO, WASAPI and DirectSound on Windows;
+# CoreAudio on macOS; ALSA and JACK on Linux. Instruments: VST3 everywhere, plus AU on macOS.
+set(TAPEFOUR_PLATFORM_DEFS
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_PLUGINHOST_VST3=1
+    JUCE_PLUGINHOST_LADSPA=0
+    JUCE_PLUGINHOST_LV2=0)
+if(WIN32)
+    list(APPEND TAPEFOUR_PLATFORM_DEFS JUCE_ASIO=1 JUCE_WASAPI=1 JUCE_DIRECTSOUND=1 JUCE_PLUGINHOST_AU=0)
+elseif(APPLE)
+    list(APPEND TAPEFOUR_PLATFORM_DEFS JUCE_PLUGINHOST_AU=1)
+else()
+    list(APPEND TAPEFOUR_PLATFORM_DEFS JUCE_ALSA=1 JUCE_JACK=1 JUCE_PLUGINHOST_AU=0)
+endif()
+
 juce_add_binary_data(TapeFourFonts SOURCES
     Resources/fonts/BarlowCondensed-SemiBold.ttf
     Resources/fonts/BarlowCondensed-Bold.ttf
@@ -32,36 +60,40 @@ juce_add_binary_data(TapeFourFonts SOURCES
 juce_add_gui_app(TapeFour
     PRODUCT_NAME "TapeFour"
     COMPANY_NAME "78Hz"
-    VERSION 0.1.0)
+    BUNDLE_ID "com.78hz.tapefour"
+    VERSION ${PROJECT_VERSION}
+    MICROPHONE_PERMISSION_ENABLED TRUE
+    MICROPHONE_PERMISSION_TEXT "TAPE-FOUR records from your audio inputs.")
+
+# The engine, shared by the app and the test programs.
+set(TAPEFOUR_ENGINE_SOURCES
+    Source/Tape.cpp
+    Source/TapeEngine.cpp
+    Source/TapeWriter.cpp
+    Source/Instruments.cpp
+    Source/MidiHub.cpp
+    Source/ChannelStrip.cpp
+    Source/AudioEngine.cpp
+    Source/DeckState.cpp
+    Source/TapeShelf.cpp
+    Source/PluginScan.cpp)
 
 target_sources(TapeFour PRIVATE
     Source/Main.cpp
-    Source/Tape.cpp
-    Source/TapeEngine.cpp
-    Source/Instruments.cpp
-    Source/AudioEngine.cpp
-    Source/TapeShelf.cpp
+    Source/CrashHandler.cpp
+    ${TAPEFOUR_ENGINE_SOURCES}
     Source/DeckLookAndFeel.cpp
     Source/CassetteComponent.cpp
     Source/StripComponent.cpp
     Source/DeckComponent.cpp
     Source/PatchCard.cpp
     Source/InlayCard.cpp
-    Source/SetupWindow.cpp
-    Source/PluginScan.cpp)
+    Source/SetupWindow.cpp)
 
 target_compile_definitions(TapeFour PRIVATE
-    JUCE_WEB_BROWSER=0
-    JUCE_USE_CURL=0
+    ${TAPEFOUR_PLATFORM_DEFS}
     JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:TapeFour,JUCE_PRODUCT_NAME>"
-    JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:TapeFour,JUCE_VERSION>"
-    JUCE_ASIO=1
-    JUCE_WASAPI=1
-    JUCE_DIRECTSOUND=1
-    JUCE_PLUGINHOST_VST3=1
-    JUCE_PLUGINHOST_AU=0
-    JUCE_PLUGINHOST_LADSPA=0
-    JUCE_PLUGINHOST_LV2=0)
+    JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:TapeFour,JUCE_VERSION>")
 
 target_compile_options(TapeFour PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
 
@@ -71,34 +103,45 @@ target_link_libraries(TapeFour
         juce::juce_audio_utils
         juce::juce_audio_processors
         juce::juce_dsp
+        $<$<PLATFORM_ID:Windows>:dbghelp>
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags)
 
-# Headless engine checks: cmake -DTAPEFOUR_TESTS=ON, then run EngineTest
-option(TAPEFOUR_TESTS "Build the tape engine test program" OFF)
+# Headless checks: cmake -DTAPEFOUR_TESTS=ON, then run EngineTest, MixerTest and ScanTest.
+option(TAPEFOUR_TESTS "Build the test programs" OFF)
 if(TAPEFOUR_TESTS)
-    juce_add_console_app(EngineTest PRODUCT_NAME "EngineTest")
-    target_sources(EngineTest PRIVATE Tests/EngineTest.cpp Source/Tape.cpp Source/TapeEngine.cpp)
-    target_compile_definitions(EngineTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
-    target_link_libraries(EngineTest PRIVATE juce::juce_audio_utils juce::juce_dsp
-        PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
-endif()
+    function(tapefour_test name)
+        juce_add_console_app(${name} PRODUCT_NAME "${name}")
+        target_sources(${name} PRIVATE ${ARGN})
+        target_compile_definitions(${name} PRIVATE ${TAPEFOUR_PLATFORM_DEFS} JUCE_MODAL_LOOPS_PERMITTED=1)
+        target_compile_options(${name} PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+        target_link_libraries(${name} PRIVATE juce::juce_audio_utils juce::juce_dsp
+            PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+    endfunction()
 
-if(TAPEFOUR_TESTS)
-    juce_add_console_app(MixerTest PRODUCT_NAME "MixerTest")
-    target_sources(MixerTest PRIVATE Tests/MixerTest.cpp Source/Tape.cpp Source/TapeEngine.cpp
-                                     Source/Instruments.cpp Source/AudioEngine.cpp Source/PluginScan.cpp)
-    target_compile_definitions(MixerTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_PLUGINHOST_VST3=1)
-    target_link_libraries(MixerTest PRIVATE juce::juce_audio_utils juce::juce_dsp
-        PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
-endif()
+    tapefour_test(EngineTest Tests/EngineTest.cpp Source/Tape.cpp Source/TapeEngine.cpp)
+    tapefour_test(MixerTest Tests/MixerTest.cpp ${TAPEFOUR_ENGINE_SOURCES})
+    tapefour_test(ScanTest Tests/ScanTest.cpp Source/PluginScan.cpp)
 
-if(TAPEFOUR_TESTS)
-    juce_add_console_app(ScanTest PRODUCT_NAME "ScanTest")
-    target_sources(ScanTest PRIVATE Tests/ScanTest.cpp Source/PluginScan.cpp)
-    target_compile_definitions(ScanTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_PLUGINHOST_VST3=1)
-    target_link_libraries(ScanTest PRIVATE juce::juce_audio_utils
-        PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+    # A "VST3" that crashes as soon as it is loaded, laid out as each platform's bundle,
+    # for ScanTest: TapeFour must survive scanning it.
+    add_library(CrashPlugin MODULE Tests/fixtures/CrashPlugin.c)
+    set(crashBundle ${CMAKE_BINARY_DIR}/crashplugin/Crash.vst3)
+    if(WIN32)
+        set_target_properties(CrashPlugin PROPERTIES OUTPUT_NAME "Crash" SUFFIX ".vst3"
+            LIBRARY_OUTPUT_DIRECTORY ${crashBundle}/Contents/x86_64-win
+            LIBRARY_OUTPUT_DIRECTORY_RELEASE ${crashBundle}/Contents/x86_64-win
+            LIBRARY_OUTPUT_DIRECTORY_DEBUG ${crashBundle}/Contents/x86_64-win)
+    elseif(APPLE)
+        set_target_properties(CrashPlugin PROPERTIES BUNDLE TRUE BUNDLE_EXTENSION "vst3" OUTPUT_NAME "Crash"
+            LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/crashplugin
+            MACOSX_BUNDLE_GUI_IDENTIFIER "com.78hz.crashplugin"
+            MACOSX_BUNDLE_BUNDLE_NAME "Crash")
+    else()
+        set_target_properties(CrashPlugin PROPERTIES OUTPUT_NAME "Crash" PREFIX "" SUFFIX ".so"
+            LIBRARY_OUTPUT_DIRECTORY ${crashBundle}/Contents/${CMAKE_SYSTEM_PROCESSOR}-linux)
+    endif()
+    add_dependencies(ScanTest CrashPlugin)
 endif()

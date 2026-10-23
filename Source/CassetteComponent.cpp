@@ -132,6 +132,10 @@ float CassetteComponent::packDiameter (float f) const
 
 void CassetteComponent::update (const Tape* tape, double pos)
 {
+    // Still, and nothing new: nothing to draw.
+    if ((tape != nullptr) == hasTape && tape == lastTape && pos == lastPos)
+        return;
+    lastTape = tape;
     hasTape = tape != nullptr;
     if (! hasTape) { repaint(); return; }
 
