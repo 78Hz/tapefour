@@ -3,7 +3,7 @@
 #include "StripComponent.h"
 #include "CassetteComponent.h"
 #include "TapeShelf.h"
-#include "PatchCard.h"
+#include "ChainEditor.h"
 #include "InlayCard.h"
 #include "TapeWriter.h"
 
@@ -14,7 +14,7 @@ class SetupWindow;
 class PluginWindow : public juce::DocumentWindow
 {
 public:
-    PluginWindow (juce::AudioPluginInstance& plugin, std::function<void()> onClose);
+    PluginWindow (juce::AudioProcessor& plugin, const juce::String& title, std::function<void()> onClose);
     void closeButtonPressed() override { if (closeCallback) closeCallback(); }
 
     /** Transport keys typed while the plug-in has the keyboard still reach the deck. */
@@ -65,13 +65,25 @@ private:
     void showEjectMenu();
 
     // tracks
-    void openPatch (int track);
+    void openChain (int track);
     void openInlay();
     void showOverlay (std::unique_ptr<juce::Component> card, juce::Rectangle<int> cardBounds);
     void closeOverlay();
     void deckStateApplied();
-    void closePluginWindow (int track);
-    void openPluginWindow (int track);
+    void closeBlockWindow (int track, int blockId);
+    void openBlockWindow (int track, int blockId);
+    void editSound (int track);
+
+    // MIDI learn
+    struct LearnTarget { juce::Component* component; MidiMapper::Target target; };
+    void gatherLearnTargets();
+    const LearnTarget* learnTargetFor (juce::Component* c) const;
+    void setLearnMode (bool on);
+    void learnTargetMenu (const LearnTarget&);
+    void startLearning (const MidiMapper::Target&);
+    juce::String targetName (const MidiMapper::Target&) const;
+    void remoteControl (MidiMapper::Control c);
+    friend class LearnLayer;
     void openSetup (int tab);
 
     void say (const juce::String& message, double seconds = 2.5);
@@ -83,6 +95,7 @@ private:
 
     // header
     LcdButton setupLcd;
+    FlatButton learnBtn { "LEARN" };
 
     // cassette bay
     CassetteComponent cassette;
@@ -105,8 +118,11 @@ private:
     MasterStrip master;
 
     std::unique_ptr<SetupWindow> setupWindow;
-    std::unique_ptr<PluginWindow> pluginWindows[numTracks];
+    std::map<std::pair<int, int>, std::unique_ptr<PluginWindow>> pluginWindows;   // (track, block id)
     std::unique_ptr<Overlay> overlay;
+    int chainTrack = -1;                       // whose chain is open
+    std::vector<LearnTarget> learnTargets;
+    std::unique_ptr<juce::Component> learnLayer;
     TapeWriter writer;
     bool tapeBusy = false;      // a tape is being loaded or made
 

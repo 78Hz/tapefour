@@ -126,6 +126,90 @@ double rms (const std::vector<float>& v, double from, double to)
     double s = 0; for (auto i = a; i < b; ++i) s += (double) v[i] * v[i];
     return std::sqrt (s / std::max<double> (1, (double) (b - a)));
 }
+
+// Test processors: a MIDI effect that transposes, one that counts what it's given, and a gain.
+struct TestProcessor : juce::AudioProcessor
+{
+    using juce::AudioProcessor::AudioProcessor;
+    double getTailLengthSeconds() const override { return 0.0; }
+    juce::AudioProcessorEditor* createEditor() override { return nullptr; }
+    bool hasEditor() const override { return false; }
+    int getNumPrograms() override { return 1; }
+    int getCurrentProgram() override { return 0; }
+    void setCurrentProgram (int) override {}
+    const juce::String getProgramName (int) override { return {}; }
+    void changeProgramName (int, const juce::String&) override {}
+    void getStateInformation (juce::MemoryBlock&) override {}
+    void setStateInformation (const void*, int) override {}
+    void prepareToPlay (double, int) override {}
+    void releaseResources() override {}
+};
+
+struct Transposer : TestProcessor
+{
+    Transposer() : TestProcessor (BusesProperties()) {}
+    const juce::String getName() const override { return "TRANSPOSER"; }
+    bool acceptsMidi() const override { return true; }
+    bool producesMidi() const override { return true; }
+    bool isMidiEffect() const override { return true; }
+    void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer& m) override
+    {
+        juce::MidiBuffer out;
+        for (const auto meta : m)
+        {
+            auto msg = meta.getMessage();
+            if (msg.isNoteOnOrOff()) msg.setNoteNumber (msg.getNoteNumber() + 12);
+            out.addEvent (msg, meta.samplePosition);
+        }
+        m.swapWith (out);
+    }
+};
+
+struct CcCounter : TestProcessor
+{
+    CcCounter() : TestProcessor (BusesProperties()) {}
+    const juce::String getName() const override { return "CC COUNTER"; }
+    bool acceptsMidi() const override { return true; }
+    bool producesMidi() const override { return true; }
+    bool isMidiEffect() const override { return true; }
+    void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer& m) override
+    {
+        for (const auto meta : m) if (meta.getMessage().isController() && meta.getMessage().getControllerNumber() >= 20 && meta.getMessage().getControllerNumber() < 30) ++ccs;
+    }
+    std::atomic<int> ccs { 0 };
+};
+
+struct Gain : TestProcessor
+{
+    Gain() : TestProcessor (BusesProperties().withInput ("In", juce::AudioChannelSet::stereo()).withOutput ("Out", juce::AudioChannelSet::stereo())) {}
+    const juce::String getName() const override { return "HALF"; }
+    bool acceptsMidi() const override { return false; }
+    bool producesMidi() const override { return false; }
+    void processBlock (juce::AudioBuffer<float>& b, juce::MidiBuffer&) override { b.applyGain (0.5f); }
+};
+
+// The old one-source-per-track set-ups, as chains.
+void audioIn (AudioEngine& e, int t, int ch)
+{
+    e.clearChain (t);
+    e.setTrackFeed (t, AudioEngine::Feed::live);
+    e.setTrackInput (t, ch);
+    e.setTrackMidiPort (t, AudioEngine::midiNone);
+}
+
+void instrument (AudioEngine& e, int t, int which)
+{
+    e.clearChain (t);
+    e.setTrackFeed (t, AudioEngine::Feed::live);
+    e.setTrackInput (t, -1);
+    e.insertBlock (t, -1, BuiltIn::createSynth (which));
+}
+
+juce::String firstName (AudioEngine& e, int t)
+{
+    auto c = e.getChain (t);
+    return c.empty() ? juce::String() : c.front().name;
+}
 } // namespace
 
 int main()
@@ -137,9 +221,9 @@ int main()
 
     Rig r;
     auto& e = *r.engine;
-    e.setAudioSource (0, 0);
-    e.setAudioSource (1, 1);
-    e.setInstrument (3, BuiltIn::create (BuiltIn::poly));
+    audioIn (e, 0, 0);
+    audioIn (e, 1, 1);
+    instrument (e, 3, BuiltIn::poly);
     r.f[0] = 500;  r.amp[0] = 0.3f;
     r.f[1] = 1500; r.amp[1] = 0.3f;
 
@@ -225,7 +309,7 @@ int main()
         Rig m;
         auto& me = *m.engine;
         me.setMidiInputMpe (AudioEngine::computerKeyboardPort, true, 48);
-        me.setInstrument (0, BuiltIn::create (BuiltIn::epiano));
+        instrument (me, 0, BuiltIn::epiano);
         me.track[0].armed = true;                  // armed + stopped: you hear the instrument live
         m.run (0.1);
         me.injectMidi (juce::MidiMessage::pitchWheel (2, 8192 + 8192 * 12 / 48));
@@ -255,7 +339,7 @@ int main()
         check (mpeBack && bendBack == 24, "settings: per-controller MPE and bend range restored", bendBack, 24);
         check (again->recallDeckWithTape.load(), "settings: 'recall the deck with each tape' restored", again->recallDeckWithTape.load(), 1);
         check (std::abs (again->track[2].fader.load() - 0.42f) < 1e-4f, "settings: fader position restored after restart", again->track[2].fader.load(), 0.42);
-        check (again->getInstrument (0) != nullptr && again->getInstrument (0)->getName() == BuiltIn::nameOf (BuiltIn::epiano),
+        check (firstName (*again, 0) == BuiltIn::synthName (BuiltIn::epiano),
                "settings: track 1 instrument restored after restart", 1, 1);
         again.reset();
     }
@@ -265,7 +349,7 @@ int main()
     {
         Rig m;
         auto& me = *m.engine;
-        me.setAudioSource (0, 0);
+        audioIn (me, 0, 0);
         me.track[0].armed = true;
         auto level = [&] (double hz, float hi, float lo)
         {
@@ -295,7 +379,7 @@ int main()
     {
         Rig m;
         auto& me = *m.engine;
-        me.setAudioSource (0, 0);
+        audioIn (me, 0, 0);
         me.track[0].armed = true;
         auto boost = [&] (double hz, float freqKnob)
         {
@@ -331,9 +415,9 @@ int main()
         auto& me = *m.engine;
         auto keysA = me.addVirtualMidiInput ("Keys A"), keysB = me.addVirtualMidiInput ("Keys B");
         check (keysA > 0 && keysB > 0 && keysA != keysB, "two controllers get their own slots", keysB, keysA + 1);
-        me.setInstrument (0, BuiltIn::create (BuiltIn::poly));
-        me.setInstrument (1, BuiltIn::create (BuiltIn::poly));
-        me.setInstrument (2, BuiltIn::create (BuiltIn::poly));
+        instrument (me, 0, BuiltIn::poly);
+        instrument (me, 1, BuiltIn::poly);
+        instrument (me, 2, BuiltIn::poly);
         me.setTrackMidiPort (0, keysA);
         me.setTrackMidiPort (1, keysB);
         me.setTrackMidiPort (2, AudioEngine::midiAny);
@@ -380,12 +464,14 @@ int main()
         };
         me.track[0].armed = false;
         me.track[1].armed = false;
-        me.setAudioSource (2, 0);
-        me.setHardwareSource (2);
-        check (me.getInstrument (2) == nullptr, "hardware synth replaces the track's instrument (never both)", me.getInstrument (2) != nullptr, 0);
+        me.clearChain (2);
+        me.setTrackInput (2, -1);
+        auto extId = me.addExternal (2, -1, synth);
+        auto* ext = dynamic_cast<ExternalBlock*> (me.findBlock (2, extId));
+        ext->channel = 5;
+        ext->returnInput = 0;
+        check (me.getChain (2).size() == 1 && me.getChain (2)[0].role == BlockRole::external, "hardware synth is a block in the chain", (double) me.getChain (2).size(), 1);
         me.setTrackMidiPort (2, keysA);
-        me.track[2].midiOutPort = synth;
-        me.track[2].midiOutChannel = 5;
         me.track[2].armed = true;
         m.f[0] = 500; m.amp[0] = 0.3f;
         m.run (0.1);
@@ -402,7 +488,7 @@ int main()
 
         // Changing the route sends all-notes-off to the old one.
         sent.clear();
-        me.track[2].midiOutChannel = 7;
+        ext->channel = 7;
         m.run (0.05);
         int offs = 0;
         for (auto& msg : sent) if (msg.isAllNotesOff()) ++offs;
@@ -417,18 +503,19 @@ int main()
         me.track[0].fader = 0.9f; me.track[0].pan = -0.8f; me.track[0].high = 0.7f;
         me.masterFader = 0.2f;
         me.tapeEngine.params.pitchStep = 0;
-        me.unplug (2);
+        me.clearChain (2);
         me.setTrackMidiPort (0, AudioEngine::midiNone);
         me.applyDeckState (*deck);
         check (std::abs (me.track[0].fader.load() - 0.31f) < 1e-4f && std::abs (me.track[0].pan.load() - 0.4f) < 1e-4f
                && std::abs (me.track[0].high.load() + 0.5f) < 1e-4f, "deck recall: fader, pan and EQ come back", me.track[0].fader.load(), 0.31);
         check (std::abs (me.masterFader.load() - 0.6f) < 1e-4f && me.tapeEngine.params.pitchStep.load() == 2,
                "deck recall: master and pitch come back", me.masterFader.load(), 0.6);
-        check (me.track[2].source.load() == (int) Source::hardware && me.track[2].midiOutPort.load() == synth
-               && me.track[2].midiOutChannel.load() == 7, "deck recall: hardware synth route comes back", me.track[2].midiOutChannel.load(), 7);
+        auto hwBack = me.getChain (2);
+        check (hwBack.size() == 1 && hwBack[0].role == BlockRole::external && hwBack[0].outPort == synth && hwBack[0].channel == 7 && hwBack[0].returnInput == 0,
+               "deck recall: hardware synth route comes back", hwBack.empty() ? -1 : hwBack[0].channel, 7);
         check (me.track[0].midiPort.load() == keysA && me.track[1].midiPort.load() == keysB, "deck recall: each track's controller comes back",
                me.track[0].midiPort.load(), keysA);
-        check (me.getInstrument (1) != nullptr && me.getInstrument (1)->getName() == BuiltIn::nameOf (BuiltIn::poly),
+        check (firstName (me, 1) == BuiltIn::synthName (BuiltIn::poly),
                "deck recall: instruments come back", 1, 1);
 
         // ...and the deck travels with the tape.
@@ -484,7 +571,7 @@ int main()
             auto& tape = *me.getTape();
             putClick (tape, 0, 64000);
             me.track[0].pan = -1.0f;     // track 1 to the left output, which loops back into IN 1
-            me.setAudioSource (1, 0);
+            audioIn (me, 1, 0);
             me.track[1].pan = 1.0f;      // the overdub's own monitoring goes right, out of the loop
             me.track[1].armed = true;
             m.loopback = true;
@@ -498,10 +585,10 @@ int main()
         }
 
         // The rule for each source.
-        check (AudioEngine::recordLatencySamples (Source::instrument, 1200, 900, 48) == 900.0
-               && AudioEngine::recordLatencySamples (Source::bounce, 1200, 900, 48) == 0.0
-               && AudioEngine::recordLatencySamples (Source::audio, 1200, 900, 48) == 2148.0
-               && AudioEngine::recordLatencySamples (Source::hardware, 1200, 900, 48) == 2148.0,
+        check (AudioEngine::recordLatencySamples (false, true, false, 1200, 900, 48, 0) == 900.0
+               && AudioEngine::recordLatencySamples (false, false, true, 1200, 900, 48, 0) == 0.0
+               && AudioEngine::recordLatencySamples (true, false, false, 1200, 900, 48, 0) == 2148.0
+               && AudioEngine::recordLatencySamples (true, true, false, 1200, 900, 48, 64) == 2212.0,
                "latency: instruments wait for the output only; audio and synths for the round trip", 900, 900);
         fakeInputLatency = fakeOutputLatency = 0;
     }
@@ -510,7 +597,7 @@ int main()
     {
         Rig m;
         auto& me = *m.engine;
-        me.setAudioSource (0, 0);
+        audioIn (me, 0, 0);
         m.f[0] = 1000; m.amp[0] = 0.3f;
         me.track[0].armed = false;
         m.run (0.2);
@@ -536,7 +623,7 @@ int main()
     {
         Rig m;
         auto& me = *m.engine;
-        me.setAudioSource (0, 0);
+        audioIn (me, 0, 0);
         me.track[0].armed = true;
         m.f[0] = 440; m.amp[0] = 0.3f;
         auto& tape = *me.getTape();
@@ -575,20 +662,21 @@ int main()
         ghost.fileOrIdentifier = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("NoSuch.vst3").getFullPathName();
         ghost.name = "Ghost";
         juce::String result = "pending";
-        me.loadPlugin (0, ghost, {}, [&] (const juce::String& err) { result = err; });
-        me.setInstrument (0, BuiltIn::create (BuiltIn::epiano));   // chosen while the first was loading
+        me.clearChain (0);
+        auto placeholder = me.addPlugin (0, -1, ghost, {}, 0, [&] (const juce::String& err) { result = err; });
+        me.replaceBlock (0, placeholder, BuiltIn::createSynth (BuiltIn::epiano));   // chosen while the first was loading
         auto until = juce::Time::getMillisecondCounter() + 3000;
         while (result == "pending" && juce::Time::getMillisecondCounter() < until)
             juce::MessageManager::getInstance()->runDispatchLoopUntil (20);
-        check (result == "superseded" && me.getInstrument (0) != nullptr && me.getInstrument (0)->getName() == BuiltIn::nameOf (BuiltIn::epiano),
+        check (result == "superseded" && firstName (me, 0) == BuiltIn::synthName (BuiltIn::epiano),
                "plug-in load race: the late arrival is discarded", result == "superseded", 1);
 
         // A plug-in's window is told to close while the instrument still exists.
         bool stillThere = false;
-        me.onInstrumentChanging = [&] (int t) { stillThere = me.getInstrument (t) != nullptr; };
-        me.setInstrument (0, BuiltIn::create (BuiltIn::poly));
-        check (stillThere, "an instrument's window closes before the instrument goes", stillThere, 1);
-        me.onInstrumentChanging = nullptr;
+        me.onBlockRemoving = [&] (int t, int id) { stillThere = me.findBlock (t, id) != nullptr; };
+        instrument (me, 0, BuiltIn::poly);
+        check (stillThere, "a block's window closes before the block goes", stillThere, 1);
+        me.onBlockRemoving = nullptr;
     }
 
     // ---- More than 64 MIDI devices over time: old unplugged ones give up their slots ----
@@ -618,6 +706,245 @@ int main()
         me.saveSettings();
         auto written = file.getLastModificationTime() > old + juce::RelativeTime::minutes (30);
         check (untouched && written, "settings: unchanged saves touch nothing on disk", untouched + 2 * written, 3);
+    }
+
+    // ---- The chain: MIDI and audio streams through blocks ----
+    {
+        Rig m;
+        auto& me = *m.engine;
+        auto hostedBlock = [] (std::unique_ptr<juce::AudioProcessor> p) { return std::make_unique<ProcessorBlock> (std::move (p), ProcessorBlock::Kind::hosted); };
+        auto playA = [&] (double secs)
+        {
+            m.run (0.05);
+            me.injectMidi (juce::MidiMessage::noteOn (1, 57, (juce::uint8) 110));   // A220
+            auto out = m.run (secs);
+            me.injectMidi (juce::MidiMessage::noteOff (1, 57));
+            m.run (0.6);
+            return out;
+        };
+
+        // A MIDI effect changes the notes every block after it hears...
+        me.clearChain (0);
+        me.setTrackInput (0, -1);
+        me.insertBlock (0, -1, hostedBlock (std::make_unique<Transposer>()));
+        me.insertBlock (0, -1, BuiltIn::createSynth (BuiltIn::epiano));
+        me.track[0].armed = true;
+        auto up = playA (0.4);
+        check (tone (up, 440, 0.1, 0.4) > 4.0 * tone (up, 220, 0.1, 0.4), "chain: a MIDI effect before a synth changes what it plays", tone (up, 440, 0.1, 0.4), 0.0);
+        check (me.getChain (0)[0].role == BlockRole::midiFx && me.getChain (0)[1].role == BlockRole::instrument, "chain: blocks know their roles", 1, 1);
+
+        // ...but not the blocks before it.
+        me.moveBlock (0, me.getChain (0)[0].id, 1);
+        auto same = playA (0.4);
+        check (tone (same, 220, 0.1, 0.4) > 4.0 * tone (up, 220, 0.1, 0.4), "chain: a MIDI effect after the synth leaves it alone", tone (same, 220, 0.1, 0.4), 0.0);
+
+        // Two instruments layer: both play, mixed.
+        me.clearChain (0);
+        me.insertBlock (0, -1, BuiltIn::createSynth (BuiltIn::epiano));
+        auto one = rms (playA (0.4), 0.1, 0.4);
+        me.insertBlock (0, -1, BuiltIn::createSynth (BuiltIn::epiano));
+        auto two = rms (playA (0.4), 0.1, 0.4);
+        check (two > one * 1.8 && two < one * 2.2, "chain: two instruments in a row are layered (twice the level)", two / one, 2.0);
+
+        // An audio effect processes what reaches it; MIX blends it with the dry signal; BYPASS takes it out.
+        audioIn (me, 1, 0);
+        me.track[1].armed = true;
+        me.track[0].armed = false;
+        m.f[0] = 700; m.amp[0] = 0.2f;
+        auto gid = me.insertBlock (1, -1, hostedBlock (std::make_unique<Gain>()));
+        auto half = tone (m.run (0.4), 700, 0.15, 0.4);
+        me.findBlock (1, gid)->mix = 0.5f;
+        auto blend = tone (m.run (0.4), 700, 0.15, 0.4);
+        me.setBlockBypass (1, gid, true);
+        auto bypassed = tone (m.run (0.4), 700, 0.15, 0.4);
+        check (std::abs (half / bypassed - 0.5) < 0.02 && std::abs (blend / bypassed - 0.75) < 0.02,
+               "chain: an effect processes the input; MIX 50% blends; bypass passes it", blend / bypassed, 0.75);
+
+        // A plug-in that wipes the MIDI it's given (and makes none) doesn't silence what comes after.
+        me.clearChain (0);
+        me.track[0].armed = true;
+        me.track[1].armed = false;
+        m.amp[0] = 0;
+        me.insertBlock (0, -1, hostedBlock (std::make_unique<Gain>()));
+        me.insertBlock (0, -1, BuiltIn::createSynth (BuiltIn::epiano));
+        check (rms (playA (0.4), 0.1, 0.4) > 0.005, "chain: MIDI passes blocks that don't make MIDI", 1, 1);
+        me.track[0].armed = false;
+    }
+
+    // ---- Mute and solo ----
+    {
+        Rig m;
+        auto& me = *m.engine;
+        audioIn (me, 0, 0);
+        audioIn (me, 1, 1);
+        m.f[0] = 500; m.amp[0] = 0.3f;
+        m.f[1] = 900; m.amp[1] = 0.3f;
+        me.track[0].armed = me.track[1].armed = true;
+        auto heard = [&] (double hz) { return tone (m.run (0.3), hz, 0.12, 0.3); };
+        auto a0 = heard (500), b0 = heard (900);
+        me.track[0].solo = true;
+        auto a1 = heard (500), b1 = heard (900);
+        check (a1 > 0.9 * a0 && b1 < 0.001, "solo: only the soloed track is heard", b1, 0.0);
+        me.track[0].mute = true;
+        auto a2 = heard (500), b2 = heard (900);
+        check (a2 < 0.001 && b2 < 0.001 && me.soloedTracksAllMuted(), "solo + mute: mute wins (and the deck knows why it's silent)", a2, 0.0);
+        me.track[0].solo = false;
+        auto a3 = heard (500), b3 = heard (900);
+        check (a3 < 0.001 && b3 > 0.9 * b0, "mute: the track is silent, the others play", a3, 0.0);
+
+        // A muted track still records.
+        m.cmd (TapeEngine::Command::rec);
+        m.run (1.0);
+        m.cmd (TapeEngine::Command::stop);
+        m.run (0.05);
+        double onTape = 0;
+        for (int64_t c = cellRate / 4; c < cellRate * 3 / 4; ++c) onTape = std::max (onTape, (double) std::abs (me.getTape()->readCell (0, c)));
+        check (onTape > 0.1, "mute: a muted, armed track still records", onTape, 0.3);
+
+        // Mute takes a source out of a bounce; solo doesn't.
+        me.track[0].mute = false;
+        me.track[0].armed = me.track[1].armed = false;
+        m.amp[0] = m.amp[1] = 0;
+        me.toggleBounceSource (2, 0);
+        me.toggleBounceSource (2, 1);
+        me.track[2].armed = true;
+        me.track[2].pan = 1.0f;   // the bounce itself only to the right: what's left is the sources
+        me.track[1].solo = true;
+        auto solo = m.run (0.05);
+        juce::ignoreUnused (solo);
+        m.cmd (TapeEngine::Command::rtz);
+        m.run (1.0);
+        me.track[0].mute = true;
+        m.cmd (TapeEngine::Command::rec);
+        m.run (0.8);
+        m.cmd (TapeEngine::Command::stop);
+        m.run (0.05);
+        // On tape, track 3 now holds track 2 (soloed or not) and not the muted track 1.
+        std::vector<float> cells;
+        for (int64_t c = cellRate / 4; c < cellRate / 2; ++c) cells.push_back (me.getTape()->readCell (2, c));
+        auto at = [&] (double hz)
+        {
+            double re = 0, im = 0;
+            for (size_t i = 0; i < cells.size(); ++i) { auto w = juce::MathConstants<double>::twoPi * hz * (double) i / cellRate; re += cells[i] * std::cos (w); im += cells[i] * std::sin (w); }
+            return 2.0 * std::sqrt (re * re + im * im) / (double) cells.size();
+        };
+        check (at (900) > 0.05 && at (500) < 0.01, "bounce: a muted source is left out; solo doesn't change a bounce", at (500), 0.0);
+        me.track[0].mute = me.track[1].solo = false;
+    }
+
+    // ---- MIDI learn ----
+    {
+        Rig m;
+        auto& me = *m.engine;
+        auto knobs = me.addVirtualMidiInput ("Knobs");
+        me.setTrackMidiPort (0, knobs);
+        auto cc = [&] (int number, int value) { me.injectMidi (juce::MidiMessage::controllerEvent (1, number, value), knobs); };
+        auto learn = [&] (MidiMapper::Target target, std::function<void()> move)
+        {
+            me.mapper.beginLearn (target);
+            m.run (0.02);
+            move();
+            m.run (0.05);
+            for (int i = 0; i < 40 && me.mapper.isLearning(); ++i) { juce::Thread::sleep (10); m.run (0.01); me.mapper.poll(); }
+            return ! me.mapper.isLearning();
+        };
+
+        MidiMapper::Target fader1; fader1.control = MidiMapper::Control::fader; fader1.track = 0;
+        auto learned = learn (fader1, [&] { for (int v : { 90, 92, 94, 96 }) cc (21, v); });
+        auto maps = me.mapper.getMappings();
+        check (learned && maps.size() == 1 && maps[0].number == 21 && maps[0].mode == MidiMapper::Mode::absolute,
+               "learn: moving a knob maps CC 21 to track 1's fader", maps.empty() ? -1 : maps[0].number, 21);
+
+        // Pickup: the fader is at 0.75; a knob at 20 doesn't grab it, sweeping past 0.75 does.
+        me.track[0].fader = 0.75f;
+        cc (21, 20); m.run (0.05);
+        check (std::abs (me.track[0].fader.load() - 0.75f) < 1e-4f, "pickup: a knob away from the fader doesn't make it jump", me.track[0].fader.load(), 0.75);
+        cc (21, 110); m.run (0.05);
+        cc (21, 64); m.run (0.05);
+        check (std::abs (me.track[0].fader.load() - 64.0f / 127.0f) < 1e-3f, "pickup: once past the fader, the knob moves it", me.track[0].fader.load(), 64.0 / 127.0);
+
+        // A mapped CC doesn't reach the instruments; an unmapped one does.
+        auto counter = std::make_unique<CcCounter>();
+        auto* counted = counter.get();
+        me.insertBlock (0, -1, std::make_unique<ProcessorBlock> (std::move (counter), ProcessorBlock::Kind::hosted));
+        me.track[0].armed = true;
+        cc (21, 70); cc (22, 70); m.run (0.05);
+        check (counted->ccs.load() == 1, "learn: a mapped CC is used by its mapping, not played", counted->ccs.load(), 1);
+        me.track[0].armed = false;
+
+        // An endless encoder is recognised and moves the control in steps.
+        MidiMapper::Target pan1; pan1.control = MidiMapper::Control::pan; pan1.track = 0;
+        learn (pan1, [&] { for (int i = 0; i < 4; ++i) cc (30, 1); });
+        bool relative = false;
+        for (auto& mp : me.mapper.getMappings()) if (mp.number == 30) relative = mp.mode == MidiMapper::Mode::relTwos;
+        me.track[0].pan = 0.0f;
+        for (int i = 0; i < 10; ++i) cc (30, 1);
+        m.run (0.05);
+        check (relative && me.track[0].pan.load() > 0.15f && me.track[0].pan.load() < 0.25f, "learn: an encoder turns the pan in steps", me.track[0].pan.load(), 0.2);
+
+        // A button toggles mute.
+        MidiMapper::Target mute2; mute2.control = MidiMapper::Control::mute; mute2.track = 1;
+        learn (mute2, [&] { me.injectMidi (juce::MidiMessage::noteOn (1, 36, (juce::uint8) 100), knobs); });
+        me.injectMidi (juce::MidiMessage::noteOff (1, 36), knobs); m.run (0.05);
+        me.track[1].mute = false;
+        me.injectMidi (juce::MidiMessage::noteOn (1, 36, (juce::uint8) 100), knobs); m.run (0.05);
+        me.injectMidi (juce::MidiMessage::noteOff (1, 36), knobs); m.run (0.05);
+        check (me.track[1].mute.load(), "learn: a pad toggles track 2's mute", me.track[1].mute.load(), 1);
+
+        // MMC transport buttons need no learning.
+        const juce::uint8 play[] { 0xf0, 0x7f, 0x7f, 0x06, 0x02, 0xf7 };
+        me.remoteCommand = 0;
+        me.injectMidi (juce::MidiMessage (play, 6), knobs); m.run (0.05);
+        check (me.remoteCommand.load() == (int) MidiMapper::Control::play + 1, "MMC: a controller's PLAY button plays", me.remoteCommand.load(), (int) MidiMapper::Control::play + 1);
+
+        // Deck mappings survive a restart (kept with the settings).
+        me.saveSettings();
+        auto count = me.mapper.getMappings().size();
+        m.engine.reset();
+        m.engine = std::make_unique<AudioEngine> (*m.props);
+        check (m.engine->mapper.getMappings().size() == count, "learn: deck mappings come back after a restart", (double) m.engine->mapper.getMappings().size(), (double) count);
+    }
+
+    // ---- Plug-in parameter mappings travel with the deck ----
+    {
+        Rig m;
+        auto& me = *m.engine;
+        auto knobs = me.addVirtualMidiInput ("Knobs");
+        me.clearChain (0);
+        auto plate = me.insertBlock (0, -1, BuiltIn::createFx (BuiltIn::plate));
+        MidiMapper::Target size; size.plugin = true; size.track = 0; size.blockId = plate; size.param = 0;
+        auto* param = me.findBlock (0, plate)->getProcessor()->getParameters()[0];
+        me.mapper.beginLearn (size, param, "Size");
+        m.run (0.02);
+        for (int v : { 10, 12, 14, 16 }) me.injectMidi (juce::MidiMessage::controllerEvent (1, 40, v), knobs);
+        m.run (0.05);
+        for (int i = 0; i < 40 && me.mapper.isLearning(); ++i) { juce::Thread::sleep (10); m.run (0.01); me.mapper.poll(); }
+        auto deck = me.createDeckState();
+        me.applyDeckState (*deck);
+        auto restored = me.getChain (0);
+        bool back = false;
+        for (auto& mp : me.mapper.getMappings())
+            back = back || (mp.target.plugin && mp.target.blockId == restored[0].id && mp.number == 40 && mp.param != nullptr);
+        check (restored.size() == 1 && restored[0].name == BuiltIn::fxName (BuiltIn::plate) && back,
+               "learn: a plug-in parameter's mapping is saved with the deck and comes back", back, 1);
+    }
+
+    // ---- Decks saved before chains still load ----
+    {
+        Rig m;
+        auto& me = *m.engine;
+        auto old = juce::parseXML ("<DECK version=\"3\">"
+                                   "<TRACK index=\"0\" source=\"2\" midiIn=\"any\"><INSTRUMENT kind=\"builtin\" which=\"1\"/></TRACK>"
+                                   "<TRACK index=\"1\" source=\"1\" input=\"1\" pair=\"1\"/>"
+                                   "<TRACK index=\"2\" source=\"4\" input=\"0\" midiOutChannel=\"3\"/>"
+                                   "<TRACK index=\"3\" source=\"3\" bounce=\"3\"/></DECK>");
+        me.applyDeckState (*old);
+        auto c0 = me.getChain (0), c2 = me.getChain (2);
+        check (c0.size() == 1 && c0[0].name == BuiltIn::synthName (BuiltIn::epiano)
+               && me.track[1].inputChannel.load() == 1 && me.track[1].inputPair.load()
+               && c2.size() == 1 && c2[0].role == BlockRole::external && c2[0].channel == 3 && c2[0].returnInput == 0
+               && me.track[3].feed.load() == (int) AudioEngine::Feed::bounce && me.track[3].bounceMask.load() == 3,
+               "old decks: instrument, audio in, hardware synth and bounce become chains", 1, 1);
     }
 
     std::printf ("\n%s (%d failure%s)\n", failures == 0 ? "ALL PASSED" : "SOME FAILED", failures, failures == 1 ? "" : "s");

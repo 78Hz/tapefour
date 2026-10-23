@@ -1,4 +1,5 @@
 #include "MidiHub.h"
+#include "MidiMapper.h"
 
 namespace tf
 {
@@ -374,6 +375,14 @@ juce::String MidiHub::outputLabel (int slot) const
     return (o.alias.isNotEmpty() ? o.alias : o.name).toUpperCase();
 }
 
+void MidiHub::allNotesOffNow (int slot)
+{
+    if (! outputExists (slot)) return;
+    auto& o = *out[slot];
+    const juce::ScopedLock sl (o.lock);
+    if (o.device != nullptr) allNotesOff (*o.device);
+}
+
 bool MidiHub::anyMpeInput() const
 {
     for (auto& p : in) if (p->active.load() && p->mpe.load()) return true;
@@ -497,6 +506,8 @@ void MidiHub::beginBlock (int n) noexcept
         p.buffer.clear();
         if (! p.active.load()) continue;
         p.collector.removeNextBlockOfMessages (p.buffer, n);
+        if (! p.buffer.isEmpty() && mapper != nullptr)
+            mapper->process ((int) (&pp - &in[0]), p.buffer, *static_cast<MidiMapper::Sink*> (mapperSink));
         if (! p.buffer.isEmpty())
         {
             any.addEvents (p.buffer, 0, n, 0);

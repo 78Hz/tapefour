@@ -1,8 +1,9 @@
 #pragma once
 
 #include "TapeEngine.h"
-#include "Instruments.h"
+#include "Blocks.h"
 #include "MidiHub.h"
+#include "MidiMapper.h"
 #include "ChannelStrip.h"
 
 namespace tf
@@ -10,47 +11,75 @@ namespace tf
 /**
     The deck's electronics: the audio device (whatever the platform offers: ASIO,
     WASAPI or DirectSound on Windows, CoreAudio on macOS, ALSA or JACK on Linux),
-    four channel strips feeding the tape and the stereo mix, the instruments
-    plugged into the tracks, and hardware synths driven over MIDI. No undo, on purpose.
+    each track's inputs and signal chain, four channel strips feeding the tape and
+    the stereo mix, and MIDI learn. No undo, on purpose.
 
-    Split across files: this one runs the audio and owns the parts; MidiHub.cpp
-    handles MIDI devices; ChannelStrip.cpp is the strip DSP; DeckState.cpp is
-    everything saved and recalled (settings, and the deck that goes with each tape).
+    A track's chain is one row of blocks with two streams running through it: MIDI
+    from the track's controller (changed by MIDI effects, played by instruments) and
+    audio from its input (added to by instruments, processed by effects). What comes
+    out of the end is what goes on tape.
+
+    Split across files: this one runs the audio and owns the parts; MidiHub.cpp handles
+    MIDI devices; MidiMapper.cpp is MIDI learn; ChannelStrip.cpp is the strip DSP;
+    Blocks.cpp the things in a chain; DeckState.cpp everything saved and recalled.
 */
 class AudioEngine : public juce::AudioIODeviceCallback,
-                    private juce::ChangeListener
+                    private juce::ChangeListener,
+                    private MidiMapper::Sink
 {
 public:
     static constexpr int maxMidiPorts = MidiHub::maxPorts;
     static constexpr int midiAny = -1;          // track listens to every active controller
     static constexpr int midiNone = -2;
     static constexpr int computerKeyboardPort = MidiHub::computerKeyboard;
+    static constexpr int maxBlocks = 8;
+    static constexpr int maxInputs = 16;
 
     // The swept mid: 250 Hz to 5 kHz on a log scale; the default puts it at 1.2 kHz.
     static double midFreqHz (float v) noexcept { return 250.0 * std::pow (20.0, juce::jlimit (0.0, 1.0, (double) v)); }
     static constexpr float defaultMidFreq = 0.5236f;
     static float faderGain (float f) noexcept { return f <= 0.0f ? 0.0f : std::pow (f / 0.75f, 3.0f); }
 
-    /** How far back, in samples, a track's recording belongs: see TapeEngine::writeTrack. The user's
-        overdub-timing offset corrects drivers that misreport, so it goes with the interface's sources. */
-    static double recordLatencySamples (Source s, int inputLatency, int outputLatency, double userOffsetSamples) noexcept;
+    /** How a track is fed: live (its controller and input, through the chain) or a bounce of other tracks from tape. */
+    enum class Feed : int { live = 0, bounce = 1 };
+
+    /** How far back, in samples, a track's recording belongs: see TapeEngine::writeTrack.
+        Anything that came in through the interface (an input, a hardware synth) was played along to
+        what was heard: the round trip, plus the user's offset for drivers that misreport. Instruments
+        only wait for the output. A bounce comes straight off the tape. The chain's own delay adds on. */
+    static double recordLatencySamples (bool throughInterface, bool hasInstruments, bool bounce,
+                                        int inputLatency, int outputLatency, double userOffsetSamples, int chainLatency) noexcept;
 
     struct TrackParams
     {
-        std::atomic<int>   source { (int) Source::none };
-        std::atomic<int>   inputChannel { 0 };
-        std::atomic<bool>  inputPair { false };          // mono sum of inputChannel and the next one
-        std::atomic<int>   midiPort { midiAny };         // which controller plays this track
-        std::atomic<int>   midiOutPort { -1 };           // hardware synth: which MIDI output
-        std::atomic<int>   midiOutChannel { 1 };         // 1..16, or 0 = as played
-        std::atomic<bool>  armed { false };
-        std::atomic<float> gain { 1.0f / 3.0f };       // input trim: 0..1 -> -20..+40 dB
+        std::atomic<int>   feed { (int) Feed::live };
+        std::atomic<int>   inputChannel { -1 };         // audio in: -1 = none
+        std::atomic<bool>  inputPair { false };         // mono sum of inputChannel and the next one
+        std::atomic<int>   midiPort { midiAny };        // which controller plays this track
+        std::atomic<bool>  armed { false }, mute { false }, solo { false };
+        std::atomic<float> gain { 1.0f / 3.0f };        // input trim: 0..1 -> -20..+40 dB
         std::atomic<float> high { 0 }, mid { 0 }, low { 0 }, pan { 0 }; // -1..1
-        std::atomic<float> midFreq { defaultMidFreq };   // 0..1 -> 250 Hz..5 kHz
+        std::atomic<float> midFreq { defaultMidFreq };  // 0..1 -> 250 Hz..5 kHz
         std::atomic<float> fader { 0.75f };
         std::atomic<int>   bounceMask { 0 };
         std::atomic<float> meter { 0 };
         std::atomic<bool>  midiActivity { false };
+    };
+
+    /** A block as the front panel sees it. */
+    struct BlockInfo
+    {
+        int id = 0;
+        juce::String name, maker;
+        BlockRole role = BlockRole::audioFx;
+        bool bypass = false, hasEditor = false, canProcessInput = false, processInput = false, producesMidi = false;
+        bool missing = false, hosted = false;
+        float levelDb = 0.0f, mix = 1.0f;
+        int builtIn = -1;           // which built-in synth or effect, if it is one
+        bool builtInSynth = false;
+        // external synths
+        int outPort = -1, channel = 1, returnInput = -1;
+        bool returnPair = false;
     };
 
     using MidiInputInfo = MidiHub::InputInfo;
@@ -64,6 +93,7 @@ public:
     juce::KnownPluginList knownPlugins;
     TapeEngine tapeEngine;
     MidiHub midi { deviceManager };
+    MidiMapper mapper { midi };
 
     TrackParams track[numTracks];
     std::atomic<float> masterFader { 0.75f }, phones { 0.6f }, meterL { 0 }, meterR { 0 };
@@ -71,33 +101,57 @@ public:
     std::atomic<bool>& midiFlash = midi.inFlash;
     std::atomic<bool>& midiOutFlash = midi.outFlash;
     std::atomic<bool>  recallDeckWithTape { false };
+    std::atomic<float> inputPeak[maxInputs] {};          // per interface input, for the signal bars
+    /** A transport command from a controller (MMC or a mapped button), for the deck to carry out. */
+    std::atomic<int>   remoteCommand { 0 };
 
     // ---- tape (message thread) ----
     Tape* getTape() const noexcept { return tape.get(); }
     std::unique_ptr<Tape> swapTape (std::unique_ptr<Tape> newTape);
 
-    // ---- sources (message thread) ----
-    void setAudioSource (int t, int inputChannel, bool pair = false);
-    void setHardwareSource (int t);
-    void setInstrument (int t, std::unique_ptr<Instrument> inst);
-    /** Loads in the background. If anything else is plugged into the track before it arrives,
-        the late arrival is discarded. */
-    void loadPlugin (int t, const juce::PluginDescription& desc, const juce::String& base64State,
-                     std::function<void (const juce::String& error)> done);
-    void toggleBounceSource (int t, int sourceTrack);
-    void unplug (int t);
+    // ---- a track's inputs (message thread) ----
+    void setTrackInput (int t, int inputChannel, bool pair = false);   // -1: no audio in
     void setTrackMidiPort (int t, int port);
-    Instrument* getInstrument (int t) const noexcept { return slots[t].inst.get(); }
-    juce::String describeSource (int t) const;
-    juce::String describeInput (int t) const;    // "IN 3" or "IN 3+4"
-    /** Called just before a track's instrument is replaced or removed, so its window can close first. */
-    std::function<void (int track)> onInstrumentChanging;
+    void setTrackFeed (int t, Feed feed);
+    void toggleBounceSource (int t, int sourceTrack);
+
+    // ---- a track's chain (message thread) ----
+    std::vector<BlockInfo> getChain (int t) const;
+    Block* findBlock (int t, int blockId) const;
+    int numBlocks (int t) const;
+    /** Puts a block in the chain at index (-1: the end). Returns its id, or 0 if the chain is full. */
+    int insertBlock (int t, int index, std::unique_ptr<Block> block);
+    /** Replaces a block, keeping its place. Returns the new block's id. */
+    int replaceBlock (int t, int blockId, std::unique_ptr<Block> block);
+    void removeBlock (int t, int blockId);
+    void moveBlock (int t, int blockId, int newIndex);
+    void clearChain (int t);
+    void setBlockBypass (int t, int blockId, bool bypassed);
+    /** Loads a plug-in into the chain at index (or in place of replaceId). A placeholder holds its place
+        while it loads, so the order is kept and anything done to the track meanwhile is respected. */
+    int addPlugin (int t, int index, const juce::PluginDescription& desc, const juce::String& base64State,
+                   int replaceId = 0, std::function<void (const juce::String& error)> done = {},
+                   std::unique_ptr<juce::XmlElement> savedBlock = {});
+    int addExternal (int t, int index, int outPort);
+    void sendAllNotesOff (int t, int blockId);
+    /** Called just before a block is removed or replaced, so its window can close first. */
+    std::function<void (int track, int blockId)> onBlockRemoving;
+
+    juce::String describeSource (int t) const;    // what the display's top line says
+    juce::String describeInput (int t) const;     // "IN 3" or "IN 3+4"
+    /** Short names for the blocks, for the row on the display. */
+    juce::StringArray blockAbbreviations (int t) const;
+
+    // ---- mute and solo ----
+    bool anySolo() const noexcept;
+    /** True when every soloed track is also muted: the deck is silent and that's why. */
+    bool soloedTracksAllMuted() const noexcept;
 
     // ---- MIDI controllers and hardware synths (message thread) ----
     std::vector<MidiInputInfo> getMidiInputs();
     void setMidiInputActive (int slot, bool active);
     void setMidiInputMpe (int slot, bool mpe, int bendRange);
-    juce::String midiPortLabel (int port) const;             // for displays
+    juce::String midiPortLabel (int port) const;
     bool isMidiPortMpe (int port) const;
     std::vector<MidiOutputInfo> getMidiOutputs();
     void setMidiOutputActive (int slot, bool active);
@@ -119,17 +173,14 @@ public:
     int addVirtualMidiOutput (const juce::String& name) { return midi.addVirtualOutput (name); }
     std::function<void (int slot, const juce::MidiBuffer&)>& midiOutTap = midi.outTap;   // audio thread
 
-    /** Set when the saved audio device couldn't be opened at start-up (the saved choice is kept). */
     juce::String getStartupProblem() const { return startupProblem; }
 
     // ---- deck state: everything you'd set by hand (saved with settings, and with every tape) ----
-    /** freshPluginState: ask plug-ins for their settings now, rather than reuse a recent copy. */
     std::unique_ptr<juce::XmlElement> createDeckState (bool freshPluginState = false);
     void applyDeckState (const juce::XmlElement& deck);
-    std::function<void()> onDeckStateApplied;   // so the front panel can catch up
+    std::function<void()> onDeckStateApplied;
 
     // ---- settings ----
-    /** Writes the settings file if anything in it changed. Cheap enough to call every few seconds. */
     void saveSettings (bool freshPluginState = false);
 
     // ---- AudioIODeviceCallback ----
@@ -140,10 +191,10 @@ public:
     void audioDeviceStopped() override;
 
 private:
-    struct Slot
+    struct TrackChain
     {
-        juce::SpinLock lock;
-        std::unique_ptr<Instrument> inst;
+        juce::SpinLock lock;                          // the audio thread only ever tries it
+        std::vector<std::unique_ptr<Block>> blocks;
     };
 
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
@@ -152,37 +203,50 @@ private:
     void restoreAll();
     std::unique_ptr<juce::XmlElement> createHardwareState() const;
     void restoreHardware (const juce::XmlElement* hw, const juce::XmlElement* legacyDeck);
+    void restoreTrackChain (int t, const juce::XmlElement& chainXml);
+    void migrateOldTrack (int t, const juce::XmlElement& x);
     bool isMidiSlotInUse (int slot, bool output) const;
     void allocateBuffers (int size);
+    void prepareBlock (Block&);
+    std::unique_ptr<Block> takeBlock (int t, int blockId, int* index = nullptr);
+    void destroyBlock (int t, std::unique_ptr<Block> block);
+
+    // audio thread
+    struct ChainResult { bool throughInterface = false, hasInstruments = false; int latency = 0; };
+    ChainResult runChain (int t, const float* const* inputs, int numInputs, int n, bool armed, float* monoOut,
+                          const float* bounceIn);
+    void copyInput (int channel, bool pair, const float* const* inputs, int numInputs, int n, float* dest, float gain = 1.0f) const;
+
+    // MidiMapper::Sink
+    float getValue (const MidiMapper::Target&, juce::AudioProcessorParameter*) override;
+    void setValue (const MidiMapper::Target&, juce::AudioProcessorParameter*, float) override;
+    void toggle (const MidiMapper::Target&) override;
+    void command (MidiMapper::Control) override;
 
     juce::PropertiesFile& props;
 
     juce::SpinLock tapeLock;
     std::unique_ptr<Tape> tape;
-    Slot slots[numTracks];
+    TrackChain chains[numTracks];
     ChannelStrip strips[numTracks];
-    int loadGeneration[numTracks] {};
+    int nextBlockId = 1;
     std::shared_ptr<bool> alive = std::make_shared<bool> (true);
 
     double sampleRate = 0.0;
     int bufferSize = 0, maxBlock = 8192, inputLatency = 0, outputLatency = 0;
 
-    std::vector<float> tapeOut[numTracks], src[numTracks], chan[numTracks], mixL, mixR;
+    std::vector<float> tapeOut[numTracks], src[numTracks], chan[numTracks], mixL, mixR, bounceSum;
     float* tapeOutPtr[numTracks] {};
-    juce::AudioBuffer<float> instBuffer;
-    juce::MidiBuffer trackMidi;
+    juce::AudioBuffer<float> acc, scratch, dry;
+    juce::MidiBuffer trackMidi, midiWork;
     bool wasReceiving[numTracks] {};
     bool lastMpe[numTracks] {};
     int lastBend[numTracks] {};
-    struct OutRoute { int port = -1, channel = 0; bool operator!= (const OutRoute& o) const { return port != o.port || channel != o.channel; } };
-    OutRoute lastOutRoute[numTracks];
+    ChainResult chainResult[numTracks];
     float lastMaster = 0, lastPhones = 0;
     std::atomic<bool> mpeConfigPending[numTracks] {};
-    // A plug-in still loading (or missing): its saved settings are kept so they aren't lost.
-    std::unique_ptr<juce::XmlElement> pendingInstrument[numTracks];
-    bool pluginMissing[numTracks] {};
 
-    bool restoringDevice = false;              // saved device failed to open: don't overwrite the saved choice
+    bool restoringDevice = false;
     bool startingUp = true;
     std::unique_ptr<juce::XmlElement> stateAtStartup;
     juce::String startupProblem;

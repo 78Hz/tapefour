@@ -70,8 +70,9 @@ set(TAPEFOUR_ENGINE_SOURCES
     Source/Tape.cpp
     Source/TapeEngine.cpp
     Source/TapeWriter.cpp
-    Source/Instruments.cpp
+    Source/Blocks.cpp
     Source/MidiHub.cpp
+    Source/MidiMapper.cpp
     Source/ChannelStrip.cpp
     Source/AudioEngine.cpp
     Source/DeckState.cpp
@@ -86,7 +87,7 @@ target_sources(TapeFour PRIVATE
     Source/CassetteComponent.cpp
     Source/StripComponent.cpp
     Source/DeckComponent.cpp
-    Source/PatchCard.cpp
+    Source/ChainEditor.cpp
     Source/InlayCard.cpp
     Source/SetupWindow.cpp)
 

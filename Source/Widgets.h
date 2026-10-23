@@ -15,10 +15,18 @@ public:
     bool showLamps = false, nrLamp = false, eqLamp = false, midiLamp = false;
     juce::Colour nrColour = Pal::amber, eqColour = Pal::green;
 
+    /** The track's chain as a row of little blocks (strip displays). */
+    bool chainRow = false, highlighted = false;
+    juce::StringArray blocks;
+    juce::Array<int> blockStates;     // 0 on, 1 bypassed, 2 loading or missing
+    bool roomForMore = true;
+
     /** Repaints only if something shown has changed since the last call. */
     void repaintIfChanged()
     {
-        auto now = top + "|" + sub + "|" + low + "|" + juce::String ((int) nrLamp + 2 * (int) eqLamp + 4 * (int) midiLamp)
+        juce::String chain;
+        for (int i = 0; i < blocks.size(); ++i) chain << blocks[i] << blockStates[i] << ",";
+        auto now = top + "|" + sub + "|" + low + "|" + chain + (highlighted ? "H" : "") + juce::String ((int) nrLamp + 2 * (int) eqLamp + 4 * (int) midiLamp)
                    + "|" + juce::String::toHexString ((int) nrColour.getARGB()) + juce::String::toHexString ((int) eqColour.getARGB());
         if (now != shown) { shown = now; repaint(); }
     }
@@ -39,10 +47,22 @@ public:
             g.fillRoundedRectangle (r, 4.0f);
         }
 
+        if (highlighted)
+        {
+            g.setColour (Pal::lcdText);
+            g.drawRoundedRectangle (r.reduced (0.5f), 4.0f, 1.2f);
+        }
+
         auto in = getLocalBounds().reduced (10, 7);
         g.setColour (Pal::lcdText);
         g.setFont (lf.mono (topSize));
         g.drawFittedText (top, in.removeFromTop ((int) topSize + 2), juce::Justification::topLeft, 1, 0.9f);
+
+        if (chainRow)
+        {
+            paintChainLayout (g, in);
+            return;
+        }
 
         if (showLamps)
         {
@@ -78,6 +98,293 @@ public:
             g.drawFittedText (sub, bottom, juce::Justification::bottomLeft, 1, 0.9f);
         }
     }
+
+    void paintChainLayout (juce::Graphics& g, juce::Rectangle<int> in)
+    {
+        auto& lf = DeckLookAndFeel::get();
+        g.setColour (Pal::lcdDim);
+        g.setFont (lf.mono (12.0f));
+        g.drawFittedText (sub, in.removeFromTop (16), juce::Justification::topLeft, 1, 0.85f);
+
+        // bottom line: what's happening, and the lamps
+        auto foot = in.removeFromBottom (12);
+        auto lamps = foot.removeFromRight (104);
+        foot.removeFromRight (6);
+        g.setFont (lf.mono (11.0f));
+        g.setColour (Pal::lcdDim);
+        g.drawFittedText (low, foot, juce::Justification::centredLeft, 1, 0.8f);
+        auto lamp = [&] (const char* name, int w, bool on, juce::Colour c)
+        {
+            g.setColour (Pal::lcdDim);
+            g.drawText (name, lamps.removeFromLeft (w), juce::Justification::centredLeft);
+            drawLamp (g, lamps.removeFromLeft (10).toFloat().withSizeKeepingCentre (7, 7), on, c);
+            lamps.removeFromLeft (5);
+        };
+        lamp ("NR", 16, nrLamp, nrColour);
+        lamp ("EQ", 16, eqLamp, eqColour);
+        lamp ("MIDI", 28, midiLamp, Pal::green);
+
+        // the chain, as blocks
+        in.removeFromBottom (5);
+        auto row = in.removeFromBottom (17);
+        g.setFont (lf.mono (10.5f));
+        int x = row.getX();
+        const int right = row.getRight();
+        auto box = [&] (const juce::String& text, int state, bool ghost)
+        {
+            auto w = std::max (22, (int) juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), text) + 8);
+            auto b = juce::Rectangle<int> (x, row.getY(), w, row.getHeight()).toFloat();
+            auto alpha = ghost || state != 0 ? 0.5f : 1.0f;
+            g.setColour (Pal::lcdDim.withAlpha (alpha));
+            if (state == 2) { juce::Path p; p.addRoundedRectangle (b.reduced (0.5f), 2.0f); juce::PathStrokeType (1.0f).createDashedStroke (p, p, std::array<float, 2> { 3.0f, 2.0f }.data(), 2); g.fillPath (p); }
+            else g.drawRoundedRectangle (b.reduced (0.5f), 2.0f, 1.0f);
+            g.setColour ((state == 0 && ! ghost ? Pal::lcdText : Pal::lcdDim).withAlpha (alpha));
+            g.drawText (text, b, juce::Justification::centred, false);
+            x += w;
+        };
+        const int n = blocks.size();
+        for (int i = 0; i < n; ++i)
+        {
+            // keep room for "+N" if the rest won't fit
+            auto w = (int) juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), blocks[i]) + 8 + 10;
+            if (x + w > right - (i < n - 1 ? 30 : 0))
+            {
+                box ("+" + juce::String (n - i), 0, true);
+                return;
+            }
+            if (i > 0)
+            {
+                g.setColour (Pal::lcdDim);
+                g.drawText (juce::CharPointer_UTF8 ("\xe2\x80\xba"), juce::Rectangle<int> (x, row.getY(), 9, row.getHeight()), juce::Justification::centred);
+                x += 9;
+            }
+            box (blocks[i], blockStates[i], false);
+        }
+        if (roomForMore && x + 30 < right)
+        {
+            if (n > 0)
+            {
+                g.setColour (Pal::lcdDim);
+                g.drawText (juce::CharPointer_UTF8 ("\xe2\x80\xba"), juce::Rectangle<int> (x, row.getY(), 9, row.getHeight()), juce::Justification::centred);
+                x += 9;
+            }
+            box ("+", 0, true);
+        }
+    }
+};
+
+//==============================================================================
+/** Mute, solo and arm: a hardware key with an LED above its label. The LED lights; the key doesn't change colour. */
+class LedKey : public juce::Button
+{
+public:
+    LedKey (const juce::String& label, juce::Colour led) : juce::Button (label), ledColour (led)
+    {
+        setWantsKeyboardFocus (false);
+        setMouseClickGrabsKeyboardFocus (false);
+    }
+
+    juce::Colour ledColour;
+    bool ledOn = false;
+
+    void paintButton (juce::Graphics& g, bool over, bool down) override
+    {
+        auto& lf = DeckLookAndFeel::get();
+        auto r = getLocalBounds().toFloat();
+        auto face = r.withTrimmedBottom (3.0f).translated (0, down ? 2.0f : 0.0f);
+        if (! down)
+        {
+            g.setColour (Pal::darker);
+            g.fillRoundedRectangle (r.withTrimmedTop (3.0f), 5.0f);
+        }
+        g.setGradientFill (juce::ColourGradient (juce::Colour (over ? 0xff57554e : 0xff4d4b45), 0, face.getY(),
+                                                 juce::Colour (over ? 0xff43413b : 0xff3b3934), 0, face.getBottom(), false));
+        g.fillRoundedRectangle (face, 5.0f);
+        g.setColour (juce::Colours::white.withAlpha (0.08f));
+        g.drawHorizontalLine ((int) face.getY() + 1, face.getX() + 4, face.getRight() - 4);
+
+        auto led = juce::Rectangle<float> (8.0f, 8.0f).withCentre ({ face.getCentreX(), face.getY() + face.getHeight() * 0.33f });
+        if (ledOn)
+        {
+            g.setColour (ledColour.withAlpha (0.35f));
+            g.fillEllipse (led.expanded (4.0f));
+            g.setColour (ledColour);
+            g.fillEllipse (led);
+        }
+        else
+        {
+            g.setColour (juce::Colour (0xff2b2824));
+            g.fillEllipse (led);
+            g.setColour (juce::Colours::black.withAlpha (0.6f));
+            g.drawEllipse (led, 1.0f);
+        }
+
+        g.setColour (Pal::cream);
+        g.setFont (lf.cond (12.0f, true).withExtraKerningFactor (0.14f));
+        g.drawText (getButtonText(), face.withTrimmedTop (face.getHeight() * 0.52f).toNearestInt(), juce::Justification::centredTop);
+    }
+};
+
+//==============================================================================
+/** A choice in the amber display style: outlined, or filled when chosen. Optionally a second line and a signal bar. */
+class LcdChip : public juce::Button
+{
+public:
+    explicit LcdChip (const juce::String& text, const juce::String& subText = {})
+        : juce::Button (text), sub (subText) { setWantsKeyboardFocus (false); setMouseClickGrabsKeyboardFocus (false); }
+
+    juce::String sub;
+    bool chosen = false, dim = false, dashed = false;
+    float signal = -1.0f;            // 0..1 for an input's level, or -1 for none
+    float textSize = 12.5f;
+
+    int idealWidth() const
+    {
+        auto f = DeckLookAndFeel::get().mono (textSize);
+        auto w = juce::GlyphArrangement::getStringWidth (f, getButtonText());
+        if (sub.isNotEmpty()) w = std::max (w, juce::GlyphArrangement::getStringWidth (DeckLookAndFeel::get().mono (10.0f), sub));
+        return (int) w + 22 + (signal >= 0.0f ? 10 : 0);
+    }
+
+    void paintButton (juce::Graphics& g, bool over, bool down) override
+    {
+        auto& lf = DeckLookAndFeel::get();
+        auto r = getLocalBounds().toFloat().reduced (0.5f);
+        const auto alpha = dim ? 0.55f : 1.0f;
+        if (chosen)
+        {
+            g.setColour (Pal::lcdText.withAlpha (alpha));
+            g.fillRoundedRectangle (r, 3.0f);
+        }
+        else
+        {
+            if (over || down)
+            {
+                g.setColour (Pal::lcdText.withAlpha (0.08f));
+                g.fillRoundedRectangle (r, 3.0f);
+            }
+            g.setColour (Pal::lcdDim.withAlpha (alpha));
+            if (dashed)
+            {
+                juce::Path p;
+                p.addRoundedRectangle (r, 3.0f);
+                const float dash[] { 4.0f, 3.0f };
+                juce::PathStrokeType (1.0f).createDashedStroke (p, p, dash, 2);
+                g.fillPath (p);
+            }
+            else g.drawRoundedRectangle (r, 3.0f, 1.0f);
+        }
+
+        auto ink = chosen ? Pal::lcd : Pal::lcdText.withAlpha (alpha);
+        auto inkSub = chosen ? Pal::lcd : Pal::lcdDim.withAlpha (alpha);
+        auto in = getLocalBounds().reduced (9, 2);
+        if (signal >= 0.0f)
+        {
+            auto bar = in.removeFromRight (4).withSizeKeepingCentre (4, std::min (18, in.getHeight() - 6)).toFloat();
+            g.setColour (chosen ? Pal::lcdDim : juce::Colour (0xff3a2a14));
+            g.fillRoundedRectangle (bar, 1.0f);
+            g.setColour (chosen ? Pal::lcd : Pal::green);
+            g.fillRoundedRectangle (bar.withTrimmedTop (bar.getHeight() * (1.0f - juce::jlimit (0.0f, 1.0f, signal))), 1.0f);
+            in.removeFromRight (5);
+        }
+        g.setColour (ink);
+        g.setFont (lf.mono (textSize));
+        if (sub.isEmpty())
+        {
+            g.drawFittedText (getButtonText(), in, juce::Justification::centredLeft, 1, 0.8f);
+        }
+        else
+        {
+            g.drawFittedText (getButtonText(), in.removeFromTop (in.getHeight() / 2 + 2), juce::Justification::bottomLeft, 1, 0.8f);
+            g.setColour (inkSub);
+            g.setFont (lf.mono (10.0f));
+            g.drawFittedText (sub, in, juce::Justification::topLeft, 1, 0.8f);
+        }
+    }
+};
+
+//==============================================================================
+/** A horizontal bar in the amber display style: drag to set, double-click to reset. */
+class LcdSlider : public juce::Component
+{
+public:
+    LcdSlider (const juce::String& labelText, double minimum, double maximum, double resetTo, std::function<juce::String (double)> fmt)
+        : label (labelText), lo (minimum), hi (maximum), reset (resetTo), format (std::move (fmt)) {}
+
+    std::function<void (double)> onChange;
+    double value = 0.0;
+
+    void setValue (double v) { value = juce::jlimit (lo, hi, v); repaint(); }
+
+    void paint (juce::Graphics& g) override
+    {
+        auto& lf = DeckLookAndFeel::get();
+        auto r = getLocalBounds();
+        g.setFont (lf.mono (11.0f));
+        g.setColour (Pal::lcdDim);
+        g.drawText (label, r.removeFromLeft (48), juce::Justification::centredLeft);
+        g.setColour (Pal::lcdText);
+        g.drawText (format (value), r.removeFromRight (64), juce::Justification::centredRight);
+        bar = r.reduced (4, 0).withSizeKeepingCentre (r.getWidth() - 8, 6);
+        g.setColour (juce::Colour (0xff3a2a14));
+        g.fillRoundedRectangle (bar.toFloat(), 3.0f);
+        g.setColour (Pal::lcdText);
+        g.fillRoundedRectangle (bar.toFloat().withWidth ((float) bar.getWidth() * (float) ((value - lo) / (hi - lo))), 3.0f);
+    }
+
+    void mouseDown (const juce::MouseEvent& e) override { set (e); }
+    void mouseDrag (const juce::MouseEvent& e) override { set (e); }
+    void mouseDoubleClick (const juce::MouseEvent&) override { setValue (reset); if (onChange) onChange (value); }
+
+private:
+    void set (const juce::MouseEvent& e)
+    {
+        if (bar.getWidth() <= 0) return;
+        setValue (lo + (hi - lo) * juce::jlimit (0.0, 1.0, (double) (e.x - bar.getX()) / bar.getWidth()));
+        if (onChange) onChange (value);
+    }
+
+    juce::String label;
+    double lo, hi, reset;
+    std::function<juce::String (double)> format;
+    juce::Rectangle<int> bar;
+};
+
+//==============================================================================
+/** Dims the deck and holds a card; clicking outside the card (or Escape) closes it. */
+class Overlay : public juce::Component
+{
+public:
+    Overlay (std::unique_ptr<juce::Component> content, juce::Rectangle<int> cardBounds) : card (std::move (content))
+    {
+        addAndMakeVisible (*card);
+        card->setBounds (cardBounds);
+        setWantsKeyboardFocus (false);
+    }
+
+    std::function<void()> onDismiss;
+    bool cardShadow = true;   // off for cards that cast their own
+    float dimming = 0.62f;
+
+    void paint (juce::Graphics& g) override
+    {
+        g.fillAll (juce::Colour (0xff0a0908).withAlpha (dimming));
+        if (! cardShadow) return;
+        auto r = card->getBounds().toFloat();
+        g.setColour (juce::Colours::black.withAlpha (0.45f));
+        g.fillRoundedRectangle (r.translated (0, 14).expanded (6), 12.0f);
+    }
+
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        if (e.eventComponent == this && onDismiss)
+            onDismiss();
+    }
+
+    juce::Component* getCard() const noexcept { return card.get(); }
+
+private:
+    std::unique_ptr<juce::Component> card;
 };
 
 //==============================================================================

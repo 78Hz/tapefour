@@ -18,6 +18,13 @@ namespace
         s.setRange (-1.0, 1.0);
         s.setDoubleClickReturnValue (true, 0.0);
     }
+
+    /** MIDI learn may have moved a control: show it, unless someone has hold of it. */
+    void follow (juce::Slider& s, double v)
+    {
+        if (! s.isMouseButtonDown() && std::abs (s.getValue() - v) > 1.0e-6)
+            s.setValue (v, juce::dontSendNotification);
+    }
 }
 
 StripComponent::StripComponent (AudioEngine& e, int index)
@@ -56,8 +63,9 @@ StripComponent::StripComponent (AudioEngine& e, int index)
     pan.slider.onValueChange  = [this, &p] { p.pan  = (float) pan.slider.getValue();  pan.repaint(); };
     fader.slider.onValueChange = [this, &p] { p.fader = (float) fader.slider.getValue(); };
 
-    lcd.showLamps = true;
-    // Click: the patch card. Double-click: the instrument's own window.
+    lcd.chainRow = true;
+    lcd.topSize = 15.0f;
+    // Click: the chain. Double-click: the first block's own window.
     lcd.onClick = [this]
     {
         if (clickPending)
@@ -72,17 +80,19 @@ StripComponent::StripComponent (AudioEngine& e, int index)
         {
             if (safe == nullptr || ! safe->clickPending) return;
             safe->clickPending = false;
-            if (safe->onSourceMenu) safe->onSourceMenu (safe->t, &safe->lcd);
+            if (safe->onOpenChain) safe->onOpenChain (safe->t);
         });
     };
-    lcd.setTooltip ("Click to patch this track. Double-click to open its instrument's window.");
+    lcd.setTooltip ("Click for this track's inputs and chain. Double-click to open its first plug-in's window.");
 
-    arm.lamp = true;
-    arm.lampColour = Pal::red;
-    arm.setClickingTogglesState (true);
-    arm.onClick = [this, &p] { p.armed = arm.getToggleState(); };
+    mute.onClick = [&p] { p.mute = ! p.mute.load(); };
+    solo.onClick = [&p] { p.solo = ! p.solo.load(); };
+    arm.onClick  = [&p] { p.armed = ! p.armed.load(); };
+    mute.setTooltip ("Mute: silences the track (it still records when armed)");
+    solo.setTooltip ("Solo: hear only soloed tracks. Changes what you hear, not what's recorded or bounced");
+    arm.setTooltip ("Arm: hear this track's live input; it records when you press REC");
 
-    for (auto* c : std::initializer_list<juce::Component*> { &lcd, &gain, &high, &mid, &freq, &low, &pan, &meter, &fader, &arm })
+    for (auto* c : std::initializer_list<juce::Component*> { &lcd, &gain, &high, &mid, &freq, &low, &pan, &meter, &fader, &mute, &solo, &arm })
         addAndMakeVisible (c);
 
     addMouseListener (this, true);
@@ -104,68 +114,28 @@ void StripComponent::syncFromEngine()
     low.slider.setValue (p.low.load(), juce::dontSendNotification);
     pan.slider.setValue (p.pan.load(), juce::dontSendNotification);
     fader.slider.setValue (p.fader.load(), juce::dontSendNotification);
-    arm.setToggleState (p.armed.load(), juce::dontSendNotification);
     repaint();
+}
+
+void StripComponent::forEachLearnTarget (const std::function<void (juce::Component&, MidiMapper::Control)>& fn)
+{
+    using C = MidiMapper::Control;
+    fn (gain.slider, C::gain);
+    fn (high.slider, C::high);
+    fn (mid.slider, C::mid);
+    fn (freq.slider, C::freq);
+    fn (low.slider, C::low);
+    fn (pan.slider, C::pan);
+    fn (fader.slider, C::fader);
+    fn (mute, C::mute);
+    fn (solo, C::solo);
+    fn (arm, C::arm);
 }
 
 void StripComponent::mouseDown (const juce::MouseEvent& e)
 {
-    if (e.mods.isPopupMenu() && dynamic_cast<juce::Slider*> (e.originalComponent) == nullptr && onSourceMenu)
-        onSourceMenu (t, this);
-}
-
-TrackLines describeTrack (const AudioEngine& engine, int t)
-{
-    auto& p = engine.track[t];
-    TrackLines d;
-    d.top = engine.describeSource (t);
-    const auto arrow = utf (" \xe2\x86\x92 ");
-    switch ((Source) p.source.load())
-    {
-        case Source::audio:
-        {
-            auto names = engine.getActiveInputNames();
-            auto ch = p.inputChannel.load();
-            d.mid = juce::isPositiveAndBelow (ch, names.size()) ? names[ch].toUpperCase() : juce::String ("INPUT NOT ACTIVE");
-            if (p.inputPair.load() && juce::isPositiveAndBelow (ch + 1, names.size()))
-                d.mid << " + " << names[ch + 1].toUpperCase();
-            d.low = "NO MIDI";
-            d.tag = "AUDIO"; d.tagColour = Pal::orange;
-            break;
-        }
-        case Source::instrument:
-        {
-            auto port = p.midiPort.load();
-            d.mid = "MIDI IN: " + engine.midiPortLabel (port) + (engine.isMidiPortMpe (port) ? juce::String (" MPE") : juce::String());
-            d.low = "NO AUDIO IN";
-            auto* inst = engine.getInstrument (t);
-            d.tag = inst != nullptr && inst->getPlugin() == nullptr ? "INST" : "VST3";
-            d.tagColour = Pal::midiBlue;
-            break;
-        }
-        case Source::hardware:
-        {
-            auto port = p.midiPort.load();
-            auto ch = p.midiOutChannel.load();
-            auto outValid = juce::isPositiveAndBelow (p.midiOutPort.load(), AudioEngine::maxMidiPorts);
-            d.mid = engine.midiPortLabel (port) + arrow
-                    + (! outValid ? juce::String ("NO MIDI OUT")
-                       : engine.isMidiPortMpe (port) || ch == 0 ? juce::String ("ALL CH") : "CH " + juce::String (ch));
-            d.low = utf ("AUDIO \xe2\x86\x90 ") + engine.describeInput (t);
-            if (! outValid) d.top = "HARDWARE SYNTH";
-            d.tag = "HW SYNTH"; d.tagColour = Pal::green;
-            break;
-        }
-        case Source::bounce:
-            d.mid = "TAPE" + arrow + "TRK " + juce::String (t + 1);
-            d.low = "NO MIDI";
-            d.tag = "BOUNCE"; d.tagColour = Pal::bounce;
-            break;
-        case Source::none: default:
-            d.mid = "RIGHT-CLICK TO PATCH";
-            break;
-    }
-    return d;
+    if (e.mods.isPopupMenu() && e.originalComponent == &lcd && onOpenChain)
+        onOpenChain (t);
 }
 
 void StripComponent::refresh (bool blink)
@@ -173,14 +143,43 @@ void StripComponent::refresh (bool blink)
     auto& p = engine.track[t];
     auto* tape = engine.getTape();
     auto mode = engine.tapeEngine.getMode();
+    const bool bounce = (AudioEngine::Feed) p.feed.load() == AudioEngine::Feed::bounce;
 
-    auto d = describeTrack (engine, t);
-    lcd.top = d.top;
-    lcd.sub = d.mid;
+    // ---- the display: what plays, what feeds it, the chain ----
+    lcd.top = engine.describeSource (t);
+    auto port = p.midiPort.load();
+    auto chain = engine.getChain (t);
+    bool chainPlays = false;   // anything in the chain that listens to a controller
+    for (auto& b : chain)
+        chainPlays = chainPlays || b.role == BlockRole::instrument || b.role == BlockRole::midiFx || b.role == BlockRole::external;
+    const bool hasMidi = ! bounce && port != AudioEngine::midiNone && (chainPlays || port != AudioEngine::midiAny);
+    const bool hasAudio = ! bounce && p.inputChannel.load() >= 0;
+    juce::StringArray parts;
+    if (bounce)  parts.add (utf ("TAPE \xe2\x86\x92 TRK ") + juce::String (t + 1));
+    if (hasMidi) parts.add ("MIDI: " + engine.midiPortLabel (port) + (engine.isMidiPortMpe (port) ? " MPE" : ""));
+    if (hasAudio)
+    {
+        auto names = engine.getActiveInputNames();
+        auto ch = p.inputChannel.load();
+        parts.add (juce::isPositiveAndBelow (ch, names.size()) ? engine.describeInput (t) : juce::String ("INPUT NOT ACTIVE"));
+    }
+    lcd.sub = parts.isEmpty() ? juce::String ("NO INPUTS") : parts.joinIntoString (utf (" \xc2\xb7 "));
+
+    lcd.blocks = engine.blockAbbreviations (t);
+    lcd.blockStates.clearQuick();
+    for (auto& b : chain)
+        lcd.blockStates.add (b.role == BlockRole::pending ? 2 : (b.bypass ? 1 : 0));
+    lcd.roomForMore = (int) chain.size() < AudioEngine::maxBlocks;
+
     // Armed means live: say so, so nobody waits to hear the tape on an armed track.
-    lcd.low = p.armed.load() && mode != Mode::rec && (Source) p.source.load() != Source::none ? juce::String ("ARMED: LIVE INPUT") : d.low;
-    tag = d.tag;
-    tagColour = d.tagColour;
+    lcd.low = p.armed.load() && mode != Mode::rec ? juce::String ("LIVE IN")
+              : p.mute.load() ? juce::String ("MUTED") : utf ("\xe2\x86\x92 TAPE");
+
+    if (bounce)                  { tag = "BOUNCE";     tagColour = Pal::bounce; }
+    else if (hasAudio && hasMidi && ! chain.empty()) { tag = "AUDIO+MIDI"; tagColour = Pal::orange; }
+    else if (hasAudio)           { tag = "AUDIO";      tagColour = Pal::orange; }
+    else if (! chain.empty())    { tag = "MIDI";       tagColour = Pal::midiBlue; }
+    else                         { tag = {};           tagColour = {}; }
 
     // What's on the tape under the head: noise reduction and recorded speed.
     lcd.nrLamp = false;
@@ -211,7 +210,7 @@ void StripComponent::refresh (bool blink)
             }
 
             // EQ: green when this stretch was recorded with the switch's playback EQ, red when not
-            auto eqOf = [] (int p) { return p == 0 ? 120 : 70; };
+            auto eqOf = [] (int pos) { return pos == 0 ? 120 : 70; };
             if (eqOf (tape->recordedPosition (t, block)) == eqOf (engine.tapeEngine.params.tapeSwitch.load()))
                 lcd.eqLamp = true;
             else
@@ -240,17 +239,21 @@ void StripComponent::refresh (bool blink)
 
     meter.setLevels (p.meter.exchange (0.0f));
 
-    bool armed = p.armed.load();
-    if (arm.getToggleState() != armed)
-        arm.setToggleState (armed, juce::dontSendNotification);
-    const bool lamp = armed && (mode == Mode::rec || blink);
-    if (arm.lampOn != lamp || arm.pressedLook != armed)
-    {
-        arm.lampOn = lamp;
-        arm.face = armed ? Pal::armRed : Pal::button;
-        arm.pressedLook = armed;
-        arm.repaint();
-    }
+    // ---- mute, solo, arm: the LEDs light; arm flashes until it records ----
+    auto led = [] (LedKey& k, bool on) { if (k.ledOn != on) { k.ledOn = on; k.repaint(); } };
+    led (mute, p.mute.load());
+    led (solo, p.solo.load());
+    led (arm, p.armed.load() && (mode == Mode::rec || blink));
+
+    // ---- controls MIDI learn may have moved ----
+    follow (gain.slider, p.gain.load());
+    follow (high.slider, p.high.load());
+    follow (mid.slider, p.mid.load());
+    follow (freq.slider, p.midFreq.load());
+    follow (low.slider, p.low.load());
+    follow (pan.slider, p.pan.load());
+    follow (fader.slider, p.fader.load());
+
     if (tag != shownTag || tagColour != shownTagColour)
     {
         shownTag = tag;
@@ -263,7 +266,7 @@ void StripComponent::resized()
 {
     auto r = getLocalBounds().reduced (10);
     r.removeFromTop (30 + 6);
-    lcd.setBounds (r.removeFromTop (78));
+    lcd.setBounds (r.removeFromTop (100));
     r.removeFromTop (8);
     gain.setBounds (r.removeFromTop (44));
     r.removeFromTop (16);
@@ -274,14 +277,20 @@ void StripComponent::resized()
     low.setBounds (eq.removeFromTop (44));
     r.removeFromTop (6);
     pan.setBounds (r.removeFromTop (44));
-
-    arm.setBounds (r.removeFromBottom (42));
-    r.removeFromBottom (12);
     r.removeFromTop (10);
+    r.removeFromBottom (2);
 
-    auto area = r.withSizeKeepingCentre (26 + 14 + 100, r.getHeight());
-    meter.setBounds (area.removeFromLeft (26));
-    area.removeFromLeft (14);
+    // meter | fader | mute, solo and arm, bottom-aligned with room between them
+    auto keys = r.removeFromRight (46);
+    auto k = keys.removeFromBottom (3 * 40 + 2 * 14);
+    for (auto* b : { &mute, &solo, &arm })
+    {
+        b->setBounds (k.removeFromTop (40));
+        k.removeFromTop (14);
+    }
+    auto area = r.withSizeKeepingCentre (24 + 10 + 96, r.getHeight());
+    meter.setBounds (area.removeFromLeft (24));
+    area.removeFromLeft (10);
     fader.setBounds (area);
 }
 
@@ -354,6 +363,14 @@ void MasterStrip::syncFromEngine()
 void MasterStrip::refresh()
 {
     meter.setLevels (engine.meterL.exchange (0.0f), engine.meterR.exchange (0.0f));
+    follow (fader.slider, engine.masterFader.load());
+    follow (phones.slider, engine.phones.load());
+}
+
+void MasterStrip::forEachLearnTarget (const std::function<void (juce::Component&, MidiMapper::Control)>& fn)
+{
+    fn (fader.slider, MidiMapper::Control::masterFader);
+    fn (phones.slider, MidiMapper::Control::phones);
 }
 
 void MasterStrip::resized()

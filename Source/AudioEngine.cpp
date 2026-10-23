@@ -3,19 +3,15 @@
 
 namespace tf
 {
-double AudioEngine::recordLatencySamples (Source s, int inLat, int outLat, double userOffsetSamples) noexcept
+double AudioEngine::recordLatencySamples (bool throughInterface, bool hasInstruments, bool bounce,
+                                          int inLat, int outLat, double userOffsetSamples, int chainLatency) noexcept
 {
-    switch (s)
-    {
-        // Played along to what you heard, then came back in through the interface.
-        case Source::audio:
-        case Source::hardware:   return inLat + outLat + userOffsetSamples;
-        // Played along to what you heard; generated here, so no input latency.
-        case Source::instrument: return outLat;
-        // Straight off the tape, in step with it.
-        case Source::bounce:     return 0.0;
-        case Source::none: default: return inLat + outLat + userOffsetSamples;
-    }
+    // Straight off the tape, in step with it.
+    if (bounce) return chainLatency;
+    // Played along to what you heard, then came back in through the interface.
+    if (throughInterface || ! hasInstruments) return inLat + outLat + userOffsetSamples + chainLatency;
+    // Played along to what you heard; made here, so no input latency.
+    return outLat + chainLatency;
 }
 
 AudioEngine::AudioEngine (juce::PropertiesFile& settings)
@@ -27,8 +23,10 @@ AudioEngine::AudioEngine (juce::PropertiesFile& settings)
     if (auto known = props.getXmlValue ("knownPlugins"))
         knownPlugins.recreateFromXml (*known);
 
+    for (auto& c : chains) c.blocks.reserve ((size_t) maxBlocks);
     allocateBuffers (maxBlock);
     trackMidi.ensureSize (8192);
+    midiWork.ensureSize (8192);
 
     midi.isSlotInUse = [this] (int slot, bool output) { return isMidiSlotInUse (slot, output); };
     midi.onDevicesChanged = [this]
@@ -36,6 +34,7 @@ AudioEngine::AudioEngine (juce::PropertiesFile& settings)
         for (auto& p : mpeConfigPending) p = true;
         saveSettings();
     };
+    midi.setMapper (&mapper, static_cast<MidiMapper::Sink*> (this));
 
     openStartupDevice();
 
@@ -54,12 +53,10 @@ AudioEngine::~AudioEngine()
     *alive = false;   // plug-ins still loading arrive to nothing
     deviceManager.removeChangeListener (this);
     deviceManager.removeAudioCallback (this);
+    midi.setMapper (nullptr, nullptr);
 
     for (int t = 0; t < numTracks; ++t)
-    {
-        if (onInstrumentChanging && slots[t].inst != nullptr) onInstrumentChanging (t);
-        slots[t].inst.reset();
-    }
+        clearChain (t);
 }
 
 void AudioEngine::allocateBuffers (int size)
@@ -73,7 +70,10 @@ void AudioEngine::allocateBuffers (int size)
     }
     mixL.assign ((size_t) size, 0.0f);
     mixR.assign ((size_t) size, 0.0f);
-    instBuffer.setSize (2, size);
+    bounceSum.assign ((size_t) size, 0.0f);
+    acc.setSize (2, size);
+    scratch.setSize (2, size);
+    dry.setSize (2, size);
 }
 
 void AudioEngine::openStartupDevice()
@@ -173,9 +173,14 @@ void AudioEngine::saveDeviceState()
 //==============================================================================
 bool AudioEngine::isMidiSlotInUse (int slot, bool output) const
 {
-    for (auto& p : track)
-        if ((output ? p.midiOutPort.load() : p.midiPort.load()) == slot)
-            return true;
+    for (int t = 0; t < numTracks; ++t)
+    {
+        if (! output && track[t].midiPort.load() == slot) return true;
+        if (output)
+            for (auto& b : chains[t].blocks)
+                if (auto* e = dynamic_cast<const ExternalBlock*> (b.get()); e != nullptr && e->outPort.load() == slot)
+                    return true;
+    }
     return false;
 }
 
@@ -237,7 +242,7 @@ void AudioEngine::injectMidi (const juce::MidiMessage& m, int port)
 }
 
 //==============================================================================
-// Sources
+// A track's inputs
 //==============================================================================
 std::unique_ptr<Tape> AudioEngine::swapTape (std::unique_ptr<Tape> newTape)
 {
@@ -248,24 +253,10 @@ std::unique_ptr<Tape> AudioEngine::swapTape (std::unique_ptr<Tape> newTape)
     return old;
 }
 
-void AudioEngine::setAudioSource (int t, int inputChannel, bool pair)
+void AudioEngine::setTrackInput (int t, int inputChannel, bool pair)
 {
-    setInstrument (t, nullptr);
-    track[t].inputChannel = inputChannel;
-    track[t].inputPair = pair;
-    track[t].source = (int) Source::audio;
-}
-
-void AudioEngine::setHardwareSource (int t)
-{
-    setInstrument (t, nullptr);
-    track[t].source = (int) Source::hardware;
-}
-
-void AudioEngine::unplug (int t)
-{
-    setInstrument (t, nullptr);
-    track[t].source = (int) Source::none;
+    track[t].inputChannel = inputChannel < 0 ? -1 : inputChannel;
+    track[t].inputPair = inputChannel >= 0 && pair;
 }
 
 void AudioEngine::setTrackMidiPort (int t, int port)
@@ -274,47 +265,214 @@ void AudioEngine::setTrackMidiPort (int t, int port)
     mpeConfigPending[t] = true;
 }
 
-void AudioEngine::setInstrument (int t, std::unique_ptr<Instrument> inst)
+void AudioEngine::setTrackFeed (int t, Feed feed)
 {
-    // Whatever was loading for this track is now out of date.
-    ++loadGeneration[t];
-    pendingInstrument[t].reset();
-    pluginMissing[t] = false;
-    if (inst != nullptr && sampleRate > 0)
-        inst->prepare (sampleRate, bufferSize > 0 ? bufferSize : 512);
-
-    // Its window (if open) goes before the plug-in does.
-    if (slots[t].inst != nullptr && onInstrumentChanging)
-        onInstrumentChanging (t);
-
-    std::unique_ptr<Instrument> old;
-    {
-        const juce::SpinLock::ScopedLockType sl (slots[t].lock);
-        old = std::move (slots[t].inst);
-        slots[t].inst = std::move (inst);
-    }
-
-    mpeConfigPending[t] = true;   // tell the new instrument about the MPE zone
-    if (slots[t].inst != nullptr)
-        track[t].source = (int) Source::instrument;
+    track[t].feed = (int) feed;
 }
 
-void AudioEngine::loadPlugin (int t, const juce::PluginDescription& desc, const juce::String& base64State,
-                              std::function<void (const juce::String&)> done)
+void AudioEngine::toggleBounceSource (int t, int sourceTrack)
 {
+    if (sourceTrack == t) return;
+    track[t].bounceMask = track[t].bounceMask.load() ^ (1 << sourceTrack);
+    track[t].feed = (int) Feed::bounce;
+}
+
+juce::String AudioEngine::describeInput (int t) const
+{
+    auto ch = track[t].inputChannel.load() + 1;
+    if (ch <= 0) return "NO AUDIO IN";
+    return "IN " + juce::String (ch) + (track[t].inputPair.load() ? "+" + juce::String (ch + 1) : juce::String());
+}
+
+//==============================================================================
+// A track's chain
+//==============================================================================
+void AudioEngine::prepareBlock (Block& b)
+{
+    if (sampleRate > 0)
+        b.prepare (sampleRate, std::max (bufferSize, 32));
+}
+
+int AudioEngine::numBlocks (int t) const
+{
+    return (int) chains[t].blocks.size();
+}
+
+Block* AudioEngine::findBlock (int t, int blockId) const
+{
+    for (auto& b : chains[t].blocks)
+        if (b->id == blockId) return b.get();
+    return nullptr;
+}
+
+std::vector<AudioEngine::BlockInfo> AudioEngine::getChain (int t) const
+{
+    std::vector<BlockInfo> out;
+    for (auto& b : chains[t].blocks)
+    {
+        BlockInfo i;
+        i.id = b->id;
+        i.name = b->getName();
+        i.maker = b->getMaker();
+        i.role = b->role();
+        i.bypass = b->bypass.load();
+        i.hasEditor = b->hasEditor();
+        i.canProcessInput = b->canProcessInput();
+        i.processInput = b->processInput.load();
+        i.producesMidi = b->producesMidi();
+        i.hosted = b->isHosted();
+        i.levelDb = b->levelDb.load();
+        i.mix = b->mix.load();
+        if (auto* p = dynamic_cast<PendingBlock*> (b.get())) i.missing = p->missing;
+        if (auto* pb = dynamic_cast<ProcessorBlock*> (b.get()))
+        {
+            i.builtIn = pb->getBuiltInIndex();
+            i.builtInSynth = pb->getKind() == ProcessorBlock::Kind::builtInSynth;
+        }
+        if (auto* e = dynamic_cast<ExternalBlock*> (b.get()))
+        {
+            i.outPort = e->outPort.load();
+            i.channel = e->channel.load();
+            i.returnInput = e->returnInput.load();
+            i.returnPair = e->returnPair.load();
+            i.name = midi.outputExists (i.outPort) ? midi.outputLabel (i.outPort) : juce::String ("HARDWARE SYNTH");
+        }
+        out.push_back (i);
+    }
+    return out;
+}
+
+int AudioEngine::insertBlock (int t, int index, std::unique_ptr<Block> block)
+{
+    if (block == nullptr || numBlocks (t) >= maxBlocks)
+        return 0;
+    prepareBlock (*block);
+    block->id = nextBlockId++;
+    const auto id = block->id;
+    {
+        const juce::SpinLock::ScopedLockType sl (chains[t].lock);
+        auto& v = chains[t].blocks;
+        auto at = index < 0 || index > (int) v.size() ? (int) v.size() : index;
+        v.insert (v.begin() + at, std::move (block));
+    }
+    mpeConfigPending[t] = true;
+    return id;
+}
+
+std::unique_ptr<Block> AudioEngine::takeBlock (int t, int blockId, int* index)
+{
+    auto& v = chains[t].blocks;
+    for (int i = 0; i < (int) v.size(); ++i)
+    {
+        if (v[(size_t) i]->id != blockId) continue;
+        // Its window and its MIDI mappings go before it does.
+        if (onBlockRemoving) onBlockRemoving (t, blockId);
+        mapper.forgetBlock (t, blockId);
+        std::unique_ptr<Block> out;
+        {
+            const juce::SpinLock::ScopedLockType sl (chains[t].lock);
+            out = std::move (v[(size_t) i]);
+            v.erase (v.begin() + i);
+        }
+        if (index != nullptr) *index = i;
+        return out;
+    }
+    return {};
+}
+
+void AudioEngine::destroyBlock (int, std::unique_ptr<Block> block)
+{
+    if (auto* e = dynamic_cast<ExternalBlock*> (block.get()))
+        midi.allNotesOffNow (e->outPort.load());
+    block.reset();
+}
+
+int AudioEngine::replaceBlock (int t, int blockId, std::unique_ptr<Block> block)
+{
+    int index = -1;
+    auto old = takeBlock (t, blockId, &index);
+    auto id = insertBlock (t, index, std::move (block));
+    destroyBlock (t, std::move (old));
+    return id;
+}
+
+void AudioEngine::removeBlock (int t, int blockId)
+{
+    destroyBlock (t, takeBlock (t, blockId));
+    mpeConfigPending[t] = true;
+}
+
+void AudioEngine::moveBlock (int t, int blockId, int newIndex)
+{
+    const juce::SpinLock::ScopedLockType sl (chains[t].lock);
+    auto& v = chains[t].blocks;
+    for (int i = 0; i < (int) v.size(); ++i)
+    {
+        if (v[(size_t) i]->id != blockId) continue;
+        auto b = std::move (v[(size_t) i]);
+        v.erase (v.begin() + i);
+        newIndex = juce::jlimit (0, (int) v.size(), newIndex);
+        v.insert (v.begin() + newIndex, std::move (b));
+        return;
+    }
+}
+
+void AudioEngine::clearChain (int t)
+{
+    while (! chains[t].blocks.empty())
+        removeBlock (t, chains[t].blocks.back()->id);
+}
+
+void AudioEngine::setBlockBypass (int t, int blockId, bool bypassed)
+{
+    if (auto* b = findBlock (t, blockId))
+    {
+        b->bypass = bypassed;
+        if (bypassed)
+            if (auto* e = dynamic_cast<ExternalBlock*> (b))
+                midi.allNotesOffNow (e->outPort.load());
+    }
+}
+
+void AudioEngine::sendAllNotesOff (int t, int blockId)
+{
+    if (auto* e = dynamic_cast<ExternalBlock*> (findBlock (t, blockId)))
+        midi.allNotesOffNow (e->outPort.load());
+}
+
+int AudioEngine::addPlugin (int t, int index, const juce::PluginDescription& desc, const juce::String& base64State,
+                            int replaceId, std::function<void (const juce::String&)> done,
+                            std::unique_ptr<juce::XmlElement> savedBlock)
+{
+    // The placeholder keeps the block's place (and its saved settings) while the plug-in loads.
+    if (savedBlock == nullptr)
+    {
+        savedBlock = std::make_unique<juce::XmlElement> ("BLOCK");
+        savedBlock->setAttribute ("kind", "plugin");
+        savedBlock->addChildElement (desc.createXml().release());
+        savedBlock->setAttribute ("state", base64State);
+    }
+    std::shared_ptr<juce::XmlElement> saved (std::make_unique<juce::XmlElement> (*savedBlock).release());
+    auto pendingId = replaceId != 0 ? replaceBlock (t, replaceId, std::make_unique<PendingBlock> (std::move (savedBlock)))
+                                    : insertBlock (t, index, std::make_unique<PendingBlock> (std::move (savedBlock)));
+    if (pendingId == 0)
+    {
+        if (done) done ("The chain is full (" + juce::String (maxBlocks) + " blocks).");
+        return 0;
+    }
+
     auto sr = sampleRate > 0 ? sampleRate : 48000.0;
     auto bs = bufferSize > 0 ? bufferSize : 512;
-    const auto generation = ++loadGeneration[t];
     std::weak_ptr<bool> engineAlive = alive;
-
     formatManager.createPluginInstanceAsync (desc, sr, bs,
-        [this, t, generation, engineAlive, base64State, done] (std::unique_ptr<juce::AudioPluginInstance> p, const juce::String& err)
+        [this, t, pendingId, engineAlive, saved, done] (std::unique_ptr<juce::AudioPluginInstance> p, const juce::String& err)
         {
             if (engineAlive.expired())
                 return;
 
-            // Something else was chosen for this track while this one loaded: throw it away.
-            if (generation != loadGeneration[t])
+            // Something else was done with this place in the chain while the plug-in loaded.
+            auto* placeholder = dynamic_cast<PendingBlock*> (findBlock (t, pendingId));
+            if (placeholder == nullptr)
             {
                 if (done) done ("superseded");
                 return;
@@ -322,69 +480,171 @@ void AudioEngine::loadPlugin (int t, const juce::PluginDescription& desc, const 
 
             if (p == nullptr)
             {
-                pluginMissing[t] = pendingInstrument[t] != nullptr;
+                placeholder->missing = true;
                 if (done) done (err.isNotEmpty() ? err : juce::String ("The plug-in could not be loaded."));
                 return;
             }
 
-            if (base64State.isNotEmpty())
-            {
-                juce::MemoryBlock mb;
-                if (mb.fromBase64Encoding (base64State))
-                    p->setStateInformation (mb.getData(), (int) mb.getSize());
-            }
+            juce::MemoryBlock mb;
+            if (mb.fromBase64Encoding (saved->getStringAttribute ("state")) && mb.getSize() > 0)
+                p->setStateInformation (mb.getData(), (int) mb.getSize());
 
-            setInstrument (t, std::make_unique<PluginInstrument> (std::move (p)));
+            auto block = std::make_unique<ProcessorBlock> (std::move (p), ProcessorBlock::Kind::hosted);
+            block->readCommon (*saved);
+            auto* processor = block->getProcessor();
+            auto newId = replaceBlock (t, pendingId, std::move (block));
+            mapper.restoreBlockMappings (*saved, t, newId, processor);
             saveSettings (true);
             if (done) done ({});
         });
+    return pendingId;
 }
 
-void AudioEngine::toggleBounceSource (int t, int sourceTrack)
+int AudioEngine::addExternal (int t, int index, int outPort)
 {
-    if (sourceTrack == t) return;
-    auto wasBounce = track[t].source.load() == (int) Source::bounce;
-    if (! wasBounce) setInstrument (t, nullptr);
-    auto mask = wasBounce ? track[t].bounceMask.load() : 0;
-    mask ^= (1 << sourceTrack);
-    track[t].bounceMask = mask;
-    track[t].source = (int) Source::bounce;
-}
-
-juce::String AudioEngine::describeInput (int t) const
-{
-    auto ch = track[t].inputChannel.load() + 1;
-    return "IN " + juce::String (ch) + (track[t].inputPair.load() ? "+" + juce::String (ch + 1) : juce::String());
+    auto b = std::make_unique<ExternalBlock>();
+    b->outPort = outPort;
+    b->name = midi.outputLabel (outPort);
+    return insertBlock (t, index, std::move (b));
 }
 
 juce::String AudioEngine::describeSource (int t) const
 {
-    switch ((Source) track[t].source.load())
+    auto& p = track[t];
+    if ((Feed) p.feed.load() == Feed::bounce)
     {
-        case Source::audio:
-            return "AUDIO " + describeInput (t);
-        case Source::hardware:
-            return midi.outputLabel (track[t].midiOutPort.load());
-        case Source::instrument:
-            if (slots[t].inst != nullptr) return slots[t].inst->getName().toUpperCase();
-            if (pendingInstrument[t] != nullptr)
-            {
-                auto* px = pendingInstrument[t]->getChildByName ("PLUGIN");
-                auto name = px != nullptr ? px->getStringAttribute ("name") : juce::String ("PLUG-IN");
-                return pluginMissing[t] ? "MISSING: " + name.toUpperCase() : "LOADING " + name.toUpperCase();
-            }
-            return "NO INSTRUMENT";
-        case Source::bounce:
-        {
-            juce::StringArray names;
-            for (int s = 0; s < numTracks; ++s)
-                if (track[t].bounceMask.load() & (1 << s))
-                    names.add (juce::String (s + 1));
-            return names.isEmpty() ? juce::String ("BOUNCE: NO TRACKS") : "BOUNCE " + names.joinIntoString ("+");
-        }
-        case Source::none: default:
-            return "NO SOURCE";
+        juce::StringArray names;
+        for (int s = 0; s < numTracks; ++s)
+            if (p.bounceMask.load() & (1 << s))
+                names.add (juce::String (s + 1));
+        return names.isEmpty() ? juce::String ("BOUNCE: NO TRACKS") : "BOUNCE " + names.joinIntoString ("+");
     }
+
+    juce::StringArray sounds;
+    juce::String waiting;
+    for (auto& b : getChain (t))
+    {
+        if (b.role == BlockRole::instrument || b.role == BlockRole::external)
+            sounds.add (b.name.toUpperCase());
+        if (b.role == BlockRole::pending && waiting.isEmpty())
+            waiting = (b.missing ? "MISSING: " : "LOADING ") + b.name.toUpperCase();
+    }
+    if (! sounds.isEmpty())
+        return sounds[0] + (sounds.size() > 1 ? " +" + juce::String (sounds.size() - 1) : juce::String());
+    if (waiting.isNotEmpty()) return waiting;
+    if (p.inputChannel.load() >= 0) return "AUDIO " + describeInput (t);
+    auto chain = getChain (t);
+    return chain.empty() ? juce::String ("NOTHING PLUGGED IN") : chain.front().name.toUpperCase();
+}
+
+juce::StringArray AudioEngine::blockAbbreviations (int t) const
+{
+    juce::StringArray out;
+    for (auto& b : getChain (t))
+    {
+        auto name = b.name.toUpperCase().trim();
+        if (name.startsWith ("TF ")) name = name.substring (3);
+        auto words = juce::StringArray::fromTokens (name, " -_", "");
+        words.removeEmptyStrings();
+        juce::String a;
+        if (words.size() > 1)
+            for (int i = 0; i < std::min (3, words.size()); ++i) a << words[i].substring (0, 1);
+        else
+            a = name.removeCharacters (" ").substring (0, 4);
+        out.add (a.isEmpty() ? juce::String ("?") : a);
+    }
+    return out;
+}
+
+bool AudioEngine::anySolo() const noexcept
+{
+    for (auto& p : track) if (p.solo.load()) return true;
+    return false;
+}
+
+bool AudioEngine::soloedTracksAllMuted() const noexcept
+{
+    bool any = false;
+    for (auto& p : track)
+        if (p.solo.load())
+        {
+            any = true;
+            if (! p.mute.load()) return false;
+        }
+    return any;
+}
+
+//==============================================================================
+// MIDI learn's sink: what a mapped control does (audio thread)
+//==============================================================================
+float AudioEngine::getValue (const MidiMapper::Target& target, juce::AudioProcessorParameter* param)
+{
+    using C = MidiMapper::Control;
+    if (target.plugin) return param != nullptr ? param->getValue() : 0.0f;
+    auto bip = [] (float v) { return (v + 1.0f) * 0.5f; };
+    auto t = juce::jlimit (0, numTracks - 1, target.track);
+    switch (target.control)
+    {
+        case C::gain: return track[t].gain.load();
+        case C::high: return bip (track[t].high.load());
+        case C::mid: return bip (track[t].mid.load());
+        case C::freq: return track[t].midFreq.load();
+        case C::low: return bip (track[t].low.load());
+        case C::pan: return bip (track[t].pan.load());
+        case C::fader: return track[t].fader.load();
+        case C::masterFader: return masterFader.load();
+        case C::phones: return phones.load();
+        case C::pitch: return (tapeEngine.params.pitchStep.load() + 5) / 10.0f;
+        default: return 0.0f;
+    }
+}
+
+void AudioEngine::setValue (const MidiMapper::Target& target, juce::AudioProcessorParameter* param, float v)
+{
+    using C = MidiMapper::Control;
+    v = juce::jlimit (0.0f, 1.0f, v);
+    if (target.plugin)
+    {
+        if (param != nullptr) param->setValueNotifyingHost (v);
+        return;
+    }
+    auto bip = v * 2.0f - 1.0f;
+    auto t = juce::jlimit (0, numTracks - 1, target.track);
+    switch (target.control)
+    {
+        case C::gain: track[t].gain = v; break;
+        case C::high: track[t].high = bip; break;
+        case C::mid: track[t].mid = bip; break;
+        case C::freq: track[t].midFreq = v; break;
+        case C::low: track[t].low = bip; break;
+        case C::pan: track[t].pan = bip; break;
+        case C::fader: track[t].fader = v; break;
+        case C::masterFader: masterFader = v; break;
+        case C::phones: phones = v; break;
+        case C::pitch: tapeEngine.params.pitchStep = juce::roundToInt (v * 10.0f) - 5; break;
+        default: break;
+    }
+}
+
+void AudioEngine::toggle (const MidiMapper::Target& target)
+{
+    using C = MidiMapper::Control;
+    auto t = juce::jlimit (0, numTracks - 1, target.track);
+    switch (target.control)
+    {
+        case C::mute: track[t].mute = ! track[t].mute.load(); break;
+        case C::solo: track[t].solo = ! track[t].solo.load(); break;
+        case C::arm:  track[t].armed = ! track[t].armed.load(); break;
+        case C::nr:   tapeEngine.params.nrOn = ! tapeEngine.params.nrOn.load(); break;
+        case C::speed: tapeEngine.params.speedSel = tapeEngine.params.speedSel.load() == 2 ? 1 : 2; break;
+        default: break;
+    }
+}
+
+void AudioEngine::command (MidiMapper::Control c)
+{
+    // The deck carries it out, with the same checks as its own keys.
+    remoteCommand = (int) c + 1;
 }
 
 juce::String AudioEngine::getDeviceSummary() const
@@ -464,14 +724,207 @@ void AudioEngine::audioDeviceAboutToStart (juce::AudioIODevice* dev)
     for (int t = 0; t < numTracks; ++t)
     {
         strips[t].prepare (sampleRate);
-        const juce::SpinLock::ScopedLockType sl (slots[t].lock);
-        if (slots[t].inst != nullptr)
-            slots[t].inst->prepare (sampleRate, std::max (bufferSize, 32));
+        const juce::SpinLock::ScopedLockType sl (chains[t].lock);
+        for (auto& b : chains[t].blocks)
+            b->prepare (sampleRate, std::max (bufferSize, 32));
     }
 }
 
 void AudioEngine::audioDeviceStopped()
 {
+}
+
+void AudioEngine::copyInput (int ch, bool pair, const float* const* inputs, int numInputs, int n, float* dest, float gain) const
+{
+    if (ch < 0 || ch >= numInputs || inputs[ch] == nullptr) return;
+    if (pair && ch + 1 < numInputs && inputs[ch + 1] != nullptr)
+    {
+        // mono sum
+        juce::FloatVectorOperations::addWithMultiply (dest, inputs[ch], 0.5f * gain, n);
+        juce::FloatVectorOperations::addWithMultiply (dest, inputs[ch + 1], 0.5f * gain, n);
+    }
+    else
+    {
+        juce::FloatVectorOperations::addWithMultiply (dest, inputs[ch], gain, n);
+    }
+}
+
+AudioEngine::ChainResult AudioEngine::runChain (int t, const float* const* inputs, int numInputs, int n, bool armed,
+                                                float* monoOut, const float* bounceIn)
+{
+    ChainResult r;
+    auto& p = track[t];
+    acc.clear (0, n);
+
+    // ---- the audio stream starts with the track's input (or the bounce, or silence) ----
+    if (bounceIn != nullptr)
+    {
+        acc.copyFrom (0, 0, bounceIn, n);
+        acc.copyFrom (1, 0, bounceIn, n);
+    }
+    else if (p.inputChannel.load() >= 0)
+    {
+        copyInput (p.inputChannel.load(), p.inputPair.load(), inputs, numInputs, n, acc.getWritePointer (0));
+        acc.copyFrom (1, 0, acc, 0, 0, n);
+        r.throughInterface = true;
+    }
+
+    // ---- the MIDI stream starts with the track's controller, while armed ----
+    bool mpe = false;
+    int bend = 48;
+    const juce::MidiBuffer* in = nullptr;
+    auto port = p.midiPort.load();
+    if (port == midiAny)
+    {
+        mpe = midi.anyIsMpe(); bend = midi.anyBendRange();
+        if (armed) in = &midi.anyBuffer();
+    }
+    else if (armed && midi.isInputActive (port))
+    {
+        mpe = midi.isInputMpe (port);
+        bend = midi.inputBendRange (port);
+        in = &midi.portBuffer (port);
+    }
+    const bool receives = in != nullptr;
+
+    trackMidi.clear();
+    if (mpe != lastMpe[t] || bend != lastBend[t])
+    {
+        lastMpe[t] = mpe;
+        lastBend[t] = bend;
+        mpeConfigPending[t] = true;
+    }
+    if (mpeConfigPending[t].exchange (false))
+        MidiHub::addMpeConfiguration (trackMidi, mpe, bend);
+    if (receives)
+    {
+        trackMidi.addEvents (*in, 0, n, 0);
+        if (! in->isEmpty()) p.midiActivity = true;
+    }
+    if (wasReceiving[t] && ! receives)
+        for (int ch = 1; ch <= 16; ++ch)
+            trackMidi.addEvent (juce::MidiMessage::allNotesOff (ch), 0);
+    wasReceiving[t] = receives;
+
+    // ---- the blocks, left to right ----
+    const juce::SpinLock::ScopedTryLockType sl (chains[t].lock);
+    if (sl.isLocked())
+    {
+        for (auto& bp : chains[t].blocks)
+        {
+            auto& b = *bp;
+            if (b.bypass.load())
+                continue;   // MIDI and audio pass straight through
+            b.applyMpe (mpe, bend);
+            const auto role = b.role();
+
+            auto runWithMidi = [&] (juce::AudioBuffer<float>& audio)
+            {
+                // A block that doesn't make MIDI leaves the stream as it was, whatever it does with its copy.
+                midiWork.clear();
+                midiWork.addEvents (trackMidi, 0, n, 0);
+                b.process (audio, n, midiWork);
+                if (b.producesMidi())
+                    trackMidi.swapWith (midiWork);
+            };
+
+            switch (role)
+            {
+                case BlockRole::pending:
+                    break;
+
+                case BlockRole::external:
+                {
+                    auto& e = static_cast<ExternalBlock&> (b);
+                    int outPort = e.outPort.load();
+                    if (! midi.isOutputActive (outPort)) outPort = -1;
+                    const int channel = e.channel.load();
+                    const bool sending = outPort >= 0 && receives;
+                    // The route changed or the playing stopped: nothing left hanging.
+                    if ((outPort != e.lastPort || channel != e.lastChannel || (e.wasSending && ! sending)) && e.lastPort >= 0)
+                        for (int ch = 1; ch <= 16; ++ch)
+                            midi.outBuffer (e.lastPort).addEvent (juce::MidiMessage::allNotesOff (ch), 0);
+                    e.lastPort = outPort;
+                    e.lastChannel = channel;
+                    e.wasSending = sending;
+                    if (sending)
+                    {
+                        auto& out = midi.outBuffer (outPort);
+                        for (const auto meta : trackMidi)
+                        {
+                            auto msg = meta.getMessage();
+                            // MPE needs every note on its own channel, so it passes through untouched.
+                            if (! mpe && channel >= 1 && msg.getChannel() > 0)
+                                msg.setChannel (channel);
+                            out.addEvent (msg, meta.samplePosition);
+                        }
+                    }
+                    if (e.returnInput.load() >= 0)
+                    {
+                        scratch.clear (0, n);
+                        copyInput (e.returnInput.load(), e.returnPair.load(), inputs, numInputs, n, scratch.getWritePointer (0),
+                                   dbToGain (e.levelDb.load()));
+                        acc.addFrom (0, 0, scratch, 0, 0, n);
+                        acc.addFrom (1, 0, scratch, 0, 0, n);
+                        r.throughInterface = true;
+                    }
+                    r.hasInstruments = true;
+                    break;
+                }
+
+                case BlockRole::midiFx:
+                    scratch.clear (0, n);
+                    runWithMidi (scratch);
+                    break;
+
+                case BlockRole::instrument:
+                    if (! b.processInput.load())
+                    {
+                        // Adds its sound to what's already there.
+                        scratch.clear (0, n);
+                        runWithMidi (scratch);
+                        const auto g = dbToGain (b.levelDb.load()) * b.mixInPad();
+                        acc.addFrom (0, 0, scratch, 0, 0, n, g);
+                        acc.addFrom (1, 0, scratch, 1, 0, n, g);
+                        r.hasInstruments = true;
+                        r.latency += b.latencySamples();
+                        break;
+                    }
+                    [[fallthrough]];
+
+                case BlockRole::audioFx:
+                {
+                    const auto wet = role == BlockRole::audioFx ? b.mix.load() : 1.0f;
+                    if (wet < 0.999f)
+                    {
+                        dry.copyFrom (0, 0, acc, 0, 0, n);
+                        dry.copyFrom (1, 0, acc, 1, 0, n);
+                    }
+                    runWithMidi (acc);
+                    if (wet < 0.999f)
+                    {
+                        acc.applyGain (0, n, wet);
+                        acc.addFrom (0, 0, dry, 0, 0, n, 1.0f - wet);
+                        acc.addFrom (1, 0, dry, 1, 0, n, 1.0f - wet);
+                    }
+                    if (role == BlockRole::instrument)
+                    {
+                        acc.applyGain (0, n, dbToGain (b.levelDb.load()));
+                        r.hasInstruments = true;
+                    }
+                    r.latency += b.latencySamples();
+                    break;
+                }
+            }
+        }
+    }
+
+    // ---- tracks are mono ----
+    auto* l = acc.getReadPointer (0);
+    auto* rr = acc.getReadPointer (1);
+    for (int i = 0; i < n; ++i)
+        monoOut[i] = (l[i] + rr[i]) * 0.5f;
+    return r;
 }
 
 void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputs, int numInputs,
@@ -489,16 +942,26 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputs, 
 
     juce::ScopedNoDenormals noDenormals;
 
-    // ---- gather each controller's MIDI ----
+    // ---- each controller's MIDI (MIDI learn takes its messages out here) ----
     midi.beginBlock (n);
 
-    bool armed[numTracks];
-    Source source[numTracks];
+    // ---- what's coming in, for the signal bars ----
+    for (int c = 0; c < std::min (numInputs, maxInputs); ++c)
+        if (inputs[c] != nullptr)
+        {
+            auto range = juce::FloatVectorOperations::findMinAndMax (inputs[c], n);
+            auto peak = std::max (-range.getStart(), range.getEnd());
+            if (peak > inputPeak[c].load()) inputPeak[c] = peak;
+        }
+
+    bool armed[numTracks], muted[numTracks], bounce[numTracks];
     for (int t = 0; t < numTracks; ++t)
     {
         armed[t] = track[t].armed.load();
-        source[t] = (Source) track[t].source.load();
+        muted[t] = track[t].mute.load();
+        bounce[t] = (Feed) track[t].feed.load() == Feed::bounce;
     }
+    const bool soloing = anySolo();
 
     const juce::SpinLock::ScopedTryLockType tapeGuard (tapeLock);
     const bool haveTape = tapeGuard.isLocked() && tape != nullptr;
@@ -513,158 +976,38 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputs, 
         for (auto& v : tapeOut) std::fill_n (v.begin(), n, 0.0f);
     }
 
-    // Which controller plays this track, and whether it speaks MPE.
-    // An instrument or synth only plays when its track is armed; the choice of controller
-    // just says which keyboard that is.
-    auto controllerFor = [&] (int t, bool& mpe, int& bend) -> const juce::MidiBuffer*
-    {
-        auto port = track[t].midiPort.load();
-        if (port == midiAny)
-        {
-            mpe = midi.anyIsMpe(); bend = midi.anyBendRange();
-            return armed[t] ? &midi.anyBuffer() : nullptr;
-        }
-        if (armed[t] && midi.isInputActive (port))
-        {
-            mpe = midi.isInputMpe (port);
-            bend = midi.inputBendRange (port);
-            return &midi.portBuffer (port);
-        }
-        mpe = false; bend = 48;
-        return nullptr;
-    };
-
-    auto copyInput = [&] (int t, float* s)
-    {
-        auto ch = track[t].inputChannel.load();
-        if (ch < 0 || ch >= numInputs || inputs[ch] == nullptr) return;
-        juce::FloatVectorOperations::copy (s, inputs[ch], n);
-        if (track[t].inputPair.load() && ch + 1 < numInputs && inputs[ch + 1] != nullptr)
-        {
-            juce::FloatVectorOperations::add (s, inputs[ch + 1], n);
-            juce::FloatVectorOperations::multiply (s, 0.5f, n);   // mono sum
-        }
-    };
-
-    // ---- what is plugged into each track ----
-    for (int t = 0; t < numTracks; ++t)
-    {
-        auto* s = src[t].data();
-        std::fill_n (s, n, 0.0f);
-
-        bool mpe = false;
-        int bend = 48;
-        const auto* in = controllerFor (t, mpe, bend);
-        const bool receives = in != nullptr;
-
-        // Hardware synth: forward the controller to its MIDI output, notes-off when the route changes.
-        OutRoute route;
-        if (source[t] == Source::hardware)
-        {
-            auto outPort = track[t].midiOutPort.load();
-            if (midi.isOutputActive (outPort))
-                route = { outPort, track[t].midiOutChannel.load() };
-        }
-        if (route != lastOutRoute[t] || (wasReceiving[t] && ! receives))
-        {
-            if (lastOutRoute[t].port >= 0)
-                for (int ch = 1; ch <= 16; ++ch)
-                    midi.outBuffer (lastOutRoute[t].port).addEvent (juce::MidiMessage::allNotesOff (ch), 0);
-            lastOutRoute[t] = route;
-        }
-
-        if (source[t] == Source::audio)
-        {
-            copyInput (t, s);
-        }
-        else if (source[t] == Source::hardware)
-        {
-            copyInput (t, s);
-            if (route.port >= 0 && receives)
-            {
-                auto& out = midi.outBuffer (route.port);
-                for (const auto meta : *in)
-                {
-                    auto msg = meta.getMessage();
-                    // MPE needs every note on its own channel, so it passes through untouched.
-                    if (! mpe && route.channel >= 1 && msg.getChannel() > 0)
-                        msg.setChannel (route.channel);
-                    out.addEvent (msg, meta.samplePosition);
-                }
-                if (! in->isEmpty()) track[t].midiActivity = true;
-            }
-        }
-        else if (source[t] == Source::instrument)
-        {
-            trackMidi.clear();
-            if (mpe != lastMpe[t] || bend != lastBend[t])
-            {
-                lastMpe[t] = mpe;
-                lastBend[t] = bend;
-                mpeConfigPending[t] = true;
-            }
-            if (mpeConfigPending[t].exchange (false))
-                MidiHub::addMpeConfiguration (trackMidi, mpe, bend);
-            if (receives)
-                trackMidi.addEvents (*in, 0, n, 0);
-            if (wasReceiving[t] && ! receives)
-                for (int ch = 1; ch <= 16; ++ch)
-                    trackMidi.addEvent (juce::MidiMessage::allNotesOff (ch), 0);
-
-            if (receives && ! in->isEmpty())
-                track[t].midiActivity = true;
-
-            instBuffer.clear (0, n);
-            {
-                const juce::SpinLock::ScopedTryLockType sl (slots[t].lock);
-                if (sl.isLocked() && slots[t].inst != nullptr)
-                {
-                    slots[t].inst->applyMpe (mpe, bend);
-                    slots[t].inst->render (instBuffer, n, trackMidi);
-                }
-            }
-            auto* l = instBuffer.getReadPointer (0);
-            auto* r = instBuffer.getReadPointer (1);
-            for (int i = 0; i < n; ++i)
-                s[i] = (l[i] + r[i]) * 0.5f;
-        }
-
-        wasReceiving[t] = receives;
-    }
-
-    // ---- MIDI out to hardware synths, time-stamped for the sender thread ----
-    midi.endBlock (blockStartMs, sampleRate, n);
-
-    // ---- channel strips ----
-    // ARM is the live switch: armed tracks play their input, unarmed ones the tape (crossfaded).
     auto controls = [&] (int t) -> ChannelStrip::Controls
     {
         auto& p = track[t];
         return { -20.0f + 60.0f * p.gain.load(), p.low.load(), p.mid.load(), (float) midFreqHz (p.midFreq.load()),
                  p.high.load(), faderGain (p.fader.load()), p.pan.load(), armed[t] };
     };
-    auto isLiveBounce = [&] (int t) { return armed[t] && source[t] == Source::bounce; };
 
-    for (int t = 0; t < numTracks; ++t)
-        if (! isLiveBounce (t))
-            strips[t].process (tapeOut[t].data(), src[t].data(), chan[t].data(), n, controls (t));
-
-    // A bounce destination's input is the other tracks, through their own strips.
+    // ---- live tracks: their chains, then their strips ----
     for (int t = 0; t < numTracks; ++t)
     {
-        if (! isLiveBounce (t))
-            continue;
-
-        auto* s = src[t].data();
-        std::fill_n (s, n, 0.0f);
-        auto mask = track[t].bounceMask.load();
-        for (int k = 0; k < numTracks; ++k)
-            if (k != t && (mask & (1 << k)) && ! isLiveBounce (k))
-                juce::FloatVectorOperations::add (s, chan[k].data(), n);
-        strips[t].process (tapeOut[t].data(), s, chan[t].data(), n, controls (t));
+        if (bounce[t]) continue;
+        chainResult[t] = runChain (t, inputs, numInputs, n, armed[t], src[t].data(), nullptr);
+        strips[t].process (tapeOut[t].data(), src[t].data(), chan[t].data(), n, controls (t));
     }
 
-    // ---- onto the tape ----
+    // ---- bounce tracks: the other tracks off tape, through their strips (mute silences a source) ----
+    for (int t = 0; t < numTracks; ++t)
+    {
+        if (! bounce[t]) continue;
+        std::fill_n (bounceSum.begin(), n, 0.0f);
+        auto mask = track[t].bounceMask.load();
+        for (int k = 0; k < numTracks; ++k)
+            if (k != t && (mask & (1 << k)) && ! bounce[k] && ! muted[k])
+                juce::FloatVectorOperations::add (bounceSum.data(), chan[k].data(), n);
+        chainResult[t] = runChain (t, inputs, numInputs, n, armed[t], src[t].data(), bounceSum.data());
+        strips[t].process (tapeOut[t].data(), src[t].data(), chan[t].data(), n, controls (t));
+    }
+
+    // ---- MIDI out to hardware synths, time-stamped for the sender thread ----
+    midi.endBlock (blockStartMs, sampleRate, n);
+
+    // ---- onto the tape (muted tracks still record) ----
     if (haveTape)
     {
         if (tapeEngine.isRecordingNow())
@@ -672,26 +1015,31 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputs, 
             const auto userOffset = tapeEngine.params.latencyOffsetMs.load() * sampleRate / 1000.0;
             for (int t = 0; t < numTracks; ++t)
                 if (armed[t])
+                {
+                    auto& cr = chainResult[t];
                     tapeEngine.writeTrack (t, chan[t].data(), n,
-                                           recordLatencySamples (source[t], inputLatency, outputLatency, userOffset));
+                                           recordLatencySamples (cr.throughInterface, cr.hasInstruments, bounce[t],
+                                                                 inputLatency, outputLatency, userOffset, cr.latency));
+                }
         }
         tapeEngine.endBlock();
     }
 
-    // ---- stereo mix ----
+    // ---- stereo mix: solo changes what's heard; mute wins over solo ----
     std::fill_n (mixL.begin(), n, 0.0f);
     std::fill_n (mixR.begin(), n, 0.0f);
 
     for (int t = 0; t < numTracks; ++t)
     {
         auto* c = chan[t].data();
-        auto peak = juce::FloatVectorOperations::findMaximum (c, n);
-        peak = std::max (peak, -juce::FloatVectorOperations::findMinimum (c, n));
+        auto range = juce::FloatVectorOperations::findMinAndMax (c, n);
+        auto peak = std::max (-range.getStart(), range.getEnd());
         if (peak > track[t].meter.load()) track[t].meter = peak;
 
+        const bool heard = ! muted[t] && (! soloing || track[t].solo.load());
         // A bounce destination is fed by the other tracks, which you already hear: it leaves the
         // mix as it goes live.
-        const auto gain = source[t] == Source::bounce ? 1.0f - strips[t].liveAmount() : 1.0f;
+        auto gain = heard ? (bounce[t] ? 1.0f - strips[t].liveAmount() : 1.0f) : 0.0f;
         strips[t].addToMix (c, mixL.data(), mixR.data(), n, track[t].pan.load(), gain);
     }
 

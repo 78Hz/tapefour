@@ -4,8 +4,8 @@
 namespace tf
 {
 //==============================================================================
-PluginWindow::PluginWindow (juce::AudioPluginInstance& plugin, std::function<void()> onClose)
-    : juce::DocumentWindow (plugin.getName(), Pal::panel, juce::DocumentWindow::closeButton),
+PluginWindow::PluginWindow (juce::AudioProcessor& plugin, const juce::String& title, std::function<void()> onClose)
+    : juce::DocumentWindow (title, Pal::panel, juce::DocumentWindow::closeButton),
       closeCallback (std::move (onClose))
 {
     setUsingNativeTitleBar (true);
@@ -49,6 +49,82 @@ namespace
     }
 }
 
+//==============================================================================
+/** Over the whole deck in learn mode: every control that can be learned is outlined, with what it's mapped to. */
+class LearnLayer : public juce::Component
+{
+public:
+    explicit LearnLayer (DeckComponent& d) : deck (d) { setWantsKeyboardFocus (false); }
+
+    void paint (juce::Graphics& g) override
+    {
+        auto& lf = DeckLookAndFeel::get();
+        g.fillAll (juce::Colours::black.withAlpha (0.18f));
+        const bool learning = deck.engine.mapper.isLearning();
+        auto current = deck.engine.mapper.getLearnTarget();
+        for (auto& lt : deck.learnTargets)
+        {
+            if (! lt.component->isShowing()) continue;
+            auto r = getLocalArea (lt.component, lt.component->getLocalBounds()).toFloat().expanded (3.0f);
+            const bool isCurrent = learning && ! current.plugin && current == lt.target;
+            auto label = deck.engine.mapper.labelFor (lt.target);
+            if (isCurrent)
+            {
+                g.setColour (Pal::orange.withAlpha (0.25f));
+                g.fillRoundedRectangle (r, 4.0f);
+                g.setColour (Pal::orange);
+                g.drawRoundedRectangle (r, 4.0f, 2.0f);
+            }
+            else
+            {
+                juce::Path p;
+                p.addRoundedRectangle (r, 4.0f);
+                const float dash[] { 4.0f, 3.0f };
+                juce::PathStrokeType (1.2f).createDashedStroke (p, p, dash, 2);
+                g.setColour ((label.isNotEmpty() ? Pal::green : Pal::amber).withAlpha (0.9f));
+                g.fillPath (p);
+            }
+            auto badge = isCurrent ? juce::String ("MOVE A CONTROL") : label;
+            if (badge.isNotEmpty())
+            {
+                g.setFont (lf.mono (10.0f));
+                auto w = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), badge) + 8.0f;
+                auto b = juce::Rectangle<float> (w, 14.0f).withPosition (r.getRight() - w, r.getY() - 7.0f);
+                g.setColour (isCurrent ? Pal::orange : Pal::green);
+                g.fillRoundedRectangle (b, 2.0f);
+                g.setColour (juce::Colour (0xff141311));
+                g.drawText (badge, b, juce::Justification::centred);
+            }
+        }
+    }
+
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        auto pos = e.getPosition();
+        if (getLocalArea (&deck.learnBtn, deck.learnBtn.getLocalBounds()).contains (pos))
+        {
+            deck.setLearnMode (false);
+            return;
+        }
+        // the smallest target under the mouse
+        const DeckComponent::LearnTarget* hit = nullptr;
+        for (auto& lt : deck.learnTargets)
+        {
+            if (! lt.component->isShowing()) continue;
+            auto r = getLocalArea (lt.component, lt.component->getLocalBounds()).expanded (3);
+            if (r.contains (pos) && (hit == nullptr || r.getWidth() * r.getHeight() < hit->component->getWidth() * hit->component->getHeight()))
+                hit = &lt;
+        }
+        if (hit == nullptr) return;
+        if (e.mods.isPopupMenu()) deck.learnTargetMenu (*hit);
+        else                      deck.startLearning (hit->target);
+        repaint();
+    }
+
+private:
+    DeckComponent& deck;
+};
+
 DeckComponent::DeckComponent (AudioEngine& e, juce::PropertiesFile& settings)
     : engine (e), props (settings),
       pitch ("PITCH", false, [] (double v)
@@ -65,6 +141,11 @@ DeckComponent::DeckComponent (AudioEngine& e, juce::PropertiesFile& settings)
     setupLcd.onClick = [this] { openSetup (audioTab); };
     setupLcd.setTooltip ("Setup: audio driver and interface, sample rate, buffer, MIDI controllers and synths, tape character");
     addAndMakeVisible (setupLcd);
+    learnBtn.lamp = true;
+    learnBtn.textSize = 14.0f;
+    learnBtn.onClick = [this] { setLearnMode (learnLayer == nullptr); };
+    learnBtn.setTooltip ("MIDI learn: click a control, then move a knob, fader or button on your controller. Right-click any control to learn or forget it.");
+    addAndMakeVisible (learnBtn);
 
     // cassette bay
     cassette.onNameChanged = [this] (const juce::String& name)
@@ -141,15 +222,8 @@ DeckComponent::DeckComponent (AudioEngine& e, juce::PropertiesFile& settings)
     for (int t = 0; t < numTracks; ++t)
     {
         auto* s = strips.add (new StripComponent (engine, t));
-        s->onSourceMenu = [this] (int track, juce::Component*) { openPatch (track); };
-        s->onEditSound = [this] (int track)
-        {
-            auto* inst = engine.getInstrument (track);
-            if ((Source) engine.track[track].source.load() == Source::instrument && inst != nullptr && inst->getPlugin() != nullptr)
-                openPluginWindow (track);
-            else
-                openPatch (track);
-        };
+        s->onOpenChain = [this] (int track) { if (chainTrack == track) closeOverlay(); else openChain (track); };
+        s->onEditSound = [this] (int track) { editSound (track); };
         addAndMakeVisible (s);
     }
     addAndMakeVisible (master);
@@ -174,7 +248,18 @@ DeckComponent::DeckComponent (AudioEngine& e, juce::PropertiesFile& settings)
         juce::MessageManager::callAsync ([safe] { if (safe != nullptr) safe->deckStateApplied(); });
     };
     // A plug-in's window always closes before the plug-in itself goes.
-    engine.onInstrumentChanging = [this] (int t) { closePluginWindow (t); };
+    engine.onBlockRemoving = [this] (int t, int id) { closeBlockWindow (t, id); };
+
+    // MIDI learn
+    gatherLearnTargets();
+    for (auto& lt : learnTargets)
+        lt.component->addMouseListener (this, true);   // right-click: learn or forget
+    engine.mapper.onLearned = [this] (const MidiMapper::Mapping& m)
+    {
+        say ("LEARNED: " + engine.mapper.describeTarget (m) + utf (" \xe2\x86\x90 ") + engine.mapper.describeMessage (m), 4.0);
+        engine.saveSettings();
+        if (learnLayer != nullptr) learnLayer->repaint();
+    };
 
     loadStartupTape();
     if (engine.getStartupProblem().isNotEmpty())
@@ -186,10 +271,14 @@ DeckComponent::~DeckComponent()
 {
     stopTimer();
     engine.onDeckStateApplied = nullptr;
-    engine.onInstrumentChanging = nullptr;
+    engine.onBlockRemoving = nullptr;
+    engine.mapper.onLearned = nullptr;
+    engine.mapper.cancelLearn();
+    for (auto& lt : learnTargets)
+        lt.component->removeMouseListener (this);
+    learnLayer.reset();
     overlay.reset();
-    for (int t = 0; t < numTracks; ++t)
-        pluginWindows[t].reset();
+    pluginWindows.clear();
     setupWindow.reset();
 }
 
@@ -203,8 +292,7 @@ void DeckComponent::prepareToQuit()
     writer.waitUntilIdle();     // everything on disk before we go
     if (auto* t = engine.getTape())
         props.setValue ("lastTape", t->id);
-    for (int t = 0; t < numTracks; ++t)
-        pluginWindows[t].reset();
+    pluginWindows.clear();
     setupWindow.reset();
 }
 
@@ -212,6 +300,7 @@ void DeckComponent::prepareToQuit()
 void DeckComponent::resized()
 {
     setupLcd.setBounds (980, 16, 260, 46);
+    learnBtn.setBounds (868, 18, 100, 42);
 
     auto bp = bayPanel;
     cassette.setBounds (bp.getX() + 30, bp.getY() + 52, 400, 255);
@@ -243,6 +332,8 @@ void DeckComponent::resized()
 
     if (overlay != nullptr)
         overlay->setBounds (getLocalBounds());
+    if (learnLayer != nullptr)
+        learnLayer->setBounds (getLocalBounds());
 }
 
 void DeckComponent::paint (juce::Graphics& g)
@@ -416,8 +507,11 @@ void DeckComponent::timerCallback()
     }
     if (message.isNotEmpty() && juce::Time::getMillisecondCounterHiRes() * 0.001 < messageUntil)
         text = message;
+    else if (learnLayer != nullptr)
+        text = engine.mapper.isLearning() ? "LEARN: MOVE A CONTROL" : "LEARN: CLICK A CONTROL";
     status.top = text;
-    status.sub = tape != nullptr && engine.tapeEngine.params.tapeSwitch.load() != tape->naturalPosition()
+    status.sub = engine.soloedTracksAllMuted() ? juce::String ("SOLOED TRACK IS MUTED")
+               : tape != nullptr && engine.tapeEngine.params.tapeSwitch.load() != tape->naturalPosition()
                      ? juce::String (engine.tapeEngine.params.tapeSwitch.load() < tape->naturalPosition() ? "BIAS LOW: " : "BIAS HIGH: ")
                            + iecTypeName (tape->naturalPosition()) + " TAPE AT " + positionName (engine.tapeEngine.params.tapeSwitch.load())
                  : tape != nullptr ? "REMAIN " + formatTime ((tape->getLengthCells() - pos) / cellRate / std::max (0.1f, nominal))
@@ -460,6 +554,31 @@ void DeckComponent::timerCallback()
 
     for (auto* s : strips) s->refresh (blink);
     master.refresh();
+
+    // MIDI learn and remote control
+    engine.mapper.poll();
+    if (auto c = engine.remoteCommand.exchange (0); c > 0)
+        remoteControl ((MidiMapper::Control) (c - 1));
+    if (auto id = engine.mapper.pickupWaitingId.exchange (0); id != 0)
+        for (auto& m : engine.mapper.getMappings())
+            if (m.id == id)
+                say ("PICKUP: TURN " + juce::String (engine.mapper.pickupDirection.load() > 0 ? "UP" : "DOWN") + " TO TAKE "
+                     + engine.mapper.describeTarget (m), 1.5);
+    if (learnBtn.lampOn != (learnLayer != nullptr && (! engine.mapper.isLearning() || blink)))
+    {
+        learnBtn.lampOn = ! learnBtn.lampOn;
+        learnBtn.repaint();
+    }
+    if (learnLayer != nullptr && frame % 6 == 0)
+        learnLayer->repaint();
+    // controls a controller moved
+    if ((int) pitch.slider.getValue() != engine.tapeEngine.params.pitchStep.load())
+    {
+        pitch.slider.setValue (engine.tapeEngine.params.pitchStep.load(), juce::dontSendNotification);
+        pitch.repaint();
+    }
+    if (speedHi.getToggleState() != (engine.tapeEngine.params.speedSel.load() == 2))
+        (engine.tapeEngine.params.speedSel.load() == 2 ? speedHi : speedLo).setToggleState (true, juce::dontSendNotification);
 
     if (frame % 15 == 1)
     {
@@ -664,37 +783,48 @@ void DeckComponent::showEjectMenu()
 }
 
 //==============================================================================
-void DeckComponent::closePluginWindow (int t)
+void DeckComponent::closeBlockWindow (int t, int id)
 {
-    if (pluginWindows[t] == nullptr) return;
-    pluginWindows[t].reset();
-    if (auto* inst = engine.getInstrument (t))
-        inst->setEditorOpen (false);
+    auto it = pluginWindows.find ({ t, id });
+    if (it == pluginWindows.end()) return;
+    pluginWindows.erase (it);
+    if (auto* b = engine.findBlock (t, id))
+        b->setEditorOpen (false);
 }
 
-void DeckComponent::openPluginWindow (int t)
+void DeckComponent::openBlockWindow (int t, int id)
 {
-    if (auto* inst = engine.getInstrument (t))
-        if (auto* plugin = inst->getPlugin())
+    auto* b = engine.findBlock (t, id);
+    if (b == nullptr || ! b->hasEditor() || b->getProcessor() == nullptr) return;
+    if (auto it = pluginWindows.find ({ t, id }); it != pluginWindows.end()) { it->second->toFront (true); return; }
+    b->setEditorOpen (true);
+    auto w = std::make_unique<PluginWindow> (*b->getProcessor(), "TRACK " + juce::String (t + 1) + utf (" \xc2\xb7 ") + b->getName(), [this, t, id]
+    {
+        juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<DeckComponent> (this), t, id]
         {
-            if (pluginWindows[t] != nullptr) { pluginWindows[t]->toFront (true); return; }
-            inst->setEditorOpen (true);
-            pluginWindows[t] = std::make_unique<PluginWindow> (*plugin, [this, t]
-            {
-                juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<DeckComponent> (this), t]
-                {
-                    if (safe != nullptr) safe->closePluginWindow (t);
-                });
-            });
-            pluginWindows[t]->onDeckKey = [this] (const juce::KeyPress& k)
-            {
-                // Space, R and Home drive the transport from the plug-in's window too.
-                if (k == juce::KeyPress::spaceKey || k == juce::KeyPress::homeKey
-                    || k.getTextCharacter() == 'r' || k.getTextCharacter() == 'R')
-                    return keyPressed (k);
-                return false;
-            };
+            if (safe != nullptr) safe->closeBlockWindow (t, id);
+        });
+    });
+    w->onDeckKey = [this] (const juce::KeyPress& k)
+    {
+        // Space, R and Home drive the transport from the plug-in's window too.
+        if (k == juce::KeyPress::spaceKey || k == juce::KeyPress::homeKey
+            || k.getTextCharacter() == 'r' || k.getTextCharacter() == 'R')
+            return keyPressed (k);
+        return false;
+    };
+    pluginWindows[{ t, id }] = std::move (w);
+}
+
+void DeckComponent::editSound (int t)
+{
+    for (auto& b : engine.getChain (t))
+        if (b.hasEditor && ! b.bypass)
+        {
+            openBlockWindow (t, b.id);
+            return;
         }
+    openChain (t);
 }
 
 void DeckComponent::showOverlay (std::unique_ptr<juce::Component> card, juce::Rectangle<int> cardBounds)
@@ -709,6 +839,8 @@ void DeckComponent::showOverlay (std::unique_ptr<juce::Component> card, juce::Re
 void DeckComponent::closeOverlay()
 {
     if (overlay == nullptr) return;
+    if (chainTrack >= 0) strips[chainTrack]->setChainOpen (false);
+    chainTrack = -1;
     overlay->setVisible (false);
     // Don't delete the card while one of its buttons is still on the call stack.
     juce::MessageManager::callAsync ([old = std::shared_ptr<Overlay> (overlay.release())] {});
@@ -717,14 +849,26 @@ void DeckComponent::closeOverlay()
     repaint();
 }
 
-void DeckComponent::openPatch (int t)
+void DeckComponent::openChain (int t)
 {
     closeOverlay();
-    auto card = std::make_unique<PatchCard> (engine, t);
-    card->onDone = [this] { closeOverlay(); };
-    card->onShowPluginWindow = [this] (int track) { openPluginWindow (track); };
-    card->onFindInstruments = [this] { closeOverlay(); openSetup (instrumentsTab); };
-    showOverlay (std::move (card), juce::Rectangle<int> (820, 660).withCentre ({ designWidth / 2, designHeight / 2 }));
+    auto* strip = strips[t];
+    auto display = strip->getDisplayBounds().translated (strip->getX(), strip->getY());
+    const int cardX = 20, cardY = display.getBottom() + 4;
+    auto card = std::make_unique<ChainEditor> (engine, t, display.getCentreX() - cardX);
+    card->onClose = [this] { closeOverlay(); };
+    card->onEditBlock = [this] (int track, int id) { openBlockWindow (track, id); };
+    card->onFindPlugins = [this] { closeOverlay(); openSetup (instrumentsTab); };
+    card->onMessage = [this] (const juce::String& m) { say (m, 4.0); };
+    auto* editor = card.get();
+    showOverlay (std::move (card), { cardX, cardY, ChainEditor::editorWidth, ChainEditor::editorHeight + ChainEditor::notchHeight });
+    overlay->cardShadow = true;
+    overlay->dimming = 0.35f;
+    chainTrack = t;
+    strip->setChainOpen (true);
+    strip->toFront (false);   // the track's display stays lit above the dimming
+    overlay->toFront (false);
+    editor->grabKeyboardFocus();
 }
 
 void DeckComponent::openInlay()
@@ -764,13 +908,126 @@ void DeckComponent::openSetup (int tab)
 }
 
 //==============================================================================
-void DeckComponent::mouseDown (const juce::MouseEvent&)
+void DeckComponent::gatherLearnTargets()
 {
+    learnTargets.clear();
+    using C = MidiMapper::Control;
+    auto add = [this] (juce::Component& c, C control, int t)
+    {
+        MidiMapper::Target target;
+        target.control = control;
+        target.track = t;
+        learnTargets.push_back ({ &c, target });
+    };
+    for (int t = 0; t < numTracks; ++t)
+        strips[t]->forEachLearnTarget ([&] (juce::Component& c, C control) { add (c, control, t); });
+    master.forEachLearnTarget ([&] (juce::Component& c, C control) { add (c, control, -1); });
+    add (pitch.slider, C::pitch, -1);
+    add (speedHi, C::speed, -1);
+    add (nrButton, C::nr, -1);
+    add (playKey, C::play, -1);
+    add (stopKey, C::stop, -1);
+    add (recKey, C::rec, -1);
+    add (rewKey, C::rew, -1);
+    add (ffKey, C::ff, -1);
+    add (rtzBtn, C::rtz, -1);
+}
+
+const DeckComponent::LearnTarget* DeckComponent::learnTargetFor (juce::Component* c) const
+{
+    for (; c != nullptr && c != this; c = c->getParentComponent())
+        for (auto& lt : learnTargets)
+            if (lt.component == c) return &lt;
+    return nullptr;
+}
+
+juce::String DeckComponent::targetName (const MidiMapper::Target& t) const
+{
+    auto name = MidiMapper::controlName (t.control);
+    return MidiMapper::isPerTrack (t.control) ? "TRACK " + juce::String (t.track + 1) + " " + name : name;
+}
+
+void DeckComponent::setLearnMode (bool on)
+{
+    if (on == (learnLayer != nullptr)) return;
+    engine.mapper.cancelLearn();
+    if (on)
+    {
+        closeOverlay();
+        learnLayer = std::make_unique<LearnLayer> (*this);
+        learnLayer->setBounds (getLocalBounds());
+        addAndMakeVisible (*learnLayer);
+        learnLayer->toFront (false);
+        grabKeyboardFocus();   // Esc leaves learn mode
+    }
+    else
+    {
+        learnLayer.reset();
+        engine.saveSettings();
+    }
+    learnBtn.lampOn = on;
+    learnBtn.repaint();
+}
+
+void DeckComponent::startLearning (const MidiMapper::Target& target)
+{
+    engine.mapper.beginLearn (target);
+    say ("LEARN " + targetName (target) + ": MOVE A CONTROL", 1.0);
+}
+
+void DeckComponent::learnTargetMenu (const LearnTarget& lt)
+{
+    auto target = lt.target;
+    auto label = engine.mapper.labelFor (target);
+    juce::PopupMenu m;
+    m.addSectionHeader (targetName (target) + (label.isNotEmpty() ? juce::String (utf (" \xc2\xb7 ")) + label : juce::String()));
+    m.addItem ("Learn MIDI control", [this, target]
+    {
+        setLearnMode (true);
+        startLearning (target);
+    });
+    m.addItem ("Forget MIDI control", label.isNotEmpty(), false, [this, target]
+    {
+        engine.mapper.removeForTarget (target);
+        engine.saveSettings();
+        say ("FORGOTTEN: " + targetName (target));
+        if (learnLayer != nullptr) learnLayer->repaint();
+    });
+    m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (lt.component));
+}
+
+void DeckComponent::remoteControl (MidiMapper::Control c)
+{
+    using C = MidiMapper::Control;
+    using Cmd = TapeEngine::Command;
+    switch (c)
+    {
+        case C::play: transport (Cmd::play); break;
+        case C::stop: transport (Cmd::stop); break;
+        case C::rec:  transport (Cmd::rec); break;
+        case C::rew:  transport (Cmd::rew); break;
+        case C::ff:   transport (Cmd::ff); break;
+        case C::rtz:  transport (Cmd::rtz); break;
+        default: break;
+    }
+}
+
+void DeckComponent::mouseDown (const juce::MouseEvent& e)
+{
+    if (e.eventComponent != this)
+    {
+        // a right-click on a control that MIDI learn can map
+        if (e.mods.isPopupMenu() && learnLayer == nullptr)
+            if (auto* lt = learnTargetFor (e.eventComponent))
+                learnTargetMenu (*lt);
+        return;
+    }
     grabKeyboardFocus();
 }
 
 bool DeckComponent::keyPressed (const juce::KeyPress& key)
 {
+    if (key == juce::KeyPress::escapeKey && learnLayer != nullptr) { setLearnMode (false); return true; }
     if (key == juce::KeyPress::escapeKey && overlay != nullptr) { closeOverlay(); return true; }
     auto mode = engine.tapeEngine.getMode();
 

@@ -4,6 +4,8 @@
 
 namespace tf
 {
+class MidiMapper;
+
 /**
     Every MIDI controller coming in and every hardware synth going out.
 
@@ -53,6 +55,8 @@ public:
     int inputBendRange (int slot) const { return juce::isPositiveAndBelow (slot, maxPorts) ? in[slot]->bendRange.load() : 48; }
     bool isOutputActive (int slot) const { return juce::isPositiveAndBelow (slot, maxPorts) && out[slot]->active.load(); }
     bool anyMpeInput() const;
+    /** Silences a synth on an output straight away (when its block goes or is bypassed). */
+    void allNotesOffNow (int slot);
     void sampleRateChanged (double sampleRate);
 
     std::unique_ptr<juce::XmlElement> createState() const;
@@ -62,6 +66,9 @@ public:
     void inject (const juce::MidiMessage& m, int slot);
     int addVirtualInput (const juce::String& name);
     int addVirtualOutput (const juce::String& name);
+
+    /** MIDI learn: mapped messages are taken out of each controller's MIDI before any track sees it. */
+    void setMapper (MidiMapper* m, void* sink) noexcept { mapper = m; mapperSink = sink; }
 
     // ---- audio thread ----
     /** Collects this block from every active controller. */
@@ -123,6 +130,8 @@ private:
     double sampleRate = 48000.0;
     juce::MidiDeviceListConnection listConnection;
     std::unique_ptr<Sender> sender;
+    MidiMapper* mapper = nullptr;
+    void* mapperSink = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE (MidiHub)
 };

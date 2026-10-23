@@ -152,23 +152,23 @@ td:first-child { font-weight: 600; }
   <div><span class="n">5</span><span class="t">The four tape types<span class="d">BASIC, SD, XR and MX, and how they sound</span></span></div>
   <div><span class="n">6</span><span class="t">The tape switch<span class="d">Bias and EQ, and what each mismatch does</span></span></div>
   <div><span class="n">7</span><span class="t">Transport and counter<span class="d">Recording, punch-in, return to zero</span></span></div>
-  <div><span class="n">8</span><span class="t">Patching a track<span class="d">Audio, instruments, hardware synths, bounces</span></span></div>
-  <div><span class="n">9</span><span class="t">The mixer<span class="d">Gain, EQ, pan, faders, meters, arming</span></span></div>
+  <div><span class="n">8</span><span class="t">Signal chains<span class="d">Inputs, instruments, effects, hardware synths, bounces</span></span></div>
+  <div><span class="n">9</span><span class="t">The mixer<span class="d">Gain, EQ, pan, faders, meters, mute, solo, arm</span></span></div>
   <div><span class="n">10</span><span class="t">Speed and pitch<span class="d">1⅞ and 3¾ ips, varispeed</span></span></div>
   <div><span class="n">11</span><span class="t">Noise reduction<span class="d">The three types, and how they meet the tape</span></span></div>
   <div><span class="n">12</span><span class="t">Tape character<span class="d">Hiss, wow, flutter, drive and the rest</span></span></div>
-  <div><span class="n">13</span><span class="t">MIDI and the deck state<span class="d">Controllers, MPE, synths out, recall</span></span></div>
+  <div><span class="n">13</span><span class="t">MIDI, MIDI learn and the deck state<span class="d">Controllers, MPE, synths out, learn, MMC, recall</span></span></div>
   <div><span class="n">14</span><span class="t">Reference<span class="d">Shortcuts, files, troubleshooting, measurements</span></span></div>
 </div>
 
 <!-- ======================================================= 1 WELCOME -->
 <h1><span class="num">1</span>Welcome</h1>
-<p class="lede">TAPE·FOUR is a four-track cassette recorder that runs on your computer. It records onto a virtual cassette, works with any audio interface your computer has, on Windows, macOS or Linux, and plays VST3 instruments (and Audio Units on a Mac) as if they were plugged into the deck.</p>
+<p class="lede">TAPE·FOUR is a four-track cassette recorder that runs on your computer. It records onto a virtual cassette, works with any audio interface your computer has, on Windows, macOS or Linux, and plays VST3 instruments and effects (and Audio Units on a Mac) as if they were plugged into the deck.</p>
 <p>It is deliberately not a DAW. Everything about it follows the workflow of a portable cassette multitracker:</p>
 <ul>
   <li><strong>Four mono tracks on one side of a tape, all running in one direction.</strong> The tape is a C-46, C-60 or C-90, and the length of your song is limited by the length of the tape.</li>
   <li><strong>No undo.</strong> Recording replaces whatever was on the tape under the armed tracks. To keep a take, don't record over it.</li>
-  <li><strong>Everything goes to tape as audio.</strong> There are no MIDI tracks. An instrument (a plug-in, one of the built-ins, or a hardware synth) is plugged into a track, you play it, and what you play is recorded as sound.</li>
+  <li><strong>Everything goes to tape as audio.</strong> There are no MIDI tracks. Each track has a signal chain in front of it, the way a rack of gear sits in front of a real deck: instruments (plug-ins, the built-ins or a hardware synth), MIDI effects and audio effects. You play it, and what comes out of the chain is recorded as sound.</li>
   <li><strong>The tape is part of the sound.</strong> Each cassette type has its own headroom, treble limit, hiss and grain, taken from measurements of real tapes. The tape switch, noise reduction, speed and every bounce change the sound, just as they do on a real deck.</li>
 </ul>
 <div class="note"><span class="tag">ABOUT THE SCREENSHOTS</span>The screenshots in this manual were taken on a test machine with no audio interface or MIDI devices connected. That's why the setup display reads <span class="lcd">NO AUDIO DEVICE</span> and the audio tracks read <span class="lcd">INPUT NOT ACTIVE</span>. On your computer these show your interface and its inputs.</div>
@@ -217,8 +217,8 @@ td:first-child { font-weight: 600; }
 <p>In <strong>Setup → MIDI &amp; Deck</strong>, tick the controllers you want to use and the MIDI outputs your hardware synths are on. Chapter 13 covers this in full.</p>
 
 <h2>Plug-ins</h2>
-<p>In <strong>Setup → Instruments</strong>, choose <strong>Options… → Scan for new or updated VST3 plug-ins</strong>. Instruments found here appear on each track's patch card. Each plug-in is scanned in a separate helper copy of TAPE·FOUR, so a plug-in that crashes or hangs while being scanned can't take the program down: it is set aside and the scan carries on. TAPE·FOUR also has two built-in instruments, <strong>TF Poly Synth</strong> and <strong>TF Tine Piano</strong>, so you can start without any plug-ins.</p>
-<figure class="narrow"><img src="images/setup_inst.png" alt="Setup, Instruments tab"><figcaption><b>Setup → Instruments.</b> Scan once; the list is remembered.</figcaption></figure>
+<p>In <strong>Setup → Plug-ins</strong>, choose <strong>Options… → Scan for new or updated VST3 plug-ins</strong>. Plug-ins found here (instruments, MIDI effects and audio effects) appear in each track's signal chain. Each plug-in is scanned in a separate helper copy of TAPE·FOUR, so a plug-in that crashes or hangs while being scanned can't take the program down: it is set aside and the scan carries on. TAPE·FOUR also has two built-in instruments, <strong>TF Poly Synth</strong> and <strong>TF Tine Piano</strong>, and three built-in effects, <strong>TF Plate</strong>, <strong>TF Spring Reverb</strong> and <strong>TF Tape Echo</strong>, so you can start without any plug-ins.</p>
+<figure class="narrow"><img src="images/setup_inst.png" alt="Setup, Plug-ins tab"><figcaption><b>Setup → Plug-ins.</b> Scan once; the list is remembered.</figcaption></figure>
 
 <!-- ======================================================= 3 FRONT PANEL -->
 <h1><span class="num">3</span>The front panel</h1>
@@ -241,8 +241,9 @@ td:first-child { font-weight: 600; }
   <span class="pin" style="left: 2.4%; top: 17.8%">14</span>
   <span class="pin" style="left: 2.4%; top: 36.7%">15</span>
   <span class="pin" style="left: 2.4%; top: 71%">16</span>
-  <span class="pin" style="left: 8%; top: 94.8%">17</span>
+  <span class="pin" style="left: 8.6%; top: 87%">17</span>
   <span class="pin" style="left: 58%; top: 46.7%">18</span>
+  <span class="pin" style="left: 52.6%; top: 4.3%">19</span>
 </figure>
 <div class="legend">
   <div><span class="n">1</span><span><strong>Setup display.</strong> Shows the audio driver and buffer. Click it to open Setup.</span></div>
@@ -258,11 +259,12 @@ td:first-child { font-weight: 600; }
   <div><span class="n">11</span><span><strong>Tape speed</strong>: 1⅞ or 3¾ inches per second.</span></div>
   <div><span class="n">12</span><span><strong>Noise reduction</strong> on or off.</span></div>
   <div><span class="n">13</span><span><strong>NR type display.</strong> Click it to choose the type and the tape character in Setup.</span></div>
-  <div><span class="n">14</span><span><strong>Track display.</strong> What's plugged in, which controller plays it, the audio path, and the NR, EQ and MIDI lamps. Click it to open the track's patch card; double-click it to open its plug-in's window.</span></div>
+  <div><span class="n">14</span><span><strong>Track display.</strong> What plays the track, which controller and input feed it, its signal chain as a row of blocks, and the NR, EQ and MIDI lamps. Click it to open the track's signal chain (chapter 8); double-click it to open the window of the first plug-in in the chain.</span></div>
   <div><span class="n">15</span><span><strong>Gain, EQ and pan.</strong> HIGH, MID with its FREQ knob, and LOW.</span></div>
   <div><span class="n">16</span><span><strong>Meter and fader.</strong> 0 VU on the meter is Dolby level on tape.</span></div>
-  <div><span class="n">17</span><span><strong>REC ARM.</strong> An armed track plays its live input; it records when you press RECORD on the transport.</span></div>
+  <div><span class="n">17</span><span><strong>MUTE, SOLO and ARM</strong>, each with its own lamp. Mute silences the track, solo picks what you hear, and an armed track plays its live input and records when you press REC (chapter 9).</span></div>
   <div><span class="n">18</span><span><strong>Master strip.</strong> Phones level, stereo meter and master fader.</span></div>
+  <div><span class="n">19</span><span><strong>LEARN.</strong> MIDI learn: map knobs, faders and buttons on your controller to the deck (chapter 13).</span></div>
 </div>
 
 <!-- ======================================================= 4 CASSETTES -->
@@ -426,29 +428,77 @@ td:first-child { font-weight: 600; }
 <p>The counter is a three-digit mechanical-style counter. Like the counters on real decks, it doesn't count seconds: it advances one count for every two seconds of tape at 1⅞ ips. Write the counter number for each song on the inlay. The status display shows the time remaining at the current speed.</p>
 <div class="note warn"><span class="tag">NO UNDO</span>Recording replaces what was on the tape under the armed tracks, from the moment you press REC until you stop or punch out. Nothing else is touched. To keep a take, record on a different track or a new tape.</div>
 
-<!-- ======================================================= 8 PATCHING -->
-<h1><span class="num">8</span>Patching a track</h1>
-<p>Click or right-click a track's display to open the track's <strong>patch card</strong>. The card shows what's plugged into the track, what plays it, and where its audio comes from. At the bottom, it previews what the track display will say. Click <span class="ctl">DONE</span>, click outside the card or press <span class="key">Esc</span> to close it. A track has exactly one source: plugging in a new one unplugs the old.</p>
-
-<div class="grid2">
-  <figure><img src="images/patch_audio.png" alt="Patch card, audio in"><figcaption><b>Audio in.</b> Choose an input, or a pair of inputs mixed to mono.</figcaption></figure>
-  <figure><img src="images/patch_inst.png" alt="Patch card, instrument"><figcaption><b>Instrument.</b> CHANGE… opens a searchable list of every instrument; EDIT SOUND opens a plug-in's window.</figcaption></figure>
-  <figure><img src="images/patch_hw.png" alt="Patch card, hardware synth"><figcaption><b>Hardware synth.</b> MIDI goes out to the synth and its audio comes back in on an input.</figcaption></figure>
-  <figure><img src="images/patch_bounce.png" alt="Patch card, bounce"><figcaption><b>Bounce.</b> Mix other tracks from tape onto this one.</figcaption></figure>
-</div>
+<!-- ======================================================= 8 SIGNAL CHAINS -->
+<h1><span class="num">8</span>Signal chains</h1>
+<p class="lede">Every track has a signal chain in front of the tape, like a rack of gear wired up before a real deck: up to eight blocks in a row. MIDI from your controller runs along the top of the chain and audio along the bottom, and whatever comes out of the last block is what the track records.</p>
+<p>Click a track's display to drop down its chain. Click a block to select it, and its settings appear underneath. Click outside, click <span class="ctl">X</span> or press <span class="key">Esc</span> to close it.</p>
+<figure><img src="images/chain_block.png" alt="The signal chain editor with an effect selected"><figcaption><b>Track 1's chain.</b> The inputs, then TF Poly Synth, TF Tape Echo and TF Plate, then the tape. The blue line is MIDI: it stops at the synth, the last block that listens to it. The amber line is audio: it starts where the synth mixes in (<span class="lcd">+ MIX</span>). TF Plate is selected; underneath are its controls and the list to replace it from.</figcaption></figure>
 
 <table>
-  <thead><tr><th>Source</th><th>Settings</th><th>What to expect</th></tr></thead>
+  <thead><tr><th>To</th><th>Do this</th></tr></thead>
   <tbody>
-    <tr><td>Audio in</td><td><span class="ctl">Audio in</span>: <span class="ctl">IN n</span>, or <span class="ctl">IN n+m mono</span>.</td><td>The display shows <span class="lcd">AUDIO IN 1</span> and the input's name. Tracks are mono; a stereo source on a pair is summed to mono at half level per side.</td></tr>
-    <tr><td>Instrument</td><td><span class="ctl">Play with</span>: <span class="ctl">Any</span>, a named controller, or <span class="ctl">None</span>.<br><span class="ctl">Instrument</span>: TF Poly Synth, TF Tine Piano, any scanned VST3, chosen from the list (<span class="ctl">Change…</span>), <span class="ctl">Edit sound</span>.</td><td>An instrument only sounds while its track is armed. <strong>Any</strong>: any ticked controller plays it. <strong>A named controller</strong> plays only that track, so different keyboards can play different armed tracks at once. <span class="ctl">Change…</span> opens a searchable list of the built-in instruments and every scanned VST3, grouped by maker; type to filter and press <span class="key">Return</span> for the first match. Two plug-ins with the same name are both listed, with their folder and file so you can tell them apart. <span class="ctl">Edit sound</span> (or double-clicking the track display) opens the plug-in's own window to change its sound; the window stays on top, and <span class="key">Space</span>, <span class="key">R</span> and <span class="key">Home</span> still work the transport while it has focus. Plug-ins come in 12 dB below their own output, so a full-level synth sits near 0 VU.</td></tr>
-    <tr><td>Hardware synth</td><td><span class="ctl">Play with</span> (as above)<br><span class="ctl">Send to</span>: a MIDI output, and a channel 1–16, or 0 for "as played".<br><span class="ctl">Listen to</span>: the input the synth is plugged into.</td><td>Notes go out to the synth on the chosen channel, and its audio is recorded from the input. An MPE controller's notes pass through on their own channels. Changing the route sends all-notes-off so nothing hangs. A track can't play a hardware synth and a plug-in at once.</td></tr>
-    <tr><td>Bounce</td><td><span class="ctl">Mix from tape</span>: tick the source tracks.</td><td>While recording, you hear the sources once, through their own EQ, pan and fader. Use those to balance the bounce, then arm the destination and record. The bounce picks up another pass of the tape: a little more hiss and grain, and a level shift of the tape's sensitivity.</td></tr>
+    <tr><td>Add a block</td><td>Click <span class="ctl">+</span> at the end of the chain and pick from the list.</td></tr>
+    <tr><td>Bypass a block</td><td>Click its lamp, or <span class="ctl">BYPASS</span>. A bypassed block is dimmed and the signal passes it untouched.</td></tr>
+    <tr><td>Reorder</td><td>Drag a block left or right. A bar shows where it will land.</td></tr>
+    <tr><td>Open a plug-in's window</td><td>Double-click the block, or <span class="ctl">EDIT</span>. The window stays on top, and <span class="key">Space</span>, <span class="key">R</span> and <span class="key">Home</span> still work the transport from it.</td></tr>
+    <tr><td>Replace a block</td><td>Select it and pick another from the list beside it. The new block takes its place in the chain.</td></tr>
+    <tr><td>Remove a block</td><td><span class="ctl">REMOVE</span>, <span class="key">Delete</span>, or right-click it.</td></tr>
   </tbody>
 </table>
 
+<h2>The inputs</h2>
+<p>The first block is the track's inputs: what plays it and what it hears.</p>
+<figure><img src="images/chain_inputs.png" alt="The inputs block selected"><figcaption><b>The inputs.</b> On the test machine there is no interface, so no audio inputs are listed; on yours, each input appears with a level bar so you can see which one your instrument is plugged into.</figcaption></figure>
+<table>
+  <thead><tr><th>Setting</th><th>Choices</th><th>What to expect</th></tr></thead>
+  <tbody>
+    <tr><td>Feed</td><td><span class="ctl">LIVE INPUTS</span> or <span class="ctl">BOUNCE FROM TAPE</span></td><td>Live: the controller and audio input below feed the chain. Bounce: other tracks are mixed off the tape into the chain instead (see Bouncing, below).</td></tr>
+    <tr><td>Played by</td><td><span class="ctl">NONE</span>, <span class="ctl">ANY</span>, or a named controller</td><td>Which controller's notes go into the chain. <strong>Any</strong>: every ticked controller. <strong>A named controller</strong> plays only this track, so different keyboards can play different armed tracks at once. Notes only reach the chain while the track is armed.</td></tr>
+    <tr><td>Audio in</td><td><span class="ctl">NONE</span>, <span class="ctl">IN n</span>, or <span class="ctl">IN n+m</span></td><td>An input of your interface, or a pair mixed to mono. Tracks are mono; a stereo source on a pair is summed at half level per side. A track can have both a controller and an audio input: play a synth and sing through the same chain.</td></tr>
+  </tbody>
+</table>
+
+<h2>The blocks</h2>
+<p>There is one kind of chain, not separate instrument and effect slots. Each block does what it is:</p>
+<table>
+  <thead><tr><th>Block</th><th>What it does with MIDI</th><th>What it does with audio</th></tr></thead>
+  <tbody>
+    <tr><td>Instrument</td><td>Plays the notes that reach it.</td><td>Mixes its sound in with whatever is already in the chain (<span class="lcd">+ MIX</span>), at its <span class="ctl">LEVEL</span>. Two instruments one after the other layer, like two synths into a mixer. An instrument with an audio input (a vocoder, say) can instead <span class="ctl">PROCESS INPUT</span>.</td></tr>
+    <tr><td>MIDI effect</td><td>Changes the notes for every block after it: an arpeggiator, a chord generator, or a retuner such as PitchGrid for MPE instruments. The lane after it is drawn brighter and tagged <span class="lcd">CHANGES MIDI</span>.</td><td>Passes it through.</td></tr>
+    <tr><td>Audio effect</td><td>Passes it through.</td><td>Processes the audio, blended with the dry signal by its <span class="ctl">MIX</span>.</td></tr>
+    <tr><td>External instrument</td><td>Sends the notes out to a hardware synth.</td><td>Mixes in the synth's audio from the input it's plugged into.</td></tr>
+  </tbody>
+</table>
+<p>Order matters, as it does with real gear. A MIDI effect only changes the blocks after it. An effect placed before an instrument doesn't hear that instrument, only what came before it. So a typical chain is <em>MIDI effects → instruments → audio effects</em>, but nothing stops you putting a reverb on the voice coming in, then a synth on top, then a delay over both.</p>
+<p>Plug-in instruments come in 12 dB below their own output, so a full-level synth sits near 0 VU. The built-in instruments don't need it.</p>
+
+<h2>Picking a block</h2>
+<figure><img src="images/chain_add.png" alt="The list of blocks to add"><figcaption><b>Adding a block.</b> The built-ins first, then hardware synths, then every scanned plug-in, grouped by maker.</figcaption></figure>
+<p>The tabs narrow the list to <span class="ctl">INSTRUMENTS</span>, <span class="ctl">MIDI FX</span> or <span class="ctl">AUDIO FX</span>. Type to search; <span class="key">Return</span> takes the first match. Two plug-ins with the same name are both listed, with their folder and file so you can tell them apart. <span class="ctl">FIND PLUG-INS…</span> takes you to Setup → Plug-ins to scan. Plug-ins load in the background; until one arrives its block reads <span class="lcd">LOADING</span>, and the chain keeps its order.</p>
+<table>
+  <thead><tr><th>Built-in</th><th>Kind</th><th>What to expect</th></tr></thead>
+  <tbody>
+    <tr><td>TF Poly Synth</td><td>Instrument</td><td>A warm two-oscillator analogue-style polysynth. Responds to MPE.</td></tr>
+    <tr><td>TF Tine Piano</td><td>Instrument</td><td>An electric piano with a bell-like attack. Responds to MPE.</td></tr>
+    <tr><td>TF Plate</td><td>Audio effect</td><td>A smooth, dense plate reverb with pre-delay. Size, damping and pre-delay.</td></tr>
+    <tr><td>TF Spring Reverb</td><td>Audio effect</td><td>The boingy, dripping reverb of a guitar amp's spring tank.</td></tr>
+    <tr><td>TF Tape Echo</td><td>Audio effect</td><td>A tape delay whose repeats darken and wobble as they fade. Time, feedback, tone and wow.</td></tr>
+  </tbody>
+</table>
+
+<h2>Hardware synths</h2>
+<figure><img src="images/chain_external.png" alt="An external instrument block selected"><figcaption><b>An external instrument</b>: a Juno-106 on a USB MIDI interface.</figcaption></figure>
+<p>Tick the synth's MIDI output in Setup → MIDI &amp; Deck (you can name it there), then add it from <strong>Hardware synths</strong> in the list. Choose where its MIDI goes and on which channel (<span class="ctl">AS PLAYED</span> keeps an MPE controller's notes on their own channels), and which input its audio comes back on. Changing the route sends all-notes-off so nothing hangs; <span class="ctl">ALL NOTES OFF</span> does it by hand. Its audio is recorded in time with the tape, allowing for the round trip through the interface.</p>
+
+<h2>Bouncing</h2>
+<p>Set a track's feed to <span class="ctl">BOUNCE FROM TAPE</span> and tick the tracks to mix onto it. While recording, you hear the sources once, through their own EQ, pan and fader; use those to balance the bounce, then arm the destination and record. A muted source is left out. The bounce still goes through the track's chain, so you can put a reverb over a whole submix as you bounce it. It picks up another pass of the tape: a little more hiss and grain, and a level shift of the tape's sensitivity.</p>
+
+<h2>Missing plug-ins</h2>
+<p>If a chain uses a plug-in this computer doesn't have (a tape made on another machine, or a plug-in that was removed), its block reads <span class="lcd">MISSING</span> and is skipped. Its settings are kept: rescan in Setup → Plug-ins and it comes back as it was, or pick a replacement.</p>
+
 <h2>Reading the track display</h2>
-<figure><img src="images/strip_lcds.png" alt="Track displays"><figcaption><b>Track displays.</b> Line 1: the source. Line 2: what plays it, or the input's name. Line 3: the audio path, plus three lamps.</figcaption></figure>
+<figure><img src="images/strip_lcds.png" alt="Track displays"><figcaption><b>Track displays.</b> Line 1: what plays the track. Line 2: its controller and audio input. Line 3: the chain, as blocks (dim ones are bypassed). Line 4: what the track is doing, and three lamps.</figcaption></figure>
+<p>The tag above the display says what feeds the track: <span class="lcd">MIDI</span>, <span class="lcd">AUDIO</span>, <span class="lcd">AUDIO+MIDI</span> or <span class="lcd">BOUNCE</span>. Line 4 reads <span class="lcd">LIVE IN</span> when the track is armed (you hear its inputs, not the tape), <span class="lcd">MUTED</span> when it's muted, and <span class="lcd">→ TAPE</span> otherwise. When the tape under the head was recorded at a different speed from the one you're playing at, it shows the pitch shift in semitones instead, for example <span class="lcd">-12.0 SEMITONES</span>.</p>
 <table>
   <thead><tr><th>Lamp</th><th>Lit</th><th>Red</th></tr></thead>
   <tbody>
@@ -457,7 +507,6 @@ td:first-child { font-weight: 600; }
     <tr><td>MIDI</td><td>Green flash: notes are reaching this track.</td><td>—</td></tr>
   </tbody>
 </table>
-<p>When the tape under the head was recorded at a different speed from the one you're playing at, line 3 shows the pitch shift in semitones, for example <span class="lcd">-12.0 SEMITONES</span>.</p>
 
 <!-- ======================================================= 9 MIXER -->
 <h1><span class="num">9</span>The mixer</h1>
@@ -473,9 +522,12 @@ td:first-child { font-weight: 600; }
     <tr><td>PAN</td><td>L100 to R100, constant power</td><td>Centre is −3 dB to each side. Hard left puts the full level on the left output only.</td></tr>
     <tr><td>Fader</td><td>−∞ to +7 dB (0 at the mark)</td><td>The level into the mix and into bounces. On an armed track it also sets the level going to tape, as on a portastudio.</td></tr>
     <tr><td>Meter</td><td>20 LEDs, 0 VU at −12 dBFS</td><td>Green below 0 VU, amber from 0 to +3, red above +3. Keep peaks around 0 VU for a clean recording, and push into the amber for tape colour.</td></tr>
-    <tr><td>REC ARM</td><td>On or off</td><td>An armed track plays its live input (audio in, instrument or hardware synth) instead of its tape, whatever the transport is doing, and the display reads <span class="lcd">ARMED: LIVE INPUT</span>. Press RECORD on the transport and it records that input to tape. To hear a take, disarm the track: while it is armed you hear the input, not the tape.</td></tr>
+    <tr><td>MUTE</td><td>On or off (orange lamp)</td><td>Silences the track everywhere: in the mix, in bounces, and its live input. An armed track that's muted <strong>still records to tape</strong>: you just don't hear it.</td></tr>
+    <tr><td>SOLO</td><td>On or off (yellow lamp)</td><td>Changes only what you hear. With any track soloed, only soloed tracks are heard. Solo doesn't change what is recorded or bounced.</td></tr>
+    <tr><td>ARM</td><td>On or off (red lamp)</td><td>An armed track plays its live inputs through its chain instead of its tape, whatever the transport is doing, and the display reads <span class="lcd">LIVE IN</span>. The lamp flashes while armed and stays lit while recording. Press REC on the transport and it records to tape. To hear a take, disarm the track: while it is armed you hear the input, not the tape.</td></tr>
   </tbody>
 </table>
+<p><strong>Mute wins over solo.</strong> A track that is both soloed and muted stays silent. If every soloed track is also muted, nothing is heard, and the status display says <span class="lcd">SOLOED TRACK IS MUTED</span> so you know why.</p>
 <p>The <strong>master strip</strong> has a stereo meter, the master fader for the stereo out, and the <span class="ctl">Phones</span> knob, which sets the level of the phones output pair independently.</p>
 
 <h2>What the EQ and gain record, and what they don't</h2>
@@ -548,11 +600,11 @@ td:first-child { font-weight: 600; }
 </table>
 
 <!-- ======================================================= 13 MIDI -->
-<h1><span class="num">13</span>MIDI and the deck state</h1>
-<figure class="narrow"><img src="images/setup_midi.png" alt="Setup, MIDI and Deck tab"><figcaption><b>Setup → MIDI &amp; Deck.</b> Controllers in, hardware synths out, and deck recall.</figcaption></figure>
+<h1><span class="num">13</span>MIDI, MIDI learn and the deck state</h1>
+<figure class="narrow"><img src="images/setup_midi.png" alt="Setup, MIDI and Deck tab"><figcaption><b>Setup → MIDI &amp; Deck.</b> Controllers in, hardware synths out, MIDI control with the list of mappings, and deck recall.</figcaption></figure>
 <h2>Controllers in</h2>
 <ul>
-  <li><strong>Use</strong>: TAPE·FOUR only listens to controllers that are ticked. Each track then chooses its controller on its patch card.</li>
+  <li><strong>Use</strong>: TAPE·FOUR only listens to controllers that are ticked. Each track then chooses its controller in its chain's inputs (chapter 8).</li>
   <li><strong>MPE</strong>: tick it for MPE controllers (Osmose, Seaboard, LinnStrument and others). Known MPE controllers start ticked. A track played by an MPE controller tells its instrument about the MPE zone (lower zone, 15 channels). Each note then gets its own pitch bend, pressure and timbre (CC74). The built-in instruments respond directly. VST3s need MPE support, and some need it switched on in their own settings.</li>
   <li><strong>Bend range</strong>: type the per-note pitch-bend range your controller sends (the Osmose default is 48 semitones). If it's wrong, bent notes land at the wrong pitch.</li>
   <li><strong>Computer keyboard</strong>: <span class="key">A W S E D F T G Y H U J K O L P ;</span> play notes like a piano keyboard, and <span class="key">Z</span> and <span class="key">X</span> change octave.</li>
@@ -560,12 +612,50 @@ td:first-child { font-weight: 600; }
 <h2>Plugging in while running</h2>
 <p>TAPE·FOUR notices MIDI devices being plugged in and out while it runs. Controllers and synth outputs you have ticked reconnect on their own, and tracks routed to them carry on. A controller TAPE·FOUR has never seen comes in switched on; untick it in Setup if you don't want it.</p>
 <h2>Hardware synths out</h2>
-<p>Tick the MIDI outputs your synths are on. You can give each one a name, such as "JUNO-106", which the track display then shows instead of the port name. The MIDI OUT lamp at the top of the deck flashes when notes go out.</p>
+<p>Tick the MIDI outputs your synths are on. You can give each one a name, such as "JUNO-106", which the chain and the track display then show instead of the port name. Add the synth to a track's chain as an external instrument (chapter 8). The MIDI OUT lamp at the top of the deck flashes when notes go out.</p>
+
+<h2>MIDI learn</h2>
+<p>Any knob, fader or button on your controller can move a control on the deck or a parameter of a plug-in.</p>
+<figure><img src="images/learn_mode.png" alt="The deck in learn mode"><figcaption><b>Learn mode.</b> Every control that can be learned is outlined: amber if it's free, green with a badge if it's already mapped (here, the KeyLab's CC 74 is on track 1's fader and a pad is on its mute).</figcaption></figure>
+<ol>
+  <li>Press <span class="ctl">LEARN</span> at the top of the deck. Its lamp lights and the controls that can be learned are outlined.</li>
+  <li>Click a control. It turns orange and reads <span class="lcd">MOVE A CONTROL</span>.</li>
+  <li>Move a knob or fader, or press a button, on your controller. The status display confirms it, for example <span class="lcd">LEARNED: TRK 1 FADER ← CC 74</span>.</li>
+  <li>Click another control to learn the next, or press <span class="ctl">LEARN</span> or <span class="key">Esc</span> to finish.</li>
+</ol>
+<p>Without entering learn mode, <strong>right-click</strong> any of these controls and choose <strong>Learn MIDI control</strong> or <strong>Forget MIDI control</strong>.</p>
+<table>
+  <thead><tr><th>Can be learned</th><th>Controls</th></tr></thead>
+  <tbody>
+    <tr><td>Each track</td><td>Gain, High, Mid, Freq, Low, Pan, Fader, Mute, Solo, Arm</td></tr>
+    <tr><td>The deck</td><td>Master fader, Phones, Pitch, Tape speed, Noise reduction</td></tr>
+    <tr><td>Transport</td><td>Play, Stop, Rec, Rew, F.Fwd, RTZ</td></tr>
+    <tr><td>Plug-ins</td><td>Any parameter of any block in a chain</td></tr>
+  </tbody>
+</table>
+<p>To learn a plug-in parameter, open the track's chain, select the block and press <span class="ctl">LEARN</span> there. Either touch the control in the plug-in's own window or pick it from the list, then move a control on your keyboard. The block's mappings are listed under it, each with an <span class="ctl">X</span> to forget it.</p>
+<figure><img src="images/chain_learn.png" alt="Learning a parameter of TF Tape Echo"><figcaption><b>Learning a plug-in parameter.</b> Touching Feedback in the echo's window, or clicking it here, picks it.</figcaption></figure>
+
+<h3>How mapped controls behave</h3>
+<ul>
+  <li><strong>Pickup.</strong> A knob or fader only takes over once it passes the control's current position, so nothing jumps when you first touch it. Until then the status display tells you which way to turn it. Pickup can be turned off per mapping in the list.</li>
+  <li><strong>Endless encoders</strong> are recognised while learning (the common relative formats) and nudge the control up and down, with no pickup needed.</li>
+  <li><strong>14-bit controllers</strong> that send a CC pair (0–31 with 32–63) are combined for fine resolution.</li>
+  <li><strong>Buttons and pads</strong> learned onto a switch (mute, solo, arm, tape speed, noise reduction) toggle it each press, and onto a transport key press that key.</li>
+  <li><strong>A mapped control is kept for its job.</strong> Its messages don't also reach the track's instruments, so a knob mapped to a fader doesn't sweep a synth's filter at the same time. Tick <strong>Also plays</strong> in the list to pass them on as well.</li>
+</ul>
+
+<h2>MIDI Machine Control</h2>
+<p>Many keyboards and control surfaces have transport buttons that send MIDI Machine Control (MMC). With <strong>Follow transport buttons that send MIDI Machine Control</strong> ticked (the default), they play, stop, record, wind and return the tape with no learning needed. A button that sends a plain CC or note can be learned onto a transport key instead.</p>
+
+<h2>The mappings list</h2>
+<p>Setup → MIDI &amp; Deck lists every mapping: which controller and message it's from, what it controls, how it moves (knob, 14-bit, encoder or press), and its <strong>Pickup</strong> and <strong>Also plays</strong> settings. <span class="ctl">✕</span> forgets one. Mappings to the deck are kept with your settings. Mappings to a plug-in's parameters are kept with that block, so they travel with the tape and come back when the deck is recalled.</p>
 <h2>Recall the deck with each tape</h2>
 <p>Every tape remembers the deck it was last used with:</p>
 <ul>
-  <li>sources, and instruments with their plug-in settings;</li>
+  <li>each track's inputs and signal chain, with every plug-in's settings and MIDI mappings;</li>
   <li>MIDI routing;</li>
+  <li>mute and solo;</li>
   <li>gain, EQ, pan and faders;</li>
   <li>master and phones;</li>
   <li>speed and pitch;</li>
@@ -582,7 +672,8 @@ td:first-child { font-weight: 600; }
     <tr><td><span class="key">Space</span></td><td>Play / stop</td></tr>
     <tr><td><span class="key">R</span></td><td>Record (punch in while playing)</td></tr>
     <tr><td><span class="key">Home</span></td><td>Return to zero</td></tr>
-    <tr><td><span class="key">Esc</span></td><td>Close the patch card or inlay</td></tr>
+    <tr><td><span class="key">Esc</span></td><td>Close the signal chain or inlay; leave learn mode</td></tr>
+    <tr><td><span class="key">Delete</span></td><td>Remove the selected block from a chain</td></tr>
     <tr><td><span class="key">A</span> … <span class="key">;</span></td><td>Play notes; <span class="key">Z</span> / <span class="key">X</span> change octave</td></tr>
   </tbody>
 </table>
@@ -590,7 +681,7 @@ td:first-child { font-weight: 600; }
 <table>
   <tbody>
     <tr><td>Tapes</td><td><span class="lcd">Documents/TapeFour/Tape Shelf/</span>: one folder per tape, holding the audio for each track, <span class="lcd">tape.xml</span> (label, inlay and what's recorded where) and <span class="lcd">deck.xml</span> (the deck that goes with the tape). Tapes are saved in the background: every five seconds while recording, so a crash costs seconds rather than a take; a second after the transport stops; and on eject and quit.</td></tr>
-    <tr><td>Settings</td><td><span class="lcd">TapeFour.settings</span>: audio device, MIDI, deck and tape character. In <span class="lcd">%APPDATA%\TapeFour</span> on Windows, <span class="lcd">~/Library/Application Support/TapeFour</span> on a Mac, <span class="lcd">~/.config/TapeFour</span> on Linux. Only written when something has changed.</td></tr>
+    <tr><td>Settings</td><td><span class="lcd">TapeFour.settings</span>: audio device, MIDI, deck MIDI mappings, the deck and tape character. In <span class="lcd">%APPDATA%\TapeFour</span> on Windows, <span class="lcd">~/Library/Application Support/TapeFour</span> on a Mac, <span class="lcd">~/.config/TapeFour</span> on Linux. Only written when something has changed.</td></tr>
     <tr><td>Crash reports</td><td><span class="lcd">Crashes</span>, next to the settings. If TapeFour ever crashes it writes a report there (the version and a stack trace, and on Windows a <span class="lcd">.dmp</span> file) and says so when it next starts.</td></tr>
   </tbody>
 </table>
@@ -601,13 +692,16 @@ td:first-child { font-weight: 600; }
     <tr><td><span class="lcd">NO AUDIO DEVICE</span></td><td>Open Setup → Audio and choose your device. If another program holds it (common with ASIO and exclusive-mode WASAPI), close that program, then reselect the device. On a Mac, check TapeFour is allowed the microphone in System Settings → Privacy &amp; Security.</td></tr>
     <tr><td>REC does nothing</td><td>Arm at least one track. The status display says <span class="lcd">ARM A TRACK FIRST</span>.</td></tr>
     <tr><td>A take seems to have recorded silence</td><td>While a track is armed you hear its live input, not the tape. Disarm it and play the take back.</td></tr>
-    <tr><td>An instrument doesn't play</td><td>Tick the controller in Setup → MIDI &amp; Deck. Check the track's <span class="ctl">Play with</span> setting, and arm the track: instruments only sound while armed. Watch the MIDI IN lamp and the track's MIDI lamp.</td></tr>
+    <tr><td>An instrument doesn't play</td><td>Tick the controller in Setup → MIDI &amp; Deck. Check <span class="ctl">Played by</span> in the track's chain inputs, and arm the track: instruments only sound while armed. Check the instrument isn't bypassed or after a MIDI effect that filters notes out. Watch the MIDI IN lamp and the track's MIDI lamp.</td></tr>
     <tr><td>Recordings sound distorted</td><td>Lower GAIN so peaks sit around 0 VU, use a tape with more headroom (MX), centre Tape drive, and check the tape switch matches the tape.</td></tr>
     <tr><td>Everything sounds dull</td><td>Check the EQ lamps (playback EQ mismatch), the NR lamps (NR mismatch), the tape switch (over-bias) and HF loss in Setup → Tape.</td></tr>
     <tr><td>Bounces get quieter or louder</td><td>That's the tape's sensitivity, doubled with 2:1 NR. Correct it with the faders before each bounce.</td></tr>
-    <tr><td>A plug-in shows as failed after a scan</td><td>It crashed or hung while being scanned, so TAPE·FOUR set it aside. Update the plug-in, select it in Setup → Instruments, choose <strong>Options… → Remove selected plug-in from list</strong>, and scan again.</td></tr>
-    <tr><td>A controller plugged in later doesn't play</td><td>Check it's ticked in Setup → MIDI &amp; Deck, and that the track's <span class="ctl">Play with</span> names it or is set to <strong>Any</strong>, and that the track is armed.</td></tr>
-    <tr><td>A plug-in is missing when a tape is recalled</td><td>Rescan in Setup → Instruments. The plug-in's settings are kept until it can be loaded again.</td></tr>
+    <tr><td>A plug-in shows as failed after a scan</td><td>It crashed or hung while being scanned, so TAPE·FOUR set it aside. Update the plug-in, select it in Setup → Plug-ins, choose <strong>Options… → Remove selected plug-in from list</strong>, and scan again.</td></tr>
+    <tr><td>A controller plugged in later doesn't play</td><td>Check it's ticked in Setup → MIDI &amp; Deck, that the track's <span class="ctl">Played by</span> names it or is set to <strong>Any</strong>, and that the track is armed.</td></tr>
+    <tr><td>A plug-in is missing when a tape is recalled</td><td>Its block reads <span class="lcd">MISSING</span>. Rescan in Setup → Plug-ins. The plug-in's settings are kept until it can be loaded again.</td></tr>
+    <tr><td>Nothing is heard and the status says <span class="lcd">SOLOED TRACK IS MUTED</span></td><td>Every soloed track is also muted, and mute wins. Unmute it or clear the solos.</td></tr>
+    <tr><td>A mapped knob does nothing at first</td><td>That's pickup: turn it past the control's current position (the status display says which way), or untick Pickup for it in Setup → MIDI &amp; Deck.</td></tr>
+    <tr><td>A knob moves a control and a synth at once</td><td>Untick <strong>Also plays</strong> for that mapping.</td></tr>
     <tr><td><span class="lcd">LAST SESSION CRASHED</span></td><td>The report is in the Crashes folder (see above). The tape was saved up to five seconds before the crash.</td></tr>
     <tr><td>A ghost of an old take is audible</td><td>You recorded over a metal tape at NORMAL. Record over it again at METAL to erase it fully.</td></tr>
   </tbody>

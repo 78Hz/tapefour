@@ -1,6 +1,6 @@
 # TAPE·FOUR
 
-A four-track cassette multitracker for Windows, macOS and Linux. It records onto a virtual tape, works with any audio interface the computer has (ASIO, WASAPI or DirectSound on Windows; CoreAudio on macOS; ALSA or JACK on Linux), and plays VST3 instruments (and Audio Units on macOS) as if they were plugged into the deck.
+A four-track cassette multitracker for Windows, macOS and Linux. It records onto a virtual tape, works with any audio interface the computer has (ASIO, WASAPI or DirectSound on Windows; CoreAudio on macOS; ALSA or JACK on Linux), and plays VST3 instruments and effects (and Audio Units on macOS) through a signal chain in front of each track, as if they were racked up in front of the deck.
 
 It works like the real thing: four mono tracks, one direction, a C-46, C-60 or C-90 of tape, and **no undo**. Recording erases whatever was on the tape under the armed tracks.
 
@@ -29,7 +29,7 @@ Open the repository's **Actions** tab, pick the latest green **Build** run, and 
    - under **Hardware synths out**, tick the MIDI outputs your synths are on, and give each a name for the deck if you like.
 
    On first start TapeFour opens the computer's usual audio device, or on Windows an ASIO driver if one is installed. Every change is saved straight away. If the saved driver can't be opened at start-up (for example, another program has it), the deck says so and keeps your choice for next time.
-2. To use your own instruments, go to the **Instruments** tab and choose **Options… → Scan for new or updated VST3 plug-ins**. The program also has two built-in instruments, a poly synth and a tine piano, so you can start without any plug-ins.
+2. To use your own plug-ins, go to the **Plug-ins** tab and choose **Options… → Scan for new or updated VST3 plug-ins**. The program also has two built-in instruments (a poly synth and a tine piano) and three built-in effects (a plate, a spring reverb and a tape echo), so you can start without any plug-ins.
 3. Close the setup window. You're at the deck.
 
 ### Audio systems
@@ -50,17 +50,18 @@ However it's connected, recordings line up with what you heard: TapeFour correct
 | | |
 |---|---|
 | **Layout** | Like a portastudio: the mixer runs down the left, the cassette and transport are in a column on the right. The window resizes and keeps the 16:9 shape. |
-| **Mixer** | Each strip: GAIN, HIGH shelf (full by 10 kHz), MID with a swept FREQ (250 Hz–5 kHz), LOW shelf (full by 100 Hz), PAN, meter and fader and **REC ARM**. An armed track plays its live input; it records when you press RECORD. |
-| **Plug something into a track** | Click its amber display to open the track's patch card; double-click it to open the plug-in's window. Choose **Audio in**, **Instrument**, **Hardware synth** or **Bounce**, then what plays it and where its audio comes from. |
-| **Record** | Press **REC ARM** on the track(s), then **REC**. To punch in, press **REC** while playing; press **PLAY** to punch out. |
-| **Play an instrument** | On the patch card, **Play with** chooses the controller. Instruments sound only while their track is armed. **Any** means any ticked controller plays it; naming a controller ties it to that track, so different keyboards can play different armed tracks at once. **Change…** opens a searchable instrument list (same-named plug-ins are listed separately with their folder), and **Edit sound** opens the plug-in's window. Without a keyboard, the computer keys A W S E D F T G Y H U J K play notes and Z / X change octave. |
-| **Hardware synth** | Choose **Hardware synth** on the patch card, the controller that plays it, the MIDI output (**Send to**) and channel, and the input its audio comes back on (**Listen to**). Tracks are mono, so a stereo synth can come back on a pair of inputs, mixed to mono. A track plays either a VST/built-in instrument or a hardware synth, never both. |
-| **Bounce** | On the destination track's patch card choose **Bounce** and tick the tracks to mix from tape. Balance them with their own EQ and faders, arm the destination and record. |
+| **Mixer** | Each strip: GAIN, HIGH shelf (full by 10 kHz), MID with a swept FREQ (250 Hz–5 kHz), LOW shelf (full by 100 Hz), PAN, meter and fader, and three keys with lamps: **MUTE**, **SOLO** and **ARM**. |
+| **Mute and solo** | Mute silences a track everywhere (mix, bounces and live input), but a muted armed track still records. Solo only changes what you hear. Mute wins over solo; if every soloed track is muted the status display says so. |
+| **Signal chain** | Click a track's display to drop down its chain: the inputs, up to eight blocks, then the tape. MIDI runs along the top, audio along the bottom. Instruments mix their sound in (two in a row layer), MIDI effects (an arpeggiator, PitchGrid) change the notes for every block after them, audio effects process with a MIX control, and an external instrument sends MIDI to a hardware synth and mixes its audio back in. Click **+** to add from a searchable list (ALL / INSTRUMENTS / MIDI FX / AUDIO FX), click a block's lamp to bypass it, drag to reorder, double-click to open its window. |
+| **Inputs** | The first block: **Played by** (none, any controller, or a named one, so different keyboards can play different armed tracks), **Audio in** (an input, or a pair mixed to mono), or **Bounce from tape**. A track can take a controller and an audio input at once. |
+| **Record** | Press **ARM** on the track(s), then **REC**. An armed track plays its live input through its chain; instruments sound only while armed. To punch in, press **REC** while playing; press **PLAY** to punch out. Without a keyboard, the computer keys A W S E D F T G Y H U J K play notes and Z / X change octave. |
+| **Bounce** | Set the destination's inputs to **Bounce from tape** and tick the tracks to mix. Balance them with their own EQ and faders, arm the destination and record. The bounce goes through the destination's chain too. |
+| **MIDI learn** | Press **LEARN**, click any knob, fader, key or transport button, and move a control on your keyboard; or right-click a control and choose Learn / Forget. Plug-in parameters are learned from the block in its chain. Knobs pick up (no jumps), endless encoders and 14-bit CCs are recognised, buttons toggle, and mapped messages don't also play the synth unless you ask. MMC transport buttons work without learning. Setup → MIDI & Deck lists every mapping. |
 | **Counter** | **RESET** sets 000 where the tape is now. **RTZ** (or the Home key) rewinds to 000. |
 | **Tapes** | **EJECT** (tape stopped) inserts a new blank tape (choose the cassette, then C-46, C-60 or C-90) or loads one from the tape shelf. |
 | **Label and inlay** | Double-click the cassette label to write on it. Click the inlay beside the cassette to take it out of the case and write the title, songs with their counter numbers, what's on each track, NR, speed and date. All of it is saved with the tape. |
-| **Deck with the tape** | Every tape remembers the deck it was recorded on: sources, instruments and their settings, MIDI routing, EQ, pan, faders, master, speed and pitch. Tick **Recall the deck with each tape** (Setup → MIDI & Deck) to have loading a tape put the deck back that way. |
-| **Keys** | Space = play/stop, R = record, Home = return to zero, Esc = close a card. |
+| **Deck with the tape** | Every tape remembers the deck it was recorded on: each track's inputs and signal chain with every plug-in's settings and MIDI mappings, MIDI routing, mute and solo, EQ, pan, faders, master, speed and pitch. Tick **Recall the deck with each tape** (Setup → MIDI & Deck) to have loading a tape put the deck back that way. |
+| **Keys** | Space = play/stop, R = record, Home = return to zero, Esc = close the chain or inlay, or leave learn mode; Delete = remove the selected block. |
 
 ### MPE controllers (Osmose, Seaboard, LinnStrument…)
 
@@ -133,7 +134,7 @@ The other sliders are wow, flutter, HF loss, track crosstalk, dropouts and speed
 ## Where things are kept
 
 - **Tapes**: `Documents/TapeFour/Tape Shelf/`, one folder per tape (the audio, `tape.xml` for what's recorded where, and `deck.xml` for the deck that goes with it). Tapes are saved in the background: every five seconds while recording, so a crash costs seconds rather than a take; whenever the transport has been stopped for a second; and on eject and on quit.
-- **Settings**: `TapeFour.settings` in `%APPDATA%\TapeFour\` (Windows), `~/Library/Application Support/TapeFour/` (macOS) or `~/.config/TapeFour/` (Linux). This holds the audio device, MIDI controllers and synths, track sources (including each plug-in's state), knob positions and tape character. It's only written when something has changed.
+- **Settings**: `TapeFour.settings` in `%APPDATA%\TapeFour\` (Windows), `~/Library/Application Support/TapeFour/` (macOS) or `~/.config/TapeFour/` (Linux). This holds the audio device, MIDI controllers and synths, each track's chain (including each plug-in's state and its MIDI mappings), deck MIDI mappings, knob positions and tape character. It's only written when something has changed.
 - **Crash reports**: if TapeFour ever crashes it writes a report to `TapeFour/Crashes/` next to the settings (a `.txt` with the version and a stack trace, and on Windows a `.dmp`), and says so the next time it starts. Sending one along with a description of what you were doing makes the problem findable.
 
 ## Building it yourself
@@ -151,7 +152,7 @@ JUCE 8.0.11 is downloaded during configuration. It includes the ASIO headers (St
 Add `-DTAPEFOUR_TESTS=ON` to also build the headless test programs, which every build on GitHub runs on all three platforms:
 
 - `EngineTest`: each cassette's MOL, SOL, hiss, modulation noise and sensitivity; pitch and level; noise reduction, tape speed, the tape switch, and clean punch-ins and punch-outs.
-- `MixerTest`: the whole audio path: monitoring and arming crossfades, EQ, bounce, the built-in synth via MIDI and MPE, per-track controllers, hardware synth routing, recordings lining up on an interface with latency, saving while recording, plug-in load races, MIDI device slots, deck recall, and settings surviving a restart.
+- `MixerTest`: the whole audio path: monitoring and arming crossfades, EQ, bounce, the built-in synth via MIDI and MPE, per-track controllers, signal chains (MIDI effects, layering, MIX and bypass), mute and solo, MIDI learn (pickup, encoders, toggles, MMC, plug-in parameters), hardware synth routing, recordings lining up on an interface with latency, saving while recording, plug-in load races, MIDI device slots, deck recall, and settings surviving a restart.
 - `ScanTest build/crashplugin`: scans a plug-in made to crash, to show the scan survives it.
 
 `-DTAPEFOUR_SANITIZE=address` or `thread` (with Clang or GCC) builds them with the address/undefined-behaviour or thread sanitizer; GitHub runs both on every push.

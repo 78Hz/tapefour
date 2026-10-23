@@ -1,6 +1,7 @@
 // Everything about the deck that is saved and recalled, in one place:
 // the deck state (what you set by hand; saved in the settings and with every tape),
-// the hardware state (outputs, latency trim, MIDI devices; settings only), and the settings file.
+// the hardware state (outputs, latency trim, MIDI devices, deck MIDI mappings; settings only),
+// and the settings file.
 #include "AudioEngine.h"
 
 namespace tf
@@ -8,16 +9,19 @@ namespace tf
 std::unique_ptr<juce::XmlElement> AudioEngine::createDeckState (bool freshPluginState)
 {
     auto deck = std::make_unique<juce::XmlElement> ("DECK");
-    deck->setAttribute ("version", 3);
+    deck->setAttribute ("version", 4);
 
     for (int t = 0; t < numTracks; ++t)
     {
         auto& p = track[t];
         auto* x = deck->createNewChildElement ("TRACK");
         x->setAttribute ("index", t);
-        x->setAttribute ("source", p.source.load());
+        x->setAttribute ("feed", (Feed) p.feed.load() == Feed::bounce ? "bounce" : "live");
         x->setAttribute ("input", p.inputChannel.load());
         x->setAttribute ("pair", p.inputPair.load());
+        x->setAttribute ("bounce", p.bounceMask.load());
+        x->setAttribute ("mute", p.mute.load());
+        x->setAttribute ("solo", p.solo.load());
         x->setAttribute ("gain", p.gain.load());
         x->setAttribute ("high", p.high.load());
         x->setAttribute ("mid", p.mid.load());
@@ -25,25 +29,26 @@ std::unique_ptr<juce::XmlElement> AudioEngine::createDeckState (bool freshPlugin
         x->setAttribute ("low", p.low.load());
         x->setAttribute ("pan", p.pan.load());
         x->setAttribute ("fader", p.fader.load());
-        x->setAttribute ("bounce", p.bounceMask.load());
 
         auto port = p.midiPort.load();
         if (port == midiAny)                 x->setAttribute ("midiIn", "any");
         else if (! midi.inputExists (port))  x->setAttribute ("midiIn", "none");
         else { x->setAttribute ("midiIn", "port"); x->setAttribute ("midiInId", midi.inputId (port)); x->setAttribute ("midiInName", midi.inputName (port)); }
 
-        auto outPort = p.midiOutPort.load();
-        if (midi.outputExists (outPort))
+        auto* chain = x->createNewChildElement ("CHAIN");
+        for (auto& b : chains[t].blocks)
         {
-            x->setAttribute ("midiOutId", midi.outputId (outPort));
-            x->setAttribute ("midiOutName", midi.outputName (outPort));
+            auto bx = b->saveState (freshPluginState);
+            b->writeCommon (*bx);
+            if (auto* e = dynamic_cast<ExternalBlock*> (b.get()))
+            {
+                bx->setAttribute ("outId", midi.outputId (e->outPort.load()));
+                bx->setAttribute ("outName", midi.outputName (e->outPort.load()));
+            }
+            if (dynamic_cast<PendingBlock*> (b.get()) == nullptr)
+                mapper.writeBlockMappings (*bx, t, b->id);
+            chain->addChildElement (bx.release());
         }
-        x->setAttribute ("midiOutChannel", p.midiOutChannel.load());
-
-        if (slots[t].inst != nullptr)
-            x->addChildElement (slots[t].inst->saveState (freshPluginState).release());
-        else if (pendingInstrument[t] != nullptr)
-            x->addChildElement (new juce::XmlElement (*pendingInstrument[t]));
     }
 
     auto* m = deck->createNewChildElement ("MASTER");
@@ -67,6 +72,88 @@ std::unique_ptr<juce::XmlElement> AudioEngine::createDeckState (bool freshPlugin
     return deck;
 }
 
+void AudioEngine::restoreTrackChain (int t, const juce::XmlElement& chainXml)
+{
+    for (auto* bx : chainXml.getChildWithTagNameIterator ("BLOCK"))
+    {
+        auto kind = bx->getStringAttribute ("kind");
+        if (kind == "plugin")
+        {
+            juce::PluginDescription desc;
+            if (auto* dx = bx->getChildByName ("PLUGIN"); dx != nullptr && desc.loadFromXml (*dx))
+                addPlugin (t, -1, desc, bx->getStringAttribute ("state"), 0, nullptr, std::make_unique<juce::XmlElement> (*bx));
+        }
+        else if (kind == "external")
+        {
+            auto e = std::make_unique<ExternalBlock>();
+            e->readCommon (*bx);
+            auto out = bx->hasAttribute ("outId") ? midi.findOrCreateOutput (bx->getStringAttribute ("outId"), bx->getStringAttribute ("outName")) : -1;
+            e->outPort = out;
+            e->name = midi.outputLabel (out);
+            e->channel = juce::jlimit (0, 16, bx->getIntAttribute ("channel", 1));
+            e->returnInput = bx->getIntAttribute ("return", -1);
+            e->returnPair = bx->getBoolAttribute ("returnPair");
+            insertBlock (t, -1, std::move (e));
+        }
+        else if (auto b = BuiltIn::restore (*bx))
+        {
+            auto* processor = b->getProcessor();
+            auto id = insertBlock (t, -1, std::move (b));
+            if (id != 0)
+                mapper.restoreBlockMappings (*bx, t, id, processor);
+        }
+    }
+}
+
+/** Decks saved before chains: one source per track (audio in, an instrument, a hardware synth, a bounce). */
+void AudioEngine::migrateOldTrack (int t, const juce::XmlElement& x)
+{
+    enum { none = 0, audio, instrument, bounceSrc, hardware };
+    auto& p = track[t];
+    switch (x.getIntAttribute ("source"))
+    {
+        case audio:
+            setTrackInput (t, juce::jmax (0, x.getIntAttribute ("input", t)), x.getBoolAttribute ("pair"));
+            break;
+
+        case instrument:
+            if (auto* ix = x.getChildByName ("INSTRUMENT"))
+            {
+                if (ix->getStringAttribute ("kind") == "builtin")
+                {
+                    insertBlock (t, -1, BuiltIn::createSynth (ix->getIntAttribute ("which")));
+                }
+                else if (auto* dx = ix->getChildByName ("PLUGIN"))
+                {
+                    juce::PluginDescription desc;
+                    if (desc.loadFromXml (*dx))
+                        addPlugin (t, -1, desc, ix->getStringAttribute ("state"));
+                }
+            }
+            break;
+
+        case bounceSrc:
+            p.feed = (int) Feed::bounce;
+            break;
+
+        case hardware:
+        {
+            auto e = std::make_unique<ExternalBlock>();
+            auto out = x.hasAttribute ("midiOutId") ? midi.findOrCreateOutput (x.getStringAttribute ("midiOutId"), x.getStringAttribute ("midiOutName")) : -1;
+            e->outPort = out;
+            e->name = midi.outputLabel (out);
+            e->channel = juce::jlimit (0, 16, x.getIntAttribute ("midiOutChannel", 1));
+            e->returnInput = juce::jmax (0, x.getIntAttribute ("input", t));
+            e->returnPair = x.getBoolAttribute ("pair");
+            insertBlock (t, -1, std::move (e));
+            break;
+        }
+
+        default:
+            break;
+    }
+}
+
 void AudioEngine::applyDeckState (const juce::XmlElement& deck)
 {
     for (auto* x : deck.getChildWithTagNameIterator ("TRACK"))
@@ -74,8 +161,6 @@ void AudioEngine::applyDeckState (const juce::XmlElement& deck)
         auto t = x->getIntAttribute ("index", -1);
         if (t < 0 || t >= numTracks) continue;
         auto& p = track[t];
-        p.inputChannel = juce::jmax (0, x->getIntAttribute ("input", t));
-        p.inputPair = x->getBoolAttribute ("pair");
         p.gain  = (float) juce::jlimit (0.0, 1.0, x->getDoubleAttribute ("gain", 1.0 / 3.0));
         p.high  = (float) juce::jlimit (-1.0, 1.0, x->getDoubleAttribute ("high"));
         p.mid   = (float) juce::jlimit (-1.0, 1.0, x->getDoubleAttribute ("mid"));
@@ -84,6 +169,8 @@ void AudioEngine::applyDeckState (const juce::XmlElement& deck)
         p.pan   = (float) juce::jlimit (-1.0, 1.0, x->getDoubleAttribute ("pan"));
         p.fader = (float) juce::jlimit (0.0, 1.0, x->getDoubleAttribute ("fader", 0.75));
         p.bounceMask = x->getIntAttribute ("bounce") & ((1 << numTracks) - 1);
+        p.mute = x->getBoolAttribute ("mute");
+        p.solo = x->getBoolAttribute ("solo");
 
         auto midiIn = x->getStringAttribute ("midiIn", "any");
         if (midiIn == "none") p.midiPort = midiNone;
@@ -94,38 +181,19 @@ void AudioEngine::applyDeckState (const juce::XmlElement& deck)
         }
         else p.midiPort = midiAny;
 
-        if (x->hasAttribute ("midiOutId"))
-            p.midiOutPort = midi.findOrCreateOutput (x->getStringAttribute ("midiOutId"), x->getStringAttribute ("midiOutName"));
-        else
-            p.midiOutPort = -1;
-        p.midiOutChannel = juce::jlimit (0, 16, x->getIntAttribute ("midiOutChannel", 1));
+        clearChain (t);
+        p.feed = (int) Feed::live;
+        setTrackInput (t, -1);
 
-        auto source = juce::jlimit ((int) Source::none, (int) Source::hardware, x->getIntAttribute ("source"));
-        if (source == (int) Source::instrument)
+        if (auto* chain = x->getChildByName ("CHAIN"))
         {
-            if (auto* ix = x->getChildByName ("INSTRUMENT"))
-            {
-                if (ix->getStringAttribute ("kind") == "builtin")
-                {
-                    setInstrument (t, BuiltIn::create (ix->getIntAttribute ("which")));
-                }
-                else if (auto* dx = ix->getChildByName ("PLUGIN"))
-                {
-                    juce::PluginDescription desc;
-                    if (desc.loadFromXml (*dx))
-                    {
-                        setInstrument (t, nullptr);
-                        p.source = (int) Source::instrument;
-                        pendingInstrument[t] = std::make_unique<juce::XmlElement> (*ix);
-                        loadPlugin (t, desc, ix->getStringAttribute ("state"), nullptr);
-                    }
-                }
-            }
+            p.feed = (int) (x->getStringAttribute ("feed") == "bounce" ? Feed::bounce : Feed::live);
+            setTrackInput (t, x->getIntAttribute ("input", -1), x->getBoolAttribute ("pair"));
+            restoreTrackChain (t, *chain);
         }
         else
         {
-            setInstrument (t, nullptr);
-            p.source = source;
+            migrateOldTrack (t, *x);
         }
         mpeConfigPending[t] = true;
     }
@@ -166,6 +234,7 @@ std::unique_ptr<juce::XmlElement> AudioEngine::createHardwareState() const
     if (auto m = midi.createState())
         for (auto* c : m->getChildIterator())
             hw->addChildElement (new juce::XmlElement (*c));
+    hw->addChildElement (mapper.createDeckState().release());
     return hw;
 }
 
@@ -177,6 +246,7 @@ void AudioEngine::restoreHardware (const juce::XmlElement* hw, const juce::XmlEl
         phonesPair  = hw->getIntAttribute ("phonesOut", -1);
         tapeEngine.params.latencyOffsetMs = juce::jlimit (-50, 50, hw->getIntAttribute ("latencyOffsetMs"));
         midi.restoreState (hw, nullptr);
+        mapper.restoreDeckState (hw->getChildByName ("MIDI_MAPS"));
         return;
     }
 
@@ -207,10 +277,10 @@ void AudioEngine::restoreAll()
     }
 
     // Factory setup: two built-in instruments and two audio inputs.
-    setInstrument (0, BuiltIn::create (BuiltIn::poly));
-    setInstrument (1, BuiltIn::create (BuiltIn::epiano));
-    setAudioSource (2, 0);
-    setAudioSource (3, 1);
+    insertBlock (0, -1, BuiltIn::createSynth (BuiltIn::poly));
+    insertBlock (1, -1, BuiltIn::createSynth (BuiltIn::epiano));
+    setTrackInput (2, 0);
+    setTrackInput (3, 1);
 }
 
 void AudioEngine::saveSettings (bool freshPluginState)
