@@ -1,4 +1,5 @@
 #include "PluginScan.h"
+#include "ClapFormat.h"
 
 #if JUCE_WINDOWS
  #ifndef NOMINMAX
@@ -87,7 +88,7 @@ int runHelper (const juce::String& commandLine)
         return 2;
 
     juce::AudioPluginFormatManager formats;
-    juce::addDefaultFormatsToManager (formats);
+    addAllPluginFormats (formats);
     juce::OwnedArray<juce::PluginDescription> found;
     for (auto* f : formats.getFormats())
         if (f->getName() == args[i + 1])

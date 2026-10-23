@@ -1,5 +1,6 @@
 #include "AudioEngine.h"
 #include "PluginScan.h"
+#include "ClapFormat.h"
 
 namespace tf
 {
@@ -17,7 +18,7 @@ double AudioEngine::recordLatencySamples (bool throughInterface, bool hasInstrum
 AudioEngine::AudioEngine (juce::PropertiesFile& settings)
     : props (settings)
 {
-    juce::addDefaultFormatsToManager (formatManager);
+    addAllPluginFormats (formatManager);
     knownPlugins.setCustomScanner (PluginScan::makeOutOfProcessScanner());
 
     if (auto known = props.getXmlValue ("knownPlugins"))
@@ -344,10 +345,15 @@ std::vector<AudioEngine::BlockInfo> AudioEngine::getChain (int t) const
 
 int AudioEngine::insertBlock (int t, int index, std::unique_ptr<Block> block)
 {
+    return insertBlockWithId (t, index, std::move (block), 0);
+}
+
+int AudioEngine::insertBlockWithId (int t, int index, std::unique_ptr<Block> block, int id0)
+{
     if (block == nullptr || numBlocks (t) >= maxBlocks)
         return 0;
     prepareBlock (*block);
-    block->id = nextBlockId++;
+    block->id = id0 != 0 ? id0 : nextBlockId++;
     const auto id = block->id;
     {
         const juce::SpinLock::ScopedLockType sl (chains[t].lock);
@@ -387,11 +393,11 @@ void AudioEngine::destroyBlock (int, std::unique_ptr<Block> block)
     block.reset();
 }
 
-int AudioEngine::replaceBlock (int t, int blockId, std::unique_ptr<Block> block)
+int AudioEngine::replaceBlock (int t, int blockId, std::unique_ptr<Block> block, bool keepId)
 {
     int index = -1;
     auto old = takeBlock (t, blockId, &index);
-    auto id = insertBlock (t, index, std::move (block));
+    auto id = insertBlockWithId (t, index, std::move (block), keepId && old != nullptr ? blockId : 0);
     destroyBlock (t, std::move (old));
     return id;
 }
@@ -492,7 +498,7 @@ int AudioEngine::addPlugin (int t, int index, const juce::PluginDescription& des
             auto block = std::make_unique<ProcessorBlock> (std::move (p), ProcessorBlock::Kind::hosted);
             block->readCommon (*saved);
             auto* processor = block->getProcessor();
-            auto newId = replaceBlock (t, pendingId, std::move (block));
+            auto newId = replaceBlock (t, pendingId, std::move (block), true);
             mapper.restoreBlockMappings (*saved, t, newId, processor);
             saveSettings (true);
             if (done) done ({});
@@ -594,7 +600,7 @@ float AudioEngine::getValue (const MidiMapper::Target& target, juce::AudioProces
         case C::fader: return track[t].fader.load();
         case C::masterFader: return masterFader.load();
         case C::phones: return phones.load();
-        case C::pitch: return (tapeEngine.params.pitchStep.load() + 5) / 10.0f;
+        case C::pitch: return (tapeEngine.params.pitch.load() + 12.0f) / 24.0f;
         default: return 0.0f;
     }
 }
@@ -621,7 +627,7 @@ void AudioEngine::setValue (const MidiMapper::Target& target, juce::AudioProcess
         case C::fader: track[t].fader = v; break;
         case C::masterFader: masterFader = v; break;
         case C::phones: phones = v; break;
-        case C::pitch: tapeEngine.params.pitchStep = juce::roundToInt (v * 10.0f) - 5; break;
+        case C::pitch: tapeEngine.params.pitch = v * 24.0f - 12.0f; break;
         default: break;
     }
 }

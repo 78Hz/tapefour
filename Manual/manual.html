@@ -163,7 +163,7 @@ td:first-child { font-weight: 600; }
 
 <!-- ======================================================= 1 WELCOME -->
 <h1><span class="num">1</span>Welcome</h1>
-<p class="lede">TAPE·FOUR is a four-track cassette recorder that runs on your computer. It records onto a virtual cassette, works with any audio interface your computer has, on Windows, macOS or Linux, and plays VST3 instruments and effects (and Audio Units on a Mac) as if they were plugged into the deck.</p>
+<p class="lede">TAPE·FOUR is a four-track cassette recorder that runs on your computer. It records onto a virtual cassette, works with any audio interface your computer has, on Windows, macOS or Linux, and plays plug-in instruments and effects (CLAP, VST3 and LV2 everywhere, Audio Units on a Mac and LADSPA on Linux) as if they were plugged into the deck.</p>
 <p>It is deliberately not a DAW. Everything about it follows the workflow of a portable cassette multitracker:</p>
 <ul>
   <li><strong>Four mono tracks on one side of a tape, all running in one direction.</strong> The tape is a C-46, C-60 or C-90, and the length of your song is limited by the length of the tape.</li>
@@ -182,7 +182,7 @@ td:first-child { font-weight: 600; }
   <tbody>
     <tr><td>Windows, 64-bit</td><td>TapeFour-windows-x64</td><td>Unzip and run <span class="key">TapeFour.exe</span>. Windows may warn that it comes from an unknown publisher, because it isn't code-signed: choose <strong>More info → Run anyway</strong>.</td></tr>
     <tr><td>Mac, Apple silicon or Intel, macOS 11 or later</td><td>TapeFour-macos-universal</td><td>Unzip and move <span class="key">TapeFour.app</span> to Applications. It isn't notarised, so the first time, right-click it and choose <strong>Open</strong>. Allow microphone access when asked: macOS asks this for any program that records from an audio input.</td></tr>
-    <tr><td>Linux, 64-bit</td><td>TapeFour-linux-x64</td><td>Extract the archive and run <span class="key">TapeFour</span>. It uses ALSA, which every distribution has, and JACK when a JACK server is running.</td></tr>
+    <tr><td>Linux, 64-bit</td><td>TapeFour-linux-x64</td><td>Extract the archive and run <span class="key">TapeFour</span>. It uses ALSA, which every distribution has, and JACK when a JACK server is running. It plays CLAP, VST3, LV2 and LADSPA plug-ins.</td></tr>
   </tbody>
 </table>
 
@@ -217,7 +217,17 @@ td:first-child { font-weight: 600; }
 <p>In <strong>Setup → MIDI &amp; Deck</strong>, tick the controllers you want to use and the MIDI outputs your hardware synths are on. Chapter 13 covers this in full.</p>
 
 <h2>Plug-ins</h2>
-<p>In <strong>Setup → Plug-ins</strong>, choose <strong>Options… → Scan for new or updated VST3 plug-ins</strong>. Plug-ins found here (instruments, MIDI effects and audio effects) appear in each track's signal chain. Each plug-in is scanned in a separate helper copy of TAPE·FOUR, so a plug-in that crashes or hangs while being scanned can't take the program down: it is set aside and the scan carries on. TAPE·FOUR also has two built-in instruments, <strong>TF Poly Synth</strong> and <strong>TF Tine Piano</strong>, and three built-in effects, <strong>TF Plate</strong>, <strong>TF Spring Reverb</strong> and <strong>TF Tape Echo</strong>, so you can start without any plug-ins.</p>
+<p>In <strong>Setup → Plug-ins</strong>, choose <strong>Options…</strong> and scan each format you use. Plug-ins found here (instruments, MIDI effects and audio effects) appear in each track's signal chain. Each plug-in is scanned in a separate helper copy of TAPE·FOUR, so a plug-in that crashes or hangs while being scanned can't take the program down: it is set aside and the scan carries on. <table>
+  <thead><tr><th>Format</th><th>On</th><th>Looked for in</th></tr></thead>
+  <tbody>
+    <tr><td>CLAP</td><td>Windows, macOS, Linux</td><td>Windows: <span class="lcd">Common Files\CLAP</span> (in Program Files) and <span class="lcd">%LOCALAPPDATA%\Programs\Common\CLAP</span>. Mac: <span class="lcd">/Library/Audio/Plug-Ins/CLAP</span> and the same in your user Library. Linux: <span class="lcd">~/.clap</span>, <span class="lcd">/usr/lib/clap</span>, <span class="lcd">/usr/local/lib/clap</span>. Also any folders in the <span class="lcd">CLAP_PATH</span> environment variable.</td></tr>
+    <tr><td>VST3</td><td>Windows, macOS, Linux</td><td>The standard VST3 folders.</td></tr>
+    <tr><td>Audio Units</td><td>macOS</td><td>Whatever macOS has installed.</td></tr>
+    <tr><td>LV2</td><td>Windows, macOS, Linux</td><td>The standard LV2 folders (on Linux <span class="lcd">~/.lv2</span>, <span class="lcd">/usr/lib/lv2</span>, <span class="lcd">/usr/local/lib/lv2</span>).</td></tr>
+    <tr><td>LADSPA</td><td>Linux</td><td>The standard LADSPA folders. LADSPA plug-ins are effects only.</td></tr>
+  </tbody>
+</table>
+<p>Many plug-ins come in several formats. The list in a track's chain shows each plug-in once, in the best format you have: CLAP, then VST3, then Audio Units, LV2 and LADSPA. A deck you saved keeps the format it was made with. TAPE·FOUR also has two built-in instruments, <strong>TF Poly Synth</strong> and <strong>TF Tine Piano</strong>, and three built-in effects, <strong>TF Plate</strong>, <strong>TF Spring Reverb</strong> and <strong>TF Tape Echo</strong>, so you can start without any plug-ins.</p>
 <figure class="narrow"><img src="images/setup_inst.png" alt="Setup, Plug-ins tab"><figcaption><b>Setup → Plug-ins.</b> Scan once; the list is remembered.</figcaption></figure>
 
 <!-- ======================================================= 3 FRONT PANEL -->
@@ -245,19 +255,20 @@ td:first-child { font-weight: 600; }
   <span class="pin" style="left: 58%; top: 46.7%">18</span>
   <span class="pin" style="left: 52.6%; top: 4.3%">19</span>
 </figure>
+<p>Every key on the deck works the same way: the LED above its label lights when it's on, and the key itself never changes colour. The colours mean the same thing everywhere: red for record and arm, green for play and a tape that matches the switch, amber for a mode that's on or a mismatch, orange for mute and yellow for solo. Keys that just do something once (EJECT, RESET, RTZ) have no LED.</p>
 <div class="legend">
   <div><span class="n">1</span><span><strong>Setup display.</strong> Shows the audio driver and buffer. Click it to open Setup.</span></div>
   <div><span class="n">2</span><span><strong>MIDI IN / MIDI OUT lamps.</strong> They flash when notes come in from a controller or go out to a hardware synth.</span></div>
   <div><span class="n">3</span><span><strong>Cassette.</strong> The tape moves from the left spool to the right as it plays. Double-click the label to write on it.</span></div>
   <div><span class="n">4</span><span><strong>Inlay.</strong> Click it to take the J-card out and write the track list.</span></div>
-  <div><span class="n">5</span><span><strong>EJECT.</strong> Puts in a new blank tape or loads one from the shelf. Stop the tape first.</span></div>
-  <div><span class="n">6</span><span><strong>Tape switch.</strong> NORMAL, CHROME or METAL bias and EQ (chapter 6).</span></div>
+  <div><span class="n">5</span><span><strong>EJECT.</strong> Puts in a new blank tape or loads one from the shelf. It fades while the tape is running: stop the tape first.</span></div>
+  <div><span class="n">6</span><span><strong>Tape switch.</strong> Three keys, NORMAL, CHROME and METAL bias and EQ; the lit one is where the switch is (chapter 6).</span></div>
   <div><span class="n">7</span><span><strong>Tape counter</strong>, with <span class="ctl">RESET</span> (set 000 here) and <span class="ctl">RTZ</span> (return to 000).</span></div>
   <div><span class="n">8</span><span><strong>Status display.</strong> Transport state, time remaining, and warnings such as mismatches.</span></div>
-  <div><span class="n">9</span><span><strong>Transport keys</strong>: REC, REW, F.FWD, PLAY, STOP.</span></div>
-  <div><span class="n">10</span><span><strong>Pitch</strong>: varispeed in steps of 2.4%, up to ±12%.</span></div>
-  <div><span class="n">11</span><span><strong>Tape speed</strong>: 1⅞ or 3¾ inches per second.</span></div>
-  <div><span class="n">12</span><span><strong>Noise reduction</strong> on or off.</span></div>
+  <div><span class="n">9</span><span><strong>Transport keys</strong>: REC, REW, F.FWD, PLAY, STOP. The LEDs in REC and PLAY light while they're engaged.</span></div>
+  <div><span class="n">10</span><span><strong>Pitch</strong>: varispeed, smoothly from −12% to +12%.</span></div>
+  <div><span class="n">11</span><span><strong>Tape speed</strong>: 1⅞ or 3¾ inches per second; the lit key is the speed.</span></div>
+  <div><span class="n">12</span><span><strong>Noise reduction</strong> on or off; its LED shows which.</span></div>
   <div><span class="n">13</span><span><strong>NR type display.</strong> Click it to choose the type and the tape character in Setup.</span></div>
   <div><span class="n">14</span><span><strong>Track display.</strong> What plays the track, which controller and input feed it, its signal chain as a row of blocks, and the NR, EQ and MIDI lamps. Click it to open the track's signal chain (chapter 8); double-click it to open the window of the first plug-in in the chain.</span></div>
   <div><span class="n">15</span><span><strong>Gain, EQ and pan.</strong> HIGH, MID with its FREQ knob, and LOW.</span></div>
@@ -361,10 +372,10 @@ td:first-child { font-weight: 600; }
 <!-- ======================================================= 6 TAPE SWITCH -->
 <h1><span class="num">6</span>The tape switch</h1>
 <p class="lede">The <span class="ctl">TAPE · BIAS · EQ</span> switch under the cassette sets three things at once, as on a real deck: the record bias, the record EQ and the playback EQ.</p>
-<figure class="narrow" style="width: 46%"><img src="images/mismatch_col.png" alt="Tape switch set to NORMAL with a metal tape loaded"><figcaption><b>A mismatch.</b> An MX (metal) tape is loaded but the switch is at NORMAL. The lamp on NORMAL is amber, and the status display reads <span class="lcd">BIAS LOW: TYPE IV TAPE AT NORMAL</span>.</figcaption></figure>
+<figure class="narrow" style="width: 46%"><img src="images/mismatch_col.png" alt="Tape switch set to NORMAL with a metal tape loaded"><figcaption><b>A mismatch.</b> An MX (metal) tape is loaded but the switch is at NORMAL. The LED on the NORMAL key is amber, and the status display reads <span class="lcd">BIAS LOW: TYPE IV TAPE AT NORMAL</span>.</figcaption></figure>
 <ul>
   <li><strong>When a tape goes in, the switch moves to that tape's type.</strong> After that it stays where you put it, so a mismatch is always your choice. Restarting the audio device doesn't move it.</li>
-  <li><strong>One lamp shows where the switch is.</strong> It is green when that position suits the loaded cassette and amber when it doesn't. The status display then says which way the bias is off.</li>
+  <li><strong>One key is lit: where the switch is.</strong> Its LED is green when that position suits the loaded cassette and amber when it doesn't. The status display then says which way the bias is off.</li>
   <li><strong>Every stretch of tape remembers the switch position it was recorded at</strong>, just as it remembers noise reduction and speed.</li>
 </ul>
 
@@ -405,7 +416,7 @@ td:first-child { font-weight: 600; }
   </tbody>
 </table>
 <p>Blank-tape hiss follows the same rule: a Type II or IV tape played at NORMAL hisses brighter. You can combine both effects. For example, record a chrome tape at NORMAL (under-biased and bright), then play it back at CHROME.</p>
-<figure><img src="images/eq_mismatch.png" alt="EQ lamps red on tracks recorded at NORMAL with the switch at CHROME"><figcaption><b>The EQ lamp.</b> These tracks were recorded at NORMAL and the switch is now at CHROME, so each track's <span class="lcd">EQ</span> lamp is red and the switch lamp is amber. It flashes while the tape plays. It is green when the recording's EQ matches the switch, and off on blank tape.</figcaption></figure>
+<figure><img src="images/eq_mismatch.png" alt="EQ lamps red on tracks recorded at NORMAL with the switch at CHROME"><figcaption><b>The EQ lamp.</b> These tracks were recorded at NORMAL and the switch is now at CHROME, so each track's <span class="lcd">EQ</span> lamp is red and the lit switch key is amber. The EQ lamp flashes while the tape plays. It is green when the recording's EQ matches the switch, and off on blank tape.</figcaption></figure>
 
 <h2>Metal tape at NORMAL: old material bleeds through</h2>
 <p>On a NORMAL setting the erase head isn't strong enough to fully erase high-coercivity metal tape. If you record over an MX tape at NORMAL, about 30 dB of the old recording survives underneath the new one, mostly its bass. Treble erases more easily. Record over it at METAL and the old recording is fully gone (it measures below −90 dB).</p>
@@ -416,9 +427,9 @@ td:first-child { font-weight: 600; }
 <table>
   <thead><tr><th>Control</th><th>What it does</th><th>What to expect</th></tr></thead>
   <tbody>
-    <tr><td>PLAY <span class="key">Space</span></td><td>Plays the tape.</td><td>Unarmed tracks play the tape; armed tracks keep playing their live input, so you can rehearse over the tape. The PLAY lamp lights.</td></tr>
+    <tr><td>PLAY <span class="key">Space</span></td><td>Plays the tape.</td><td>Unarmed tracks play the tape; armed tracks keep playing their live input, so you can rehearse over the tape. The LED in the PLAY key lights.</td></tr>
     <tr><td>STOP <span class="key">Space</span></td><td>Stops.</td><td>One second later the tape is saved.</td></tr>
-    <tr><td>REC <span class="key">R</span></td><td>Records on every armed track.</td><td>The REC lamp lights. If no track is armed, the status display says <span class="lcd">ARM A TRACK FIRST</span>.</td></tr>
+    <tr><td>REC <span class="key">R</span></td><td>Records on every armed track.</td><td>The LED in the REC key lights. If no track is armed, the status display says <span class="lcd">ARM A TRACK FIRST</span>.</td></tr>
     <tr><td>REC while playing</td><td>Punch-in.</td><td>Recording starts at once on the armed tracks. Press PLAY to punch out and keep playing. Tape before and after the punch is untouched. The new take fades in and out over 6 ms either side, like the gap between a deck's erase and record heads, so a punch never clicks.</td></tr>
     <tr><td>REW, F.FWD</td><td>Wind the tape.</td><td>The tape speeds up and slows down like real spools. Winding stops at either end of the tape.</td></tr>
     <tr><td>RESET</td><td>Sets the counter to 000 where the tape is now.</td><td>Use it to mark the start of a song.</td></tr>
@@ -541,7 +552,7 @@ td:first-child { font-weight: 600; }
     <tr><td>1⅞ ips</td><td>Normal cassette speed.</td><td>The tape's full length. Treble saturates sooner and there's slightly more hiss.</td></tr>
     <tr><td>3¾ ips</td><td>Double speed, as on many 4-track portastudios.</td><td>Half the recording time. About an octave more treble headroom (the treble limit moves up), and about 3 dB less hiss in the audible range.</td></tr>
     <tr><td>Playing at the other speed</td><td>Every stretch of tape remembers the speed it was recorded at.</td><td>A recording made at 3¾ and played at 1⅞ sounds an octave lower at half speed, and the reverse sounds an octave higher. The track display shows the shift in semitones. Record at 1⅞ and play at 3¾ for chipmunk vocals; do the reverse for slow, dark textures.</td></tr>
-    <tr><td>PITCH</td><td>Varispeed, ±5 steps of 2.4% (up to ±12%).</td><td>Speeds up or slows down the tape and changes pitch and tempo together, by about 0.4 semitone per step. Use it to tune the tape to an instrument, or to record a part slowed down and play it back at normal speed.</td></tr>
+    <tr><td>PITCH</td><td>Varispeed, smoothly from −12% to +12% (about ±2 semitones). Double-click to return to 0.</td><td>Speeds up or slows down the tape and changes pitch and tempo together. The tape glides to a new setting over a fraction of a second, like a capstan motor, so turning it while the tape plays bends the pitch rather than jumping. Use it to tune the tape to an instrument, or to record a part slowed down and play it back at normal speed. The status display shows the setting, for example <span class="lcd">PLAY 1⅞ +3.7%</span>.</td></tr>
   </tbody>
 </table>
 <p>Wow, flutter and drift (chapter 12) are added on top of the pitch setting, so the tape always moves slightly unevenly unless you turn them off.</p>
@@ -602,10 +613,11 @@ td:first-child { font-weight: 600; }
 <!-- ======================================================= 13 MIDI -->
 <h1><span class="num">13</span>MIDI, MIDI learn and the deck state</h1>
 <figure class="narrow"><img src="images/setup_midi.png" alt="Setup, MIDI and Deck tab"><figcaption><b>Setup → MIDI &amp; Deck.</b> Controllers in, hardware synths out, MIDI control with the list of mappings, and deck recall.</figcaption></figure>
+<p>The tick boxes in Setup are small LED keys too: lit is on.</p>
 <h2>Controllers in</h2>
 <ul>
   <li><strong>Use</strong>: TAPE·FOUR only listens to controllers that are ticked. Each track then chooses its controller in its chain's inputs (chapter 8).</li>
-  <li><strong>MPE</strong>: tick it for MPE controllers (Osmose, Seaboard, LinnStrument and others). Known MPE controllers start ticked. A track played by an MPE controller tells its instrument about the MPE zone (lower zone, 15 channels). Each note then gets its own pitch bend, pressure and timbre (CC74). The built-in instruments respond directly. VST3s need MPE support, and some need it switched on in their own settings.</li>
+  <li><strong>MPE</strong>: tick it for MPE controllers (Osmose, Seaboard, LinnStrument and others). Known MPE controllers start ticked. A track played by an MPE controller tells its instrument about the MPE zone (lower zone, 15 channels). Each note then gets its own pitch bend, pressure and timbre (CC74). The built-in instruments respond directly. Plug-ins need MPE support, and some need it switched on in their own settings. CLAP plug-ins that take MIDI get MPE as it is played.</li>
   <li><strong>Bend range</strong>: type the per-note pitch-bend range your controller sends (the Osmose default is 48 semitones). If it's wrong, bent notes land at the wrong pitch.</li>
   <li><strong>Computer keyboard</strong>: <span class="key">A W S E D F T G Y H U J K O L P ;</span> play notes like a piano keyboard, and <span class="key">Z</span> and <span class="key">X</span> change octave.</li>
 </ul>
@@ -661,6 +673,7 @@ td:first-child { font-weight: 600; }
   <li>speed and pitch;</li>
   <li>tape character.</li>
 </ul>
+<p>A plug-in's sound is saved when you close its window, a second after the tape stops, when the tape is saved or ejected, and when you quit. While a plug-in's window stays open it's also saved once a minute while the tape is stopped, so a crash costs at most a minute of tweaking. Big plug-ins are never asked for their sound while the tape is running.</p>
 <p>With <strong>Recall the deck with each tape</strong> ticked, loading a tape puts the deck back exactly as it was. Unticked (the default), the deck stays as it is when you change tapes. The tape switch always moves to the new tape's type either way.</p>
 
 <!-- ======================================================= 14 REFERENCE -->
@@ -696,6 +709,7 @@ td:first-child { font-weight: 600; }
     <tr><td>Recordings sound distorted</td><td>Lower GAIN so peaks sit around 0 VU, use a tape with more headroom (MX), centre Tape drive, and check the tape switch matches the tape.</td></tr>
     <tr><td>Everything sounds dull</td><td>Check the EQ lamps (playback EQ mismatch), the NR lamps (NR mismatch), the tape switch (over-bias) and HF loss in Setup → Tape.</td></tr>
     <tr><td>Bounces get quieter or louder</td><td>That's the tape's sensitivity, doubled with 2:1 NR. Correct it with the faders before each bounce.</td></tr>
+    <tr><td>A plug-in doesn't appear after a scan</td><td>Scan its format: each format has its own <strong>Scan for new or updated … plug-ins</strong> in Setup → Plug-ins → Options…. On Linux, LV2 plug-ins must be in an LV2 folder (one that holds <span class="lcd">.lv2</span> bundles), and CLAP plug-ins in a CLAP folder or one named in <span class="lcd">CLAP_PATH</span>.</td></tr>
     <tr><td>A plug-in shows as failed after a scan</td><td>It crashed or hung while being scanned, so TAPE·FOUR set it aside. Update the plug-in, select it in Setup → Plug-ins, choose <strong>Options… → Remove selected plug-in from list</strong>, and scan again.</td></tr>
     <tr><td>A controller plugged in later doesn't play</td><td>Check it's ticked in Setup → MIDI &amp; Deck, that the track's <span class="ctl">Played by</span> names it or is set to <strong>Any</strong>, and that the track is armed.</td></tr>
     <tr><td>A plug-in is missing when a tape is recalled</td><td>Its block reads <span class="lcd">MISSING</span>. Rescan in Setup → Plug-ins. The plug-in's settings are kept until it can be loaded again.</td></tr>

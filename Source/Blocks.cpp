@@ -635,15 +635,14 @@ std::unique_ptr<juce::XmlElement> ProcessorBlock::saveState (bool fresh)
 
         case Kind::hosted:
         {
-            // Asking a big sampler for its state can take a while and makes megabytes of text, so it is
-            // only done when the sound may have changed: a parameter moved, a program change came in,
-            // or its window is (or was) open.
-            if (fresh || cachedState.isEmpty() || editorOpen || stateMaybeChanged.exchange (false))
-            {
-                juce::MemoryBlock state;
-                processor->getStateInformation (state);
-                cachedState = state.toBase64Encoding();
-            }
+            // Asking a big synth or sampler for its state can take a while and makes megabytes of text.
+            // It's asked at the natural moments (fresh: the tape stops, is saved or ejected, the program
+            // quits, its window closes). Between them, if the sound may have changed (a parameter moved,
+            // a program change, its window open) it's asked at most once a minute, as a crash backstop.
+            const auto now = juce::Time::getMillisecondCounterHiRes();
+            const bool due = now - lastAskedMs >= stateRefreshSeconds * 1000.0;
+            if (fresh || cachedState.isEmpty() || (due && (editorOpen || stateMaybeChanged.load())))
+                captureState();
             x->setAttribute ("kind", "plugin");
             if (auto* inst = dynamic_cast<juce::AudioPluginInstance*> (processor.get()))
                 x->addChildElement (inst->getPluginDescription().createXml().release());
@@ -652,6 +651,17 @@ std::unique_ptr<juce::XmlElement> ProcessorBlock::saveState (bool fresh)
         }
     }
     return x;
+}
+
+void ProcessorBlock::captureState()
+{
+    if (kind != Kind::hosted) return;
+    stateMaybeChanged = false;
+    juce::MemoryBlock state;
+    processor->getStateInformation (state);
+    cachedState = state.toBase64Encoding();
+    lastAskedMs = juce::Time::getMillisecondCounterHiRes();
+    ++stateRequests;
 }
 
 //==============================================================================

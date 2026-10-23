@@ -1,6 +1,6 @@
 # TAPE·FOUR
 
-A four-track cassette multitracker for Windows, macOS and Linux. It records onto a virtual tape, works with any audio interface the computer has (ASIO, WASAPI or DirectSound on Windows; CoreAudio on macOS; ALSA or JACK on Linux), and plays VST3 instruments and effects (and Audio Units on macOS) through a signal chain in front of each track, as if they were racked up in front of the deck.
+A four-track cassette multitracker for Windows, macOS and Linux. It records onto a virtual tape, works with any audio interface the computer has (ASIO, WASAPI or DirectSound on Windows; CoreAudio on macOS; ALSA or JACK on Linux), and plays plug-in instruments and effects (CLAP, VST3 and LV2 everywhere, Audio Units on macOS, LADSPA on Linux) through a signal chain in front of each track, as if they were racked up in front of the deck.
 
 It works like the real thing: four mono tracks, one direction, a C-46, C-60 or C-90 of tape, and **no undo**. Recording erases whatever was on the tape under the armed tracks.
 
@@ -29,7 +29,7 @@ Open the repository's **Actions** tab, pick the latest green **Build** run, and 
    - under **Hardware synths out**, tick the MIDI outputs your synths are on, and give each a name for the deck if you like.
 
    On first start TapeFour opens the computer's usual audio device, or on Windows an ASIO driver if one is installed. Every change is saved straight away. If the saved driver can't be opened at start-up (for example, another program has it), the deck says so and keeps your choice for next time.
-2. To use your own plug-ins, go to the **Plug-ins** tab and choose **Options… → Scan for new or updated VST3 plug-ins**. The program also has two built-in instruments (a poly synth and a tine piano) and three built-in effects (a plate, a spring reverb and a tape echo), so you can start without any plug-ins.
+2. To use your own plug-ins, go to the **Plug-ins** tab, choose **Options…** and scan each format you use. A plug-in installed in several formats is offered once, in the best of them (CLAP, then VST3, AU, LV2, LADSPA). The program also has two built-in instruments (a poly synth and a tine piano) and three built-in effects (a plate, a spring reverb and a tape echo), so you can start without any plug-ins.
 3. Close the setup window. You're at the deck.
 
 ### Audio systems
@@ -50,7 +50,8 @@ However it's connected, recordings line up with what you heard: TapeFour correct
 | | |
 |---|---|
 | **Layout** | Like a portastudio: the mixer runs down the left, the cassette and transport are in a column on the right. The window resizes and keeps the 16:9 shape. |
-| **Mixer** | Each strip: GAIN, HIGH shelf (full by 10 kHz), MID with a swept FREQ (250 Hz–5 kHz), LOW shelf (full by 100 Hz), PAN, meter and fader, and three keys with lamps: **MUTE**, **SOLO** and **ARM**. |
+| **Keys** | Every key is the same hardware key with an LED: the LED lights, the key never changes colour. Red is record and arm, green is play and a matching tape, amber is a mode that's on or a mismatch, orange is mute, yellow is solo. EJECT, RESET and RTZ just act, so have none. The transport keys stay cream, with LEDs in REC and PLAY. |
+| **Mixer** | Each strip: GAIN, HIGH shelf (full by 10 kHz), MID with a swept FREQ (250 Hz–5 kHz), LOW shelf (full by 100 Hz), PAN, meter and fader, and three LED keys: **MUTE**, **SOLO** and **ARM**. |
 | **Mute and solo** | Mute silences a track everywhere (mix, bounces and live input), but a muted armed track still records. Solo only changes what you hear. Mute wins over solo; if every soloed track is muted the status display says so. |
 | **Signal chain** | Click a track's display to drop down its chain: the inputs, up to eight blocks, then the tape. MIDI runs along the top, audio along the bottom. Instruments mix their sound in (two in a row layer), MIDI effects (an arpeggiator, PitchGrid) change the notes for every block after them, audio effects process with a MIX control, and an external instrument sends MIDI to a hardware synth and mixes its audio back in. Click **+** to add from a searchable list (ALL / INSTRUMENTS / MIDI FX / AUDIO FX), click a block's lamp to bypass it, drag to reorder, double-click to open its window. |
 | **Inputs** | The first block: **Played by** (none, any controller, or a named one, so different keyboards can play different armed tracks), **Audio in** (an input, or a pair mixed to mono), or **Bounce from tape**. A track can take a controller and an audio input at once. |
@@ -68,13 +69,13 @@ However it's connected, recordings line up with what you heard: TapeFour correct
 MPE is set per controller, under **Setup → MIDI & Deck**. Controllers that are known to be MPE (Osmose, Seaboard, LinnStrument and others) start with it ticked. A track played by an MPE controller tells its instrument about the MPE zone: lower zone, 15 member channels, and that controller's per-note pitch-bend range (default 48, as on the Osmose). Each note's bend, pressure and timbre (CC74) then reach the instrument separately. On a hardware synth track, MPE passes through untouched on its own channels.
 
 - **Built-in instruments:** they respond directly. Pressure opens the filter and swells the level, and timbre moves the filter.
-- **VST3 instruments:** the plug-in has to support MPE. Some need MPE switched on in their own settings too.
+- **Plug-in instruments:** the plug-in has to support MPE. Some need MPE switched on in their own settings too.
 
 Type the **bend range** to match what the controller sends. Ordinary keyboards don't need MPE ticked.
 
 ### Levels
 
-Hosted VST3 instruments come in 12 dB lower than their own output. That puts a full-level synth around the deck's 0 VU, as if it were plugged into a line input. Use the track's **GAIN** knob to trim further.
+Plug-in instruments come in 12 dB lower than their own output. That puts a full-level synth around the deck's 0 VU, as if it were plugged into a line input. Use the track's **GAIN** knob to trim further.
 
 ### Arming
 
@@ -85,7 +86,7 @@ Hosted VST3 instruments come in 12 dB lower than their own output. That puts a f
 
 - **1⅞ ips** is normal cassette speed. **3¾ ips** sounds better but halves the recording time.
 - Everything on the tape remembers the speed it was recorded at, so playing it at the other speed shifts it an octave. A track's display shows the shift in semitones.
-- **PITCH** moves the tape speed by up to ±12%.
+- **PITCH** moves the tape speed smoothly by up to ±12%, gliding to each new setting like a capstan motor so it bends rather than jumps.
 - **NOISE REDUCTION** encodes while recording and decodes on playback. The **NR** lamp on each track shows how the tape under the head was recorded. It flashes red when the switch doesn't match.
 
 ### Cassettes
@@ -145,15 +146,17 @@ You need CMake 3.22 or later and a C++20 compiler.
 |---|---|---|
 | Windows | Visual Studio 2022 with the C++ workload | `cmake -S . -B build -A x64` then `cmake --build build --config Release` |
 | macOS | Xcode 15 or later | `cmake -S . -B build -G Xcode "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"` then `cmake --build build --config Release` |
-| Linux | `libasound2-dev libjack-jackd2-dev libfreetype-dev libfontconfig1-dev libx11-dev libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev libxrender-dev` (Debian/Ubuntu names) | `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release` then `cmake --build build` |
+| Linux | `ladspa-sdk libasound2-dev libjack-jackd2-dev libfreetype-dev libfontconfig1-dev libx11-dev libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev libxrender-dev` (Debian/Ubuntu names) | `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release` then `cmake --build build` |
 
-JUCE 8.0.11 is downloaded during configuration. It includes the ASIO headers (Steinberg made ASIO available under GPLv3) and the VST3 SDK. JACK is loaded only if it's installed, so the Linux build runs without it.
+JUCE 8.0.11 and the CLAP headers (1.2.7, MIT licence) are downloaded during configuration. JUCE includes the ASIO headers (Steinberg made ASIO available under GPLv3), the VST3 SDK and LV2 support; CLAP plug-ins are hosted by TAPE·FOUR's own code (`Source/ClapFormat.cpp`), since JUCE doesn't host CLAP. JACK is loaded only if it's installed, so the Linux build runs without it.
 
 Add `-DTAPEFOUR_TESTS=ON` to also build the headless test programs, which every build on GitHub runs on all three platforms:
 
 - `EngineTest`: each cassette's MOL, SOL, hiss, modulation noise and sensitivity; pitch and level; noise reduction, tape speed, the tape switch, and clean punch-ins and punch-outs.
-- `MixerTest`: the whole audio path: monitoring and arming crossfades, EQ, bounce, the built-in synth via MIDI and MPE, per-track controllers, signal chains (MIDI effects, layering, MIX and bypass), mute and solo, MIDI learn (pickup, encoders, toggles, MMC, plug-in parameters), hardware synth routing, recordings lining up on an interface with latency, saving while recording, plug-in load races, MIDI device slots, deck recall, and settings surviving a restart.
+- `MixerTest`: the whole audio path: monitoring and arming crossfades, EQ, bounce, the built-in synth via MIDI and MPE, per-track controllers, signal chains (MIDI effects, layering, MIX and bypass), CLAP hosting (scanning, an effect with parameters and saved state, an instrument fed CLAP note events, using two test plug-ins built from `Tests/fixtures/TestClap.c`), when plug-in state is saved, mute and solo, MIDI learn (pickup, encoders, toggles, MMC, plug-in parameters), hardware synth routing, recordings lining up on an interface with latency, saving while recording, plug-in load races, MIDI device slots, deck recall, and settings surviving a restart.
 - `ScanTest build/crashplugin`: scans a plug-in made to crash, to show the scan survives it.
+
+To check real plug-ins on your machine, run `MixerTest` with `TAPEFOUR_SMOKE_DIR` set to a plug-in folder (for LV2, the folder holding the `.lv2` bundles): every format scans it, and each instrument found is loaded and played. `TAPEFOUR_CLAP_LOG=1` makes the app print what CLAP plug-ins ask of it.
 
 `-DTAPEFOUR_SANITIZE=address` or `thread` (with Clang or GCC) builds them with the address/undefined-behaviour or thread sanitizer; GitHub runs both on every push.
 

@@ -1,6 +1,7 @@
 // Drives the whole audio path (inputs -> strips -> tape -> mix) with a fake audio device.
 #include "../Source/AudioEngine.h"
 #include "../Source/TapeWriter.h"
+#include "../Source/ClapFormat.h"
 #include <cstdio>
 
 using namespace tf;
@@ -507,17 +508,17 @@ int main()
         // Deck state: everything savable goes out and comes back.
         me.track[0].fader = 0.31f; me.track[0].pan = 0.4f; me.track[0].high = -0.5f;
         me.masterFader = 0.6f;
-        me.tapeEngine.params.pitchStep = 2;
+        me.tapeEngine.params.pitch = 3.7f;
         auto deck = me.createDeckState();
         me.track[0].fader = 0.9f; me.track[0].pan = -0.8f; me.track[0].high = 0.7f;
         me.masterFader = 0.2f;
-        me.tapeEngine.params.pitchStep = 0;
+        me.tapeEngine.params.pitch = 0.0f;
         me.clearChain (2);
         me.setTrackMidiPort (0, AudioEngine::midiNone);
         me.applyDeckState (*deck);
         check (std::abs (me.track[0].fader.load() - 0.31f) < 1e-4f && std::abs (me.track[0].pan.load() - 0.4f) < 1e-4f
                && std::abs (me.track[0].high.load() + 0.5f) < 1e-4f, "deck recall: fader, pan and EQ come back", me.track[0].fader.load(), 0.31);
-        check (std::abs (me.masterFader.load() - 0.6f) < 1e-4f && me.tapeEngine.params.pitchStep.load() == 2,
+        check (std::abs (me.masterFader.load() - 0.6f) < 1e-4f && std::abs (me.tapeEngine.params.pitch.load() - 3.7f) < 1e-4f,
                "deck recall: master and pitch come back", me.masterFader.load(), 0.6);
         auto hwBack = me.getChain (2);
         check (hwBack.size() == 1 && hwBack[0].role == BlockRole::external && hwBack[0].outPort == synth && hwBack[0].channel == 7 && hwBack[0].returnInput == 0,
@@ -779,6 +780,23 @@ int main()
         check (rms (playA (0.4), 0.1, 0.4) > 0.005, "chain: MIDI passes blocks that don't make MIDI", 1, 1);
         me.track[0].armed = false;
 
+        // A plug-in with its window open is asked for its sound at most once a minute by the regular
+        // saves, but always at the natural moments (fresh saves: stop, tape save, quit, window closed).
+        {
+            auto id = me.insertBlock (3, -1, hostedBlock (std::make_unique<Gain>()));
+            auto* pb = dynamic_cast<ProcessorBlock*> (me.findBlock (3, id));
+            pb->setEditorOpen (true);
+            for (int i = 0; i < 12; ++i) me.createDeckState (false);   // a minute of 5-second saves, quickly
+            const int regular = pb->stateRequests;
+            me.createDeckState (true);
+            pb->setEditorOpen (false);
+            pb->captureState();
+            check (regular == 1 && pb->stateRequests == 3,
+                   "plug-in state: an open window isn't asked every save, only once a minute and at natural moments",
+                   regular, 1);
+            me.clearChain (3);
+        }
+
         // The front panel reads the chain 30 times a second per strip; the plug-in is asked once.
         me.insertBlock (2, -1, hostedBlock (std::make_unique<Nosy>()));
         Nosy::editorQuestions = 0;
@@ -796,6 +814,132 @@ int main()
                "chain: reading the chain doesn't keep asking the plug-in (hasEditor makes a VST3 view)",
                Nosy::editorQuestions.load() + Nosy::nameQuestions.load(), 0);
         me.clearChain (2);
+    }
+
+    // ---- CLAP plug-ins (TAPE·FOUR's own host) ----
+    {
+        Rig m;
+        auto& me = *m.engine;
+        juce::OwnedArray<juce::PluginDescription> found;
+        ClapPluginFormat clapFormat;
+        clapFormat.findAllTypesForFile (found, TAPEFOUR_TEST_CLAP);
+        const juce::PluginDescription* half = nullptr;
+        const juce::PluginDescription* toneSynth = nullptr;
+        for (auto* d : found)
+        {
+            if (d->name == "TF Test Half") half = d;
+            if (d->name == "TF Test Tone") toneSynth = d;
+        }
+        check (half != nullptr && toneSynth != nullptr && half->pluginFormatName == "CLAP",
+               "clap: scanning a .clap file finds both plug-ins in it", found.size(), 2);
+        if (half == nullptr || toneSynth == nullptr) return 1;
+        check (toneSynth->isInstrument && ! half->isInstrument && half->uniqueId != toneSynth->uniqueId,
+               "clap: instrument or effect comes from its features, each with its own id", toneSynth->isInstrument, 1);
+
+        auto load = [&] (int t, const juce::PluginDescription& d, const juce::String& state = {})
+        {
+            juce::String result = "pending";
+            me.addPlugin (t, -1, d, state, 0, [&] (const juce::String& err) { result = err; });
+            auto until = juce::Time::getMillisecondCounter() + 5000;
+            while (result == "pending" && juce::Time::getMillisecondCounter() < until)
+                juce::MessageManager::getInstance()->runDispatchLoopUntil (10);
+            return result;
+        };
+        auto waitForLoads = [&]
+        {
+            auto until = juce::Time::getMillisecondCounter() + 5000;
+            auto pending = [&] { for (int t = 0; t < numTracks; ++t) for (auto& b : me.getChain (t)) if (b.role == BlockRole::pending) return true; return false; };
+            while (pending() && juce::Time::getMillisecondCounter() < until)
+                juce::MessageManager::getInstance()->runDispatchLoopUntil (10);
+        };
+
+        // An effect: it processes the input, and its parameter works.
+        audioIn (me, 1, 0);
+        me.track[1].armed = true;
+        m.f[0] = 700; m.amp[0] = 0.2f;
+        auto dry = tone (m.run (0.4), 700, 0.15, 0.4);
+        auto err = load (1, *half);
+        check (err.isEmpty() && firstName (me, 1) == "TF Test Half", "clap: an effect loads into a chain", err.isEmpty(), 1);
+        auto halved = tone (m.run (0.4), 700, 0.15, 0.4);
+        check (std::abs (halved / dry - 0.5) < 0.02, "clap: the effect processes the track's audio (gain 0.5)", halved / dry, 0.5);
+
+        auto* block = me.findBlock (1, me.getChain (1)[0].id);
+        auto* gainParam = block->getProcessor()->getParameters()[0];
+        check (gainParam->getName (20) == "Gain" && gainParam->getText (0.25f, 20) == "2/10",
+               "clap: parameters show the plug-in's names and text", gainParam->getName (20) == "Gain", 1);
+        gainParam->setValueNotifyingHost (0.25f);
+        auto quarter = tone (m.run (0.4), 700, 0.15, 0.4);
+        check (std::abs (quarter / dry - 0.25) < 0.02, "clap: setting a parameter reaches the plug-in", quarter / dry, 0.25);
+
+        // Its state goes out with the deck and comes back.
+        auto deck = me.createDeckState (true);
+        gainParam->setValueNotifyingHost (1.0f);
+        m.run (0.2);
+        me.applyDeckState (*deck);
+        waitForLoads();
+        auto restored = tone (m.run (0.4), 700, 0.15, 0.4);
+        check (std::abs (restored / dry - 0.25) < 0.02, "clap: the plug-in's saved state comes back with the deck", restored / dry, 0.25);
+        me.track[1].armed = false;
+        m.amp[0] = 0;
+
+        // An instrument that only takes CLAP note events: MIDI notes are translated.
+        me.clearChain (0);
+        me.setTrackInput (0, -1);
+        err = load (0, *toneSynth);
+        me.track[0].armed = true;
+        m.run (0.05);
+        me.injectMidi (juce::MidiMessage::noteOn (1, 57, (juce::uint8) 127));   // A220
+        auto played = m.run (0.4);
+        me.injectMidi (juce::MidiMessage::noteOff (1, 57));
+        auto after = m.run (0.4);
+        check (err.isEmpty() && tone (played, 220, 0.1, 0.4) > 0.01 && tone (after, 220, 0.15, 0.4) < 0.001,
+               "clap: an instrument plays MIDI notes (as CLAP note events) and stops on note-off", tone (played, 220, 0.1, 0.4), 0.05);
+        me.track[0].armed = false;
+        me.clearChain (0);
+        me.clearChain (1);
+    }
+
+    // ---- Real plug-ins, when asked for: TAPEFOUR_SMOKE_DIR=<folder of plug-ins> ----
+    // Every format scans the folder; each instrument found is loaded and played, each effect loaded.
+    if (auto dir = juce::SystemStats::getEnvironmentVariable ("TAPEFOUR_SMOKE_DIR", {}); dir.isNotEmpty())
+    {
+        Rig m;
+        auto& me = *m.engine;
+        for (auto* format : me.formatManager.getFormats())
+        {
+            for (auto& id : format->searchPathsForPlugins (juce::FileSearchPath (dir), true, false))
+            {
+                juce::OwnedArray<juce::PluginDescription> types;
+                format->findAllTypesForFile (types, id);
+                for (auto* d : types)
+                {
+                    me.clearChain (0);
+                    me.setTrackInput (0, -1);
+                    juce::String result = "pending";
+                    me.addPlugin (0, -1, *d, {}, 0, [&] (const juce::String& err) { result = err; });
+                    auto until = juce::Time::getMillisecondCounter() + 30000;
+                    while (result == "pending" && juce::Time::getMillisecondCounter() < until)
+                        juce::MessageManager::getInstance()->runDispatchLoopUntil (10);
+                    auto name = format->getName() + " " + d->name;
+                    if (result.isNotEmpty()) { check (false, ("smoke: " + name + " loads: " + result).toRawUTF8(), 0, 1); continue; }
+                    auto chain = me.getChain (0);
+                    if (chain.empty() || chain[0].role != BlockRole::instrument)
+                    {
+                        check (true, ("smoke: " + name + " loads (" + juce::String (roleName (chain.empty() ? BlockRole::pending : chain[0].role)) + ")").toRawUTF8(), 1, 1);
+                        continue;
+                    }
+                    me.track[0].armed = true;
+                    m.run (0.3);
+                    me.injectMidi (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 110));
+                    auto out = m.run (1.0);
+                    me.injectMidi (juce::MidiMessage::noteOff (1, 60));
+                    m.run (0.3);
+                    me.track[0].armed = false;
+                    check (rms (out, 0.2, 1.0) > 1.0e-4, ("smoke: " + name + " plays a note").toRawUTF8(), rms (out, 0.2, 1.0), 0.01);
+                }
+            }
+        }
+        me.clearChain (0);
     }
 
     // ---- Mute and solo ----

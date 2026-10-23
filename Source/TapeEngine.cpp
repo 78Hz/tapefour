@@ -367,9 +367,13 @@ void TapeEngine::beginBlock (int n, const bool* armed) noexcept
         for (int t = 0; t < numTracks; ++t) { encoder[t].reset(); hasPrev[t] = false; }
 
     auto speedSel = juce::jlimit (1, 2, params.speedSel.load());
-    auto nominal = speedSel * (1.0 + juce::jlimit (-5, 5, params.pitchStep.load()) * 0.024);
-    nominalSpeed = (float) nominal;
-    auto advNom = nominal * cellRate / sr;
+    // Varispeed eases to where the knob is, like a capstan motor, so turning it glides rather than steps.
+    const double pitchTarget = 1.0 + juce::jlimit (-12.0, 12.0, (double) params.pitch.load()) * 0.01;
+    const double pitchEase = 1.0 - std::exp (-1.0 / (0.06 * sr));
+    nominalSpeed = (float) (speedSel * pitchTarget);
+    const double advUnit = speedSel * cellRate / sr;
+    if (m != Mode::play && m != Mode::rec)
+        pitchGlide = pitchTarget;   // stopped or winding: it's simply there when you press PLAY
     for (auto& w : wroteThisBlock) w = false;
 
     auto wowD = params.wow.load() * 0.005;
@@ -400,7 +404,8 @@ void TapeEngine::beginBlock (int n, const bool* armed) noexcept
             auto mod = 1.0 + wowD * (0.7 * std::sin (tp * ph[0]) + 0.3 * std::sin (tp * ph[1]))
                            + flD * (0.6 * std::sin (tp * ph[2]) + 0.4 * std::sin (tp * ph[3]))
                            + driftVal;
-            pos += advNom * mod;
+            pitchGlide += (pitchTarget - pitchGlide) * pitchEase;
+            pos += advUnit * pitchGlide * mod;
             windVel = 0;
             playing[(size_t) i] = 1;
             recording[(size_t) i] = m == Mode::rec ? 1 : 0;

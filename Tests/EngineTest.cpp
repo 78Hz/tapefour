@@ -185,13 +185,26 @@ int main()
         check (std::abs (r.tape.recordedSpeed (0, 5) - 2.0f) < 0.01f, "speed: recorded speed stored", r.tape.recordedSpeed (0, 5), 2.0);
     }
 
-    {   // 5. pitch control +2 steps = +4.8 %
+    {   // 5. pitch is continuous: +3.7% plays a 1000 Hz tone at 1037 Hz
         Rig r;
         r.run (2.0, TapeEngine::Command::rec, true, 1000.0, 0.5f);
         r.rewindTo (0);
-        r.eng.params.pitchStep = 2;
+        r.eng.params.pitch = 3.7f;
         auto out = r.run (1.5, TapeEngine::Command::play, false, 0, 0);
-        check (std::abs (freq (out, 0.3, 1.3) - 1048.0) < 4.0, "pitch: +4.8% playback", freq (out, 0.3, 1.3), 1048.0);
+        check (std::abs (freq (out, 0.3, 1.3) - 1037.0) < 4.0, "pitch: +3.7% playback (continuous, not stepped)", freq (out, 0.3, 1.3), 1037.0);
+    }
+
+    {   // 5b. turning pitch while playing glides like a motor rather than jumping
+        Rig r;
+        r.run (4.0, TapeEngine::Command::rec, true, 1000.0, 0.5f);
+        r.rewindTo (0);
+        r.eng.params.pitch = 0.0f;
+        r.run (0.5, TapeEngine::Command::play, false, 0, 0);
+        r.eng.params.pitch = 12.0f;
+        auto out = r.run (1.0, TapeEngine::Command::none, false, 0, 0);
+        auto early = freq (out, 0.0, 0.05), late = freq (out, 0.5, 0.9);
+        check (early > 1005.0 && early < 1100.0 && std::abs (late - 1120.0) < 5.0,
+               "pitch: a jump on the knob glides to the new speed", early, 1060.0);
     }
 
     {   // 6. punch-in replaces only the middle

@@ -617,6 +617,14 @@ private:
 };
 
 //==============================================================================
+static juce::String formatList (AudioEngine& e)
+{
+    juce::StringArray names;
+    for (auto* f : e.formatManager.getFormats())
+        names.add (f->getName() == "AudioUnit" ? juce::String ("AU") : f->getName());
+    return names.joinIntoString (", ");
+}
+
 class InstrumentsPanel : public juce::Component,
                          private juce::ChangeListener
 {
@@ -626,8 +634,10 @@ public:
           list (e.formatManager, e.knownPlugins,
                 settings.getFile().getSiblingFile ("RecentlyCrashedPluginsList"), &settings, true)
     {
-        note.setText ("Press \"Options...\" then \"Scan for new or updated VST3 plug-ins\". "
-                      "Plug-ins found here appear in each track's signal chain: click the track's display, then +.", juce::dontSendNotification);
+        note.setText (juce::String ("Press \"Options...\" and scan each format you use (") + formatList (e) + "). "
+                      "Plug-ins found here appear in each track's signal chain: click the track's display, then +. "
+                      "A plug-in that comes in several formats is offered once, as CLAP, VST3, AU, LV2 or LADSPA, in that order.",
+                      juce::dontSendNotification);
         note.setFont (DeckLookAndFeel::get().cond (17.0f));
         note.setColour (juce::Label::textColourId, Pal::muted);
         addAndMakeVisible (note);
@@ -695,7 +705,7 @@ SetupWindow::SetupWindow (AudioEngine& engineRef, juce::PropertiesFile& settings
 {
     setUsingNativeTitleBar (true);
     tabs = std::make_unique<juce::TabbedComponent> (juce::TabbedButtonBar::TabsAtTop);
-    tabs->setTabBarDepth (36);
+    tabs->setTabBarDepth (48);
     tabs->addTab ("AUDIO", Pal::panel, new Scrolling<AudioPanel> (engineRef), true);
     tabs->addTab ("MIDI & DECK", Pal::panel, new Scrolling<MidiPanel> (engineRef), true);
     tabs->addTab ("TAPE", Pal::panel, new TapePanel (engineRef), true);

@@ -58,7 +58,7 @@ std::unique_ptr<juce::XmlElement> AudioEngine::createDeckState (bool freshPlugin
     auto& tp = tapeEngine.params;
     auto* x = deck->createNewChildElement ("TAPE_DECK");
     x->setAttribute ("speed", tp.speedSel.load());
-    x->setAttribute ("pitch", tp.pitchStep.load());
+    x->setAttribute ("pitchPct", (double) tp.pitch.load());
     x->setAttribute ("nr", tp.nrOn.load());
     x->setAttribute ("nrType", tp.nrType.load());
     x->setAttribute ("hiss", tp.hiss.load());
@@ -208,7 +208,9 @@ void AudioEngine::applyDeckState (const juce::XmlElement& deck)
     {
         auto& tp = tapeEngine.params;
         tp.speedSel    = juce::jlimit (1, 2, x->getIntAttribute ("speed", 1));
-        tp.pitchStep   = juce::jlimit (-5, 5, x->getIntAttribute ("pitch"));
+        // Older decks kept pitch as a step of 2.4%.
+        tp.pitch       = (float) juce::jlimit (-12.0, 12.0, x->hasAttribute ("pitchPct") ? x->getDoubleAttribute ("pitchPct")
+                                                                                      : x->getIntAttribute ("pitch") * 2.4);
         tp.nrOn        = x->getBoolAttribute ("nr", true);
         tp.nrType      = juce::jlimit (0, 2, x->getIntAttribute ("nrType"));
         tp.hiss    = (float) x->getDoubleAttribute ("hiss", 0.55);

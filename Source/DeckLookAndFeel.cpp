@@ -145,4 +145,91 @@ void drawLamp (juce::Graphics& g, juce::Rectangle<float> r, bool on, juce::Colou
         g.drawEllipse (r.reduced (0.5f), 1.0f);
     }
 }
+//==============================================================================
+void DeckLookAndFeel::paintKey (juce::Graphics& g, juce::Rectangle<float> r, bool over, bool down, float alpha)
+{
+    auto face = r.withTrimmedBottom (3.0f).translated (0, down ? 2.0f : 0.0f);
+    if (! down)
+    {
+        g.setColour (Pal::darker.withMultipliedAlpha (alpha));
+        g.fillRoundedRectangle (r.withTrimmedTop (3.0f), 5.0f);
+    }
+    g.setGradientFill (juce::ColourGradient (juce::Colour (over ? 0xff57554e : 0xff4d4b45).withMultipliedAlpha (alpha), 0, face.getY(),
+                                             juce::Colour (over ? 0xff43413b : 0xff3b3934).withMultipliedAlpha (alpha), 0, face.getBottom(), false));
+    g.fillRoundedRectangle (face, 5.0f);
+    g.setColour (juce::Colours::white.withAlpha (0.08f * alpha));
+    g.drawHorizontalLine ((int) face.getY() + 1, face.getX() + 4, face.getRight() - 4);
+}
+
+void DeckLookAndFeel::paintLed (juce::Graphics& g, juce::Point<float> centre, bool on, juce::Colour colour, float size)
+{
+    auto led = juce::Rectangle<float> (size, size).withCentre (centre);
+    if (on)
+    {
+        g.setColour (colour.withAlpha (0.35f));
+        g.fillEllipse (led.expanded (size * 0.4f));
+        g.setColour (colour);
+        g.fillEllipse (led);
+    }
+    else
+    {
+        g.setColour (juce::Colour (0xff2b2824));
+        g.fillEllipse (led);
+        g.setColour (juce::Colours::black.withAlpha (0.6f));
+        g.drawEllipse (led, 1.0f);
+    }
+}
+
+void DeckLookAndFeel::drawToggleButton (juce::Graphics& g, juce::ToggleButton& b, bool over, bool down)
+{
+    // A small LED key, then the label.
+    const float alpha = b.isEnabled() ? 1.0f : 0.45f;
+    auto r = b.getLocalBounds().toFloat();
+    auto key = r.removeFromLeft (30.0f).withSizeKeepingCentre (30.0f, std::min (26.0f, r.getHeight()));
+    paintKey (g, key, over, down, alpha);
+    paintLed (g, { key.getCentreX(), key.getCentreY() - 1.0f + (down ? 2.0f : 0.0f) }, b.getToggleState(), Pal::amber);
+    if (b.getButtonText().isNotEmpty())
+    {
+        g.setColour (Pal::cream.withMultipliedAlpha (alpha));
+        g.setFont (cond (16.0f));
+        g.drawFittedText (b.getButtonText(), r.withTrimmedLeft (12.0f).toNearestInt(), juce::Justification::centredLeft, 2, 0.8f);
+    }
+}
+
+void DeckLookAndFeel::drawTickBox (juce::Graphics& g, juce::Component&, float x, float y, float w, float h,
+                                   bool ticked, bool enabled, bool over, bool down)
+{
+    // Lists of channels and the like: the same LED key, sized to the row.
+    auto key = juce::Rectangle<float> (x, y, w, h).withSizeKeepingCentre (std::max (w, h * 1.2f), h);
+    paintKey (g, key, over, down, enabled ? 1.0f : 0.45f);
+    paintLed (g, { key.getCentreX(), key.getCentreY() - 1.0f }, ticked, Pal::amber, std::max (5.0f, h * 0.32f));
+}
+
+int DeckLookAndFeel::getTabButtonBestWidth (juce::TabBarButton& b, int)
+{
+    return (int) juce::GlyphArrangement::getStringWidth (cond (14.0f, true).withExtraKerningFactor (0.14f), b.getButtonText()) + 50;
+}
+
+void DeckLookAndFeel::drawTabButton (juce::TabBarButton& b, juce::Graphics& g, bool over, bool down)
+{
+    auto r = b.getLocalBounds().toFloat().reduced (4.0f, 6.0f);
+    paintKey (g, r, over, down);
+    auto face = r.withTrimmedBottom (3.0f).translated (0, down ? 2.0f : 0.0f);
+    paintLed (g, { face.getX() + 15.0f, face.getCentreY() }, b.isFrontTab(), Pal::amber);
+    g.setColour (Pal::cream);
+    g.setFont (cond (14.0f, true).withExtraKerningFactor (0.14f));
+    g.drawText (b.getButtonText(), face.withTrimmedLeft (26.0f).withTrimmedRight (8.0f), juce::Justification::centred);
+}
+
+void DeckLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& b, const juce::Colour&, bool over, bool down)
+{
+    paintKey (g, b.getLocalBounds().toFloat(), over, down, b.isEnabled() ? 1.0f : 0.45f);
+}
+
+void DeckLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& b, bool, bool down)
+{
+    g.setColour (Pal::cream.withMultipliedAlpha (b.isEnabled() ? 1.0f : 0.45f));
+    g.setFont (cond (14.0f, true).withExtraKerningFactor (0.1f));
+    g.drawFittedText (b.getButtonText(), b.getLocalBounds().withTrimmedBottom (3).translated (0, down ? 2 : 0), juce::Justification::centred, 1, 0.8f);
+}
 } // namespace tf

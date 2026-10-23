@@ -121,8 +121,9 @@ public:
     int numBlocks (int t) const;
     /** Puts a block in the chain at index (-1: the end). Returns its id, or 0 if the chain is full. */
     int insertBlock (int t, int index, std::unique_ptr<Block> block);
-    /** Replaces a block, keeping its place. Returns the new block's id. */
-    int replaceBlock (int t, int blockId, std::unique_ptr<Block> block);
+    /** Replaces a block, keeping its place. Returns the new block's id (the old one's, with keepId:
+        a plug-in arriving in its placeholder stays the same block to everything that knows it). */
+    int replaceBlock (int t, int blockId, std::unique_ptr<Block> block, bool keepId = false);
     void removeBlock (int t, int blockId);
     void moveBlock (int t, int blockId, int newIndex);
     void clearChain (int t);
@@ -208,6 +209,7 @@ private:
     bool isMidiSlotInUse (int slot, bool output) const;
     void allocateBuffers (int size);
     void prepareBlock (Block&);
+    int insertBlockWithId (int t, int index, std::unique_ptr<Block> block, int id);
     std::unique_ptr<Block> takeBlock (int t, int blockId, int* index = nullptr);
     void destroyBlock (int t, std::unique_ptr<Block> block);
 

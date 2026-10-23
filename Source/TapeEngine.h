@@ -37,7 +37,7 @@ public:
     struct Params
     {
         std::atomic<int>   speedSel { 1 };       // 1 = 1 7/8 ips, 2 = 3 3/4 ips
-        std::atomic<int>   pitchStep { 0 };      // -5..+5, 2.4% per step
+        std::atomic<float> pitch { 0.0f };      // varispeed, percent: -12..+12, continuous
         std::atomic<bool>  nrOn { true };
         std::atomic<int>   nrType { 0 };
         // hiss: 0 = off, 0.5 = the tape as measured, +/-12 dB either side.
@@ -103,6 +103,7 @@ private:
     std::atomic<int> pendingCommand { 0 }, mode { 0 };
     std::atomic<bool> rtz { false }, endOfTape { false }, noArmWarning { false };
     std::atomic<float> nominalSpeed { 1.0f };
+    double pitchGlide = 1.0;              // audio thread: the varispeed motor, easing to the knob
 
     double pos = 0.0, windVel = 0.0;
     std::vector<double> posBuf;

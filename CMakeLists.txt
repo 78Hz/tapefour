@@ -12,17 +12,25 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 # JUCE 8.0.11 bundles the (now GPLv3) ASIO headers and the MIT-licensed VST3 SDK.
 set(TAPEFOUR_JUCE_DIR "" CACHE PATH "Use a local JUCE checkout instead of downloading it")
+include(FetchContent)
 
 if(TAPEFOUR_JUCE_DIR)
     add_subdirectory(${TAPEFOUR_JUCE_DIR} JUCE)
 else()
-    include(FetchContent)
     FetchContent_Declare(JUCE
         GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
         GIT_TAG 8.0.11
         GIT_SHALLOW TRUE)
     FetchContent_MakeAvailable(JUCE)
 endif()
+
+# CLAP's headers (MIT licence, header-only): TAPE·FOUR hosts CLAP plug-ins itself.
+FetchContent_Declare(clap
+    GIT_REPOSITORY https://github.com/free-audio/clap.git
+    GIT_TAG 1.2.7
+    GIT_SHALLOW TRUE)
+FetchContent_MakeAvailable(clap)
+set(TAPEFOUR_CLAP_INCLUDE ${clap_SOURCE_DIR}/include)
 
 # Sanitizer builds for CI: -DTAPEFOUR_SANITIZE=address or thread
 set(TAPEFOUR_SANITIZE "" CACHE STRING "address, thread, or empty")
@@ -35,19 +43,20 @@ elseif(TAPEFOUR_SANITIZE STREQUAL "thread")
 endif()
 
 # Every audio system each platform has: ASIO, WASAPI and DirectSound on Windows;
-# CoreAudio on macOS; ALSA and JACK on Linux. Instruments: VST3 everywhere, plus AU on macOS.
+# CoreAudio on macOS; ALSA and JACK on Linux.
+# Plug-ins: VST3 and LV2 everywhere, Audio Units on macOS, LADSPA on Linux. CLAP is hosted by
+# TAPE·FOUR itself (Source/ClapFormat.cpp), since JUCE doesn't host it.
 set(TAPEFOUR_PLATFORM_DEFS
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
     JUCE_PLUGINHOST_VST3=1
-    JUCE_PLUGINHOST_LADSPA=0
-    JUCE_PLUGINHOST_LV2=0)
+    JUCE_PLUGINHOST_LV2=1)
 if(WIN32)
-    list(APPEND TAPEFOUR_PLATFORM_DEFS JUCE_ASIO=1 JUCE_WASAPI=1 JUCE_DIRECTSOUND=1 JUCE_PLUGINHOST_AU=0)
+    list(APPEND TAPEFOUR_PLATFORM_DEFS JUCE_ASIO=1 JUCE_WASAPI=1 JUCE_DIRECTSOUND=1 JUCE_PLUGINHOST_AU=0 JUCE_PLUGINHOST_LADSPA=0)
 elseif(APPLE)
-    list(APPEND TAPEFOUR_PLATFORM_DEFS JUCE_PLUGINHOST_AU=1)
+    list(APPEND TAPEFOUR_PLATFORM_DEFS JUCE_PLUGINHOST_AU=1 JUCE_PLUGINHOST_LADSPA=0)
 else()
-    list(APPEND TAPEFOUR_PLATFORM_DEFS JUCE_ALSA=1 JUCE_JACK=1 JUCE_PLUGINHOST_AU=0)
+    list(APPEND TAPEFOUR_PLATFORM_DEFS JUCE_ALSA=1 JUCE_JACK=1 JUCE_PLUGINHOST_AU=0 JUCE_PLUGINHOST_LADSPA=1)
 endif()
 
 juce_add_binary_data(TapeFourFonts SOURCES
@@ -77,7 +86,8 @@ set(TAPEFOUR_ENGINE_SOURCES
     Source/AudioEngine.cpp
     Source/DeckState.cpp
     Source/TapeShelf.cpp
-    Source/PluginScan.cpp)
+    Source/PluginScan.cpp
+    Source/ClapFormat.cpp)
 
 target_sources(TapeFour PRIVATE
     Source/Main.cpp
@@ -97,6 +107,7 @@ target_compile_definitions(TapeFour PRIVATE
     JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:TapeFour,JUCE_VERSION>")
 
 target_compile_options(TapeFour PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+target_include_directories(TapeFour PRIVATE ${TAPEFOUR_CLAP_INCLUDE})
 
 target_link_libraries(TapeFour
     PRIVATE
@@ -118,13 +129,14 @@ if(TAPEFOUR_TESTS)
         target_sources(${name} PRIVATE ${ARGN})
         target_compile_definitions(${name} PRIVATE ${TAPEFOUR_PLATFORM_DEFS} JUCE_MODAL_LOOPS_PERMITTED=1)
         target_compile_options(${name} PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+        target_include_directories(${name} PRIVATE ${TAPEFOUR_CLAP_INCLUDE})
         target_link_libraries(${name} PRIVATE juce::juce_audio_utils juce::juce_dsp
             PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
     endfunction()
 
     tapefour_test(EngineTest Tests/EngineTest.cpp Source/Tape.cpp Source/TapeEngine.cpp)
     tapefour_test(MixerTest Tests/MixerTest.cpp ${TAPEFOUR_ENGINE_SOURCES})
-    tapefour_test(ScanTest Tests/ScanTest.cpp Source/PluginScan.cpp)
+    tapefour_test(ScanTest Tests/ScanTest.cpp Source/PluginScan.cpp Source/ClapFormat.cpp)
 
     # A "VST3" that crashes as soon as it is loaded, laid out as each platform's bundle,
     # for ScanTest: TapeFour must survive scanning it.
@@ -145,4 +157,26 @@ if(TAPEFOUR_TESTS)
             LIBRARY_OUTPUT_DIRECTORY ${crashBundle}/Contents/${CMAKE_SYSTEM_PROCESSOR}-linux)
     endif()
     add_dependencies(ScanTest CrashPlugin)
+
+    # Two tiny CLAP plug-ins for MixerTest: build/testclap/TestClap.clap
+    add_library(TestClap MODULE Tests/fixtures/TestClap.c)
+    target_include_directories(TestClap PRIVATE ${TAPEFOUR_CLAP_INCLUDE})
+    if(APPLE)
+        set_target_properties(TestClap PROPERTIES BUNDLE TRUE BUNDLE_EXTENSION "clap" OUTPUT_NAME "TestClap"
+            LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/testclap
+            LIBRARY_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR}/testclap
+            LIBRARY_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/testclap
+            MACOSX_BUNDLE_GUI_IDENTIFIER "com.78hz.testclap"
+            MACOSX_BUNDLE_BUNDLE_NAME "TestClap")
+    else()
+        set_target_properties(TestClap PROPERTIES OUTPUT_NAME "TestClap" PREFIX "" SUFFIX ".clap"
+            LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/testclap
+            LIBRARY_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR}/testclap
+            LIBRARY_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/testclap)
+    endif()
+    if(NOT WIN32)
+        target_link_libraries(TestClap PRIVATE m)
+    endif()
+    add_dependencies(MixerTest TestClap)
+    target_compile_definitions(MixerTest PRIVATE TAPEFOUR_TEST_CLAP="${CMAKE_BINARY_DIR}/testclap/TestClap.clap")
 endif()

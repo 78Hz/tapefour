@@ -1,4 +1,6 @@
 #include "ChainEditor.h"
+#include "ClapFormat.h"
+#include <map>
 
 namespace tf
 {
@@ -116,7 +118,8 @@ private:
     {
         if (d.isInstrument) return instruments;
         auto c = d.category + " " + d.fileOrIdentifier;
-        if (c.containsIgnoreCase ("midi") || c.containsIgnoreCase ("event") || c.containsIgnoreCase ("aumi")) return midiFx;
+        if (c.containsIgnoreCase ("midi") || c.containsIgnoreCase ("event") || c.containsIgnoreCase ("aumi")
+            || c.containsIgnoreCase ("note-effect")) return midiFx;
         return audioFx;
     }
 
@@ -145,6 +148,19 @@ private:
         }
 
         auto types = engine.knownPlugins.getTypes();
+
+        // A plug-in installed in several formats is listed once, in the best of them.
+        {
+            auto key = [] (const juce::PluginDescription& d) { return d.manufacturerName.toLowerCase().trim() + "|" + d.name.toLowerCase().trim(); };
+            std::map<juce::String, int> best;
+            for (auto& d : types)
+            {
+                auto k = key (d);
+                auto pref = formatPreference (d.pluginFormatName);
+                if (auto it = best.find (k); it == best.end() || pref < it->second) best[k] = pref;
+            }
+            types.removeIf ([&] (const juce::PluginDescription& d) { return formatPreference (d.pluginFormatName) != best[key (d)]; });
+        }
         std::sort (types.begin(), types.end(), [] (const auto& a, const auto& b)
         {
             auto ma = a.manufacturerName.isEmpty() ? juce::String ("~") : a.manufacturerName.toLowerCase();

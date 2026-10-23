@@ -89,28 +89,29 @@ private:
     void say (const juce::String& message, double seconds = 2.5);
     void transport (TapeEngine::Command c);
     juce::String speedLabel() const;
+    void syncSpeed();
 
     AudioEngine& engine;
     juce::PropertiesFile& props;
 
     // header
     LcdButton setupLcd;
-    FlatButton learnBtn { "LEARN" };
+    LedKey learnBtn { "LEARN", Pal::amber };
 
     // cassette bay
     CassetteComponent cassette;
-    FlatButton eject { "EJECT" };
+    LedKey eject { "EJECT", {}, false };
     InlayThumb inlayThumb;
     TapeSwitch tapeSwitch;
 
     // transport
-    FlatButton resetBtn { "RESET" }, rtzBtn { "RTZ" };
+    LedKey resetBtn { "RESET", {}, false }, rtzBtn { "RTZ", {}, false };
     LcdButton status;
     KeyButton recKey { KeyButton::rec, "REC" }, rewKey { KeyButton::rew, "REW" }, ffKey { KeyButton::ff, "F.FWD" },
               playKey { KeyButton::play, "PLAY" }, stopKey { KeyButton::stop, "STOP" };
     LabeledKnob pitch;
-    FlatButton speedLo { utf ("1\xe2\x85\x9e IPS") }, speedHi { utf ("3\xc2\xbe IPS") };
-    FlatButton nrButton { "NOISE REDUCTION" };
+    LedKey speedLo { utf ("1\xe2\x85\x9e IPS"), Pal::amber }, speedHi { utf ("3\xc2\xbe IPS"), Pal::amber };
+    LedKey nrButton { "NOISE REDUCTION", Pal::amber };
     LcdButton nrType;
 
     // mixer

@@ -53,6 +53,8 @@ public:
 
     /** The block, as a BLOCK element (the engine adds what's common to every block). */
     virtual std::unique_ptr<juce::XmlElement> saveState (bool fresh) = 0;
+    /** Asks the plug-in for its sound now (its window just closed, say), so the next save has it. */
+    virtual void captureState() {}
 
     /** The common settings, written into and read back from a BLOCK element. */
     void writeCommon (juce::XmlElement& x) const;
@@ -86,9 +88,14 @@ public:
     juce::AudioProcessor* getProcessor() noexcept override { return processor.get(); }
     bool hasEditor() const override         { return editorAvailable; }
     void setEditorOpen (bool open) override { editorOpen = open; if (! open) stateMaybeChanged = true; }
+    int stateRequests = 0;   // for tests: how often the plug-in was asked for its state
     int takeTouchedParameter() override     { return touched.exchange (-1); }
 
     std::unique_ptr<juce::XmlElement> saveState (bool fresh) override;
+    void captureState() override;
+
+    /** How long a plug-in's sound may go unasked while its window is open or its parameters move. */
+    static constexpr double stateRefreshSeconds = 60.0;
 
     Kind getKind() const noexcept           { return kind; }
     int getBuiltInIndex() const noexcept    { return builtInIndex; }
@@ -117,6 +124,7 @@ private:
     std::atomic<int> touched { -1 };
     bool editorOpen = false;
     juce::String cachedState;
+    double lastAskedMs = 0.0;
 };
 
 //==============================================================================

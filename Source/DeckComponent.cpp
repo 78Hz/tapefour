@@ -129,7 +129,7 @@ DeckComponent::DeckComponent (AudioEngine& e, juce::PropertiesFile& settings)
     : engine (e), props (settings),
       pitch ("PITCH", false, [] (double v)
              {
-                 auto pct = juce::roundToInt (v) * 2.4;
+                 auto pct = std::abs (v) < 0.05 ? 0.0 : v;
                  return (pct > 0 ? "+" : "") + juce::String (pct, 1) + "%";
              }),
       master (e)
@@ -141,8 +141,6 @@ DeckComponent::DeckComponent (AudioEngine& e, juce::PropertiesFile& settings)
     setupLcd.onClick = [this] { openSetup (audioTab); };
     setupLcd.setTooltip ("Setup: audio driver and interface, sample rate, buffer, MIDI controllers and synths, tape character");
     addAndMakeVisible (setupLcd);
-    learnBtn.lamp = true;
-    learnBtn.textSize = 14.0f;
     learnBtn.onClick = [this] { setLearnMode (learnLayer == nullptr); };
     learnBtn.setTooltip ("MIDI learn: click a control, then move a knob, fader or button on your controller. Right-click any control to learn or forget it.");
     addAndMakeVisible (learnBtn);
@@ -169,8 +167,8 @@ DeckComponent::DeckComponent (AudioEngine& e, juce::PropertiesFile& settings)
     addAndMakeVisible (inlayThumb);
 
     // transport
-    resetBtn.textSize = 13.0f;
-    rtzBtn.textSize = 13.0f;
+    resetBtn.textSize = 11.0f;
+    rtzBtn.textSize = 11.0f;
     resetBtn.onClick = [this]
     {
         if (auto* t = engine.getTape()) { t->counterZero = t->position.load(); t->markMetaChanged(); }
@@ -188,30 +186,33 @@ DeckComponent::DeckComponent (AudioEngine& e, juce::PropertiesFile& settings)
     ffKey.onClick   = [this] { transport (TapeEngine::Command::ff); };
     playKey.onClick = [this] { transport (TapeEngine::Command::play); };
     stopKey.onClick = [this] { transport (TapeEngine::Command::stop); };
+    // REC and PLAY carry their own LEDs: no separate lamps beside the status display.
+    recKey.hasLed = true;
+    recKey.ledColour = juce::Colour (0xffff3b22);
+    playKey.hasLed = true;
+    playKey.ledColour = juce::Colour (0xff4fb33a);
     for (auto* k : { &recKey, &rewKey, &ffKey, &playKey, &stopKey })
         addAndMakeVisible (k);
 
-    pitch.slider.setRange (-5.0, 5.0, 1.0);
+    // Continuous varispeed, ±12%. Dragging is fine-grained; double-click centres it.
+    pitch.slider.setRange (-12.0, 12.0, 0.0);
+    pitch.slider.setMouseDragSensitivity (600);
     pitch.slider.setDoubleClickReturnValue (true, 0.0);
-    pitch.slider.setValue (engine.tapeEngine.params.pitchStep.load(), juce::dontSendNotification);
-    pitch.slider.onValueChange = [this] { engine.tapeEngine.params.pitchStep = (int) pitch.slider.getValue(); pitch.repaint(); };
+    pitch.slider.setValue (engine.tapeEngine.params.pitch.load(), juce::dontSendNotification);
+    pitch.slider.onValueChange = [this] { engine.tapeEngine.params.pitch = (float) pitch.slider.getValue(); pitch.repaint(); };
     addAndMakeVisible (pitch);
 
     for (auto* b : { &speedLo, &speedHi })
     {
-        b->pill = true;
-        b->textSize = 15.0f;
-        b->setRadioGroupId (101);
-        b->setClickingTogglesState (true);
+        b->textSize = 13.0f;
         addAndMakeVisible (b);
     }
-    speedLo.onClick = [this] { if (speedLo.getToggleState()) engine.tapeEngine.params.speedSel = 1; };
-    speedHi.onClick = [this] { if (speedHi.getToggleState()) engine.tapeEngine.params.speedSel = 2; };
-    (engine.tapeEngine.params.speedSel.load() == 2 ? speedHi : speedLo).setToggleState (true, juce::dontSendNotification);
+    speedLo.onClick = [this] { engine.tapeEngine.params.speedSel = 1; syncSpeed(); };
+    speedHi.onClick = [this] { engine.tapeEngine.params.speedSel = 2; syncSpeed(); };
+    syncSpeed();
 
-    nrButton.lamp = true;
-    nrButton.textSize = 14.0f;
-    nrButton.onClick = [this] { engine.tapeEngine.params.nrOn = ! engine.tapeEngine.params.nrOn.load(); };
+    nrButton.textSize = 13.0f;
+    nrButton.onClick = [this] { engine.tapeEngine.params.nrOn = ! engine.tapeEngine.params.nrOn.load(); nrButton.setLed (engine.tapeEngine.params.nrOn.load()); };
     addAndMakeVisible (nrButton);
     nrType.topSize = 14.0f;
     nrType.onClick = [this] { openSetup (tapeTab); };
@@ -300,18 +301,18 @@ void DeckComponent::prepareToQuit()
 void DeckComponent::resized()
 {
     setupLcd.setBounds (980, 16, 260, 46);
-    learnBtn.setBounds (868, 18, 100, 42);
+    learnBtn.setBounds (888, 16, 76, 46);
 
     auto bp = bayPanel;
     cassette.setBounds (bp.getX() + 30, bp.getY() + 52, 400, 255);
     inlayThumb.setBounds (bp.getX() + 448, bp.getY() + 56, 86, 226);
-    eject.setBounds (bp.getX() + 18, bp.getY() + 335, 100, 42);
-    tapeSwitch.setBounds (bp.getX() + 132, bp.getY() + 333, TapeSwitch::labelW + 3 * TapeSwitch::segW + 8, 46);
+    eject.setBounds (bp.getX() + 18, bp.getY() + 336, 100, 42);
+    tapeSwitch.setBounds (bp.getX() + 136, bp.getY() + 334, TapeSwitch::labelW + 3 * TapeSwitch::segW, 46);
 
     auto tp = transportPanel;
     resetBtn.setBounds (tp.getX() + 146, tp.getY() + 36, 62, 26);
     rtzBtn.setBounds (tp.getX() + 146, tp.getY() + 66, 62, 26);
-    status.setBounds (tp.getX() + 218, tp.getY() + 36, 254, 56);
+    status.setBounds (tp.getX() + 218, tp.getY() + 36, 324, 56);
 
     auto keys = juce::Rectangle<int> (tp.getX() + 18, tp.getY() + 112, 524, 92).reduced (8, 10);
     for (auto* k : { &recKey, &rewKey, &ffKey, &playKey, &stopKey })
@@ -321,9 +322,9 @@ void DeckComponent::resized()
     }
 
     pitch.setBounds (tp.getX() + 2, tp.getY() + 236, 200, 44);
-    speedLo.setBounds (tp.getX() + 236, tp.getY() + 246, 150, 34);
-    speedHi.setBounds (tp.getX() + 392, tp.getY() + 246, 150, 34);
-    nrButton.setBounds (tp.getX() + 18, tp.getY() + 318, 254, 42);
+    speedLo.setBounds (tp.getX() + 236, tp.getY() + 246, 148, 40);
+    speedHi.setBounds (tp.getX() + 394, tp.getY() + 246, 148, 40);
+    nrButton.setBounds (tp.getX() + 18, tp.getY() + 316, 254, 46);
     nrType.setBounds (tp.getX() + 286, tp.getY() + 316, 256, 46);
 
     for (int t = 0; t < numTracks; ++t)
@@ -415,10 +416,6 @@ void DeckComponent::paint (juce::Graphics& g)
         g.drawHorizontalLine ((int) d.getCentreY(), d.getX(), d.getRight());
     }
 
-    drawLamp (g, { (float) tp.getX() + 486, (float) tp.getY() + 44, 12, 12 }, recLamp, Pal::red);
-    smallCaps (g, "REC", { tp.getX() + 504, tp.getY() + 40, 50, 20 });
-    drawLamp (g, { (float) tp.getX() + 486, (float) tp.getY() + 72, 12, 12 }, playLamp, Pal::green);
-    smallCaps (g, "PLAY", { tp.getX() + 504, tp.getY() + 68, 50, 20 });
 
     g.setColour (Pal::dark);
     g.fillRoundedRectangle (juce::Rectangle<float> ((float) tp.getX() + 18, (float) tp.getY() + 112, 524, 92), 8.0f);
@@ -426,6 +423,13 @@ void DeckComponent::paint (juce::Graphics& g)
 }
 
 //==============================================================================
+void DeckComponent::syncSpeed()
+{
+    const bool hi = engine.tapeEngine.params.speedSel.load() == 2;
+    speedLo.setLed (! hi);
+    speedHi.setLed (hi);
+}
+
 juce::String DeckComponent::speedLabel() const
 {
     return engine.tapeEngine.params.speedSel.load() == 2 ? utf ("3\xc2\xbe") : utf ("1\xe2\x85\x9e");
@@ -488,8 +492,8 @@ void DeckComponent::timerCallback()
 
     // status display
     auto nominal = engine.tapeEngine.getNominalSpeed();
-    auto pitchStep = engine.tapeEngine.params.pitchStep.load();
-    auto spd = speedLabel() + (pitchStep != 0 ? " " + juce::String (pitchStep > 0 ? "+" : "") + juce::String (pitchStep * 2.4, 1) + "%" : juce::String());
+    auto pitchPct = engine.tapeEngine.params.pitch.load();
+    auto spd = speedLabel() + (std::abs (pitchPct) >= 0.05f ? " " + juce::String (pitchPct > 0 ? "+" : "") + juce::String (pitchPct, 1) + "%" : juce::String());
     juce::String text;
     switch (mode)
     {
@@ -525,20 +529,19 @@ void DeckComponent::timerCallback()
     latch (rewKey, mode == Mode::rew);
     recLamp = mode == Mode::rec;
     playLamp = mode == Mode::play || mode == Mode::rec;
+    recKey.setLed (recLamp);
+    playKey.setLed (playLamp);
 
     if (tape != nullptr && (tapeSwitch.position != engine.tapeEngine.params.tapeSwitch.load() || tapeSwitch.tapeType != tape->naturalPosition()))
     {
         tapeSwitch.position = engine.tapeEngine.params.tapeSwitch.load();
         tapeSwitch.tapeType = tape->naturalPosition();
-        tapeSwitch.repaint();
     }
     tapeSwitch.hasTape = tape != nullptr;
+    tapeSwitch.refresh();
 
-    if (nrButton.lampOn != engine.tapeEngine.params.nrOn.load())
-    {
-        nrButton.lampOn = engine.tapeEngine.params.nrOn.load();
-        nrButton.repaint();
-    }
+    nrButton.setLed (engine.tapeEngine.params.nrOn.load());
+    eject.setEnabled (mode == Mode::stop && ! tapeBusy);
     static const char* nrNames[] { "2:1 COMPANDER", "SLIDING BAND B", "SLIDING BAND C" };
     nrType.top = "NR TYPE";
     nrType.sub = nrNames[juce::jlimit (0, 2, engine.tapeEngine.params.nrType.load())];
@@ -564,21 +567,16 @@ void DeckComponent::timerCallback()
             if (m.id == id)
                 say ("PICKUP: TURN " + juce::String (engine.mapper.pickupDirection.load() > 0 ? "UP" : "DOWN") + " TO TAKE "
                      + engine.mapper.describeTarget (m), 1.5);
-    if (learnBtn.lampOn != (learnLayer != nullptr && (! engine.mapper.isLearning() || blink)))
-    {
-        learnBtn.lampOn = ! learnBtn.lampOn;
-        learnBtn.repaint();
-    }
+    learnBtn.setLed (learnLayer != nullptr && (! engine.mapper.isLearning() || blink));
     if (learnLayer != nullptr && frame % 6 == 0)
         learnLayer->repaint();
     // controls a controller moved
-    if ((int) pitch.slider.getValue() != engine.tapeEngine.params.pitchStep.load())
+    if (std::abs (pitch.slider.getValue() - engine.tapeEngine.params.pitch.load()) > 1.0e-4)
     {
-        pitch.slider.setValue (engine.tapeEngine.params.pitchStep.load(), juce::dontSendNotification);
+        pitch.slider.setValue (engine.tapeEngine.params.pitch.load(), juce::dontSendNotification);
         pitch.repaint();
     }
-    if (speedHi.getToggleState() != (engine.tapeEngine.params.speedSel.load() == 2))
-        (engine.tapeEngine.params.speedSel.load() == 2 ? speedHi : speedLo).setToggleState (true, juce::dontSendNotification);
+    syncSpeed();
 
     if (frame % 15 == 1)
     {
@@ -609,7 +607,10 @@ void DeckComponent::timerCallback()
     }
 
     // Knobs, faders and sources are kept too, every 5 seconds while stopped (only written if changed).
-    if (stoppedFrames > 0 && frame % 150 == 0)
+    // A second after the tape stops, the plug-ins are asked for their sound as well.
+    if (stoppedFrames == 30)
+        engine.saveSettings (true);
+    else if (stoppedFrames > 0 && frame % 150 == 0)
         engine.saveSettings();
 }
 
@@ -789,7 +790,11 @@ void DeckComponent::closeBlockWindow (int t, int id)
     if (it == pluginWindows.end()) return;
     pluginWindows.erase (it);
     if (auto* b = engine.findBlock (t, id))
+    {
         b->setEditorOpen (false);
+        b->captureState();   // a natural moment: the sound as it was left
+        engine.saveSettings();
+    }
 }
 
 void DeckComponent::openBlockWindow (int t, int id)
@@ -894,9 +899,9 @@ void DeckComponent::deckStateApplied()
 {
     for (auto* s : strips) s->syncFromEngine();
     master.syncFromEngine();
-    pitch.slider.setValue (engine.tapeEngine.params.pitchStep.load(), juce::dontSendNotification);
+    pitch.slider.setValue (engine.tapeEngine.params.pitch.load(), juce::dontSendNotification);
     pitch.repaint();
-    (engine.tapeEngine.params.speedSel.load() == 2 ? speedHi : speedLo).setToggleState (true, juce::dontSendNotification);
+    syncSpeed();
     repaint();
 }
 
@@ -923,6 +928,7 @@ void DeckComponent::gatherLearnTargets()
         strips[t]->forEachLearnTarget ([&] (juce::Component& c, C control) { add (c, control, t); });
     master.forEachLearnTarget ([&] (juce::Component& c, C control) { add (c, control, -1); });
     add (pitch.slider, C::pitch, -1);
+    add (speedLo, C::speed, -1);
     add (speedHi, C::speed, -1);
     add (nrButton, C::nr, -1);
     add (playKey, C::play, -1);
@@ -965,8 +971,7 @@ void DeckComponent::setLearnMode (bool on)
         learnLayer.reset();
         engine.saveSettings();
     }
-    learnBtn.lampOn = on;
-    learnBtn.repaint();
+    learnBtn.setLed (on);
 }
 
 void DeckComponent::startLearning (const MidiMapper::Target& target)

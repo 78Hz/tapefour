@@ -174,54 +174,78 @@ public:
 };
 
 //==============================================================================
-/** Mute, solo and arm: a hardware key with an LED above its label. The LED lights; the key doesn't change colour. */
+/**
+    The deck's one hardware key: a dark key with an LED above its label. The LED lights; the key never
+    changes colour. Toggles (mute, solo, arm, NR, learn) and choices (tape speed, the tape switch) light
+    their LED; momentary keys (EJECT, RESET, RTZ) have none and centre their label.
+*/
 class LedKey : public juce::Button
 {
 public:
-    LedKey (const juce::String& label, juce::Colour led) : juce::Button (label), ledColour (led)
+    LedKey (const juce::String& label, juce::Colour led, bool withLed = true)
+        : juce::Button (label), ledColour (led), hasLed (withLed)
     {
         setWantsKeyboardFocus (false);
         setMouseClickGrabsKeyboardFocus (false);
     }
 
     juce::Colour ledColour;
+    bool hasLed = true;
     bool ledOn = false;
+    juce::String sub;          // a second, smaller word beside the label ("TYPE I")
+    float textSize = 12.0f;
+
+    void setLed (bool on, juce::Colour c)
+    {
+        if (on != ledOn || c != ledColour) { ledOn = on; ledColour = c; repaint(); }
+    }
+    void setLed (bool on) { setLed (on, ledColour); }
 
     void paintButton (juce::Graphics& g, bool over, bool down) override
     {
         auto& lf = DeckLookAndFeel::get();
+        const float alpha = isEnabled() ? 1.0f : 0.45f;
         auto r = getLocalBounds().toFloat();
         auto face = r.withTrimmedBottom (3.0f).translated (0, down ? 2.0f : 0.0f);
         if (! down)
         {
-            g.setColour (Pal::darker);
+            g.setColour (Pal::darker.withMultipliedAlpha (alpha));
             g.fillRoundedRectangle (r.withTrimmedTop (3.0f), 5.0f);
         }
-        g.setGradientFill (juce::ColourGradient (juce::Colour (over ? 0xff57554e : 0xff4d4b45), 0, face.getY(),
-                                                 juce::Colour (over ? 0xff43413b : 0xff3b3934), 0, face.getBottom(), false));
+        g.setGradientFill (juce::ColourGradient (juce::Colour (over ? 0xff57554e : 0xff4d4b45).withMultipliedAlpha (alpha), 0, face.getY(),
+                                                 juce::Colour (over ? 0xff43413b : 0xff3b3934).withMultipliedAlpha (alpha), 0, face.getBottom(), false));
         g.fillRoundedRectangle (face, 5.0f);
-        g.setColour (juce::Colours::white.withAlpha (0.08f));
+        g.setColour (juce::Colours::white.withAlpha (0.08f * alpha));
         g.drawHorizontalLine ((int) face.getY() + 1, face.getX() + 4, face.getRight() - 4);
 
-        auto led = juce::Rectangle<float> (8.0f, 8.0f).withCentre ({ face.getCentreX(), face.getY() + face.getHeight() * 0.33f });
-        if (ledOn)
+        auto textArea = face;
+        if (hasLed)
         {
-            g.setColour (ledColour.withAlpha (0.35f));
-            g.fillEllipse (led.expanded (4.0f));
-            g.setColour (ledColour);
-            g.fillEllipse (led);
-        }
-        else
-        {
-            g.setColour (juce::Colour (0xff2b2824));
-            g.fillEllipse (led);
-            g.setColour (juce::Colours::black.withAlpha (0.6f));
-            g.drawEllipse (led, 1.0f);
+            auto led = juce::Rectangle<float> (8.0f, 8.0f).withCentre ({ face.getCentreX(), face.getY() + face.getHeight() * 0.33f });
+            if (ledOn)
+            {
+                g.setColour (ledColour.withAlpha (0.35f));
+                g.fillEllipse (led.expanded (4.0f));
+                g.setColour (ledColour);
+                g.fillEllipse (led);
+            }
+            else
+            {
+                g.setColour (juce::Colour (0xff2b2824));
+                g.fillEllipse (led);
+                g.setColour (juce::Colours::black.withAlpha (0.6f));
+                g.drawEllipse (led, 1.0f);
+            }
+            textArea = face.withTrimmedTop (face.getHeight() * 0.52f).withTrimmedBottom (2.0f);
         }
 
-        g.setColour (Pal::cream);
-        g.setFont (lf.cond (12.0f, true).withExtraKerningFactor (0.14f));
-        g.drawText (getButtonText(), face.withTrimmedTop (face.getHeight() * 0.52f).toNearestInt(), juce::Justification::centredTop);
+        juce::AttributedString text;
+        text.append (getButtonText(), lf.cond (textSize, true).withExtraKerningFactor (0.14f), Pal::cream.withMultipliedAlpha (alpha));
+        if (sub.isNotEmpty())
+            text.append ("  " + sub, lf.cond (textSize - 2.5f, false).withExtraKerningFactor (0.06f), Pal::muted.withMultipliedAlpha (alpha));
+        text.setJustification (hasLed ? juce::Justification::centredTop : juce::Justification::centred);
+        text.setWordWrap (juce::AttributedString::none);
+        text.draw (g, hasLed ? textArea : face);
     }
 };
 
@@ -506,6 +530,11 @@ public:
     KeyButton (Icon i, const juce::String& label) : juce::Button (label), icon (i) {}
 
     bool latched = false;
+    bool ledOn = false;                       // REC and PLAY: the LED in the key lights while they're engaged
+    juce::Colour ledColour { 0xffff3b22 };
+    bool hasLed = false;
+
+    void setLed (bool on) { if (on != ledOn) { ledOn = on; repaint(); } }
 
     void paintButton (juce::Graphics& g, bool over, bool down) override
     {
@@ -543,8 +572,30 @@ public:
                        p.addTriangle (cx, cy - 7, cx, cy + 7, cx - 12, cy); break;
         }
         g.fillPath (p);
-        g.setFont (lf.cond (15.0f, true).withExtraKerningFactor (0.16f));
-        g.drawText (getButtonText(), face.withTrimmedTop (face.getHeight() * 0.55f).toNearestInt(), juce::Justification::centredTop);
+        auto font = lf.cond (15.0f, true).withExtraKerningFactor (0.16f);
+        g.setFont (font);
+        auto labelArea = face.withTrimmedTop (face.getHeight() * 0.55f);
+        g.drawText (getButtonText(), labelArea.toNearestInt(), juce::Justification::centredTop);
+        if (hasLed)
+        {
+            // The LED sits just left of the label, on the key itself.
+            auto w = juce::GlyphArrangement::getStringWidth (font, getButtonText());
+            auto led = juce::Rectangle<float> (8.0f, 8.0f).withCentre ({ labelArea.getCentreX() - w * 0.5f - 9.0f, labelArea.getY() + 7.5f });
+            if (ledOn)
+            {
+                g.setColour (ledColour.withAlpha (0.28f));
+                g.fillEllipse (led.expanded (4.0f));
+                g.setColour (ledColour);
+                g.fillEllipse (led);
+            }
+            else
+            {
+                g.setColour (juce::Colour (0xffb7ae99));
+                g.fillEllipse (led);
+                g.setColour (juce::Colours::black.withAlpha (0.25f));
+                g.drawEllipse (led, 1.0f);
+            }
+        }
     }
 
 private:
@@ -740,74 +791,52 @@ public:
         setWantsKeyboardFocus (false);
         setMouseClickGrabsKeyboardFocus (false);
         setTitle ("Tape type switch");
+        static const char* names[] { "NORMAL", "CHROME", "METAL" };
+        static const char* subs[]  { "TYPE I", "TYPE II", "TYPE IV" };
+        for (int i = 0; i < 3; ++i)
+        {
+            auto* k = keys.add (new LedKey (names[i], Pal::green));
+            k->sub = subs[i];
+            k->onClick = [this, i] { if (i != position) { position = i; refresh(); if (onChange) onChange (i); } };
+            addAndMakeVisible (k);
+        }
+        refresh();
     }
 
     int position = 0, tapeType = 0;
     bool hasTape = true;
     std::function<void (int)> onChange;
 
-    static constexpr int labelW = 62, segW = 102;
+    static constexpr int labelW = 78, segW = 112;
+
+    /** One LED: the position the switch is at. Green when it suits the tape, amber when it doesn't. */
+    void refresh()
+    {
+        for (int i = 0; i < keys.size(); ++i)
+            keys[i]->setLed (i == position, ! hasTape || position == tapeType ? Pal::green : Pal::amber);
+    }
 
     void paint (juce::Graphics& g) override
     {
         auto& lf = DeckLookAndFeel::get();
-        auto r = getLocalBounds();
-        auto label = r.removeFromLeft (labelW);
+        auto label = getLocalBounds().removeFromLeft (labelW);
         g.setColour (Pal::muted);
         g.setFont (lf.cond (12.0f, true).withExtraKerningFactor (0.22f));
         g.drawText ("TAPE", label.withTrimmedBottom (label.getHeight() / 2), juce::Justification::bottomLeft);
         g.drawText (juce::CharPointer_UTF8 ("BIAS \xc2\xb7 EQ"), label.withTrimmedTop (label.getHeight() / 2 + 3), juce::Justification::topLeft);
+    }
 
-        auto track = r.toFloat();
-        g.setColour (Pal::darker);
-        g.fillRoundedRectangle (track, 7.0f);
-        g.setColour (juce::Colours::black.withAlpha (0.8f));
-        g.drawRoundedRectangle (track.reduced (0.5f), 7.0f, 1.0f);
-
-        static const char* names[] { "NORMAL", "CHROME", "METAL" };
-        static const char* subs[]  { "TYPE I \xc2\xb7 120\xc2\xb5s", "TYPE II \xc2\xb7 70\xc2\xb5s", "TYPE IV \xc2\xb7 70\xc2\xb5s" };
-        for (int i = 0; i < 3; ++i)
+    void resized() override
+    {
+        auto r = getLocalBounds().withTrimmedLeft (labelW);
+        for (auto* k : keys)
         {
-            auto seg = segment (i).toFloat();
-            const bool sel = i == position;
-            if (sel)
-            {
-                g.setColour (juce::Colour (0xff6f6a5f));
-                g.fillRoundedRectangle (seg.translated (0, 3), 5.0f);
-                g.setGradientFill (juce::ColourGradient (juce::Colour (0xffebe5d8), 0, seg.getY(), juce::Colour (0xffc9c2b2), 0, seg.getBottom(), false));
-                g.fillRoundedRectangle (seg, 5.0f);
-            }
-            auto in = seg.reduced (8, 0);
-            auto lampR = in.removeFromLeft (9).withSizeKeepingCentre (9, 9);
-            // One lamp: the position the switch is at. Green when it suits the tape, amber when it doesn't.
-            if (sel) drawLamp (g, lampR, true, ! hasTape || position == tapeType ? Pal::green : Pal::amber);
-            else { g.setColour (juce::Colour (0xff2c2a26)); g.fillEllipse (lampR); }
-            in.removeFromLeft (8);
-            g.setColour (sel ? juce::Colour (0xff1a1917) : Pal::muted);
-            g.setFont (lf.cond (14.0f, true).withExtraKerningFactor (0.14f));
-            g.drawText (names[i], in.withTrimmedBottom (in.getHeight() * 0.5f - 1), juce::Justification::bottomLeft);
-            g.setColour (sel ? juce::Colour (0xff5c564a) : juce::Colour (0xff8c877b));
-            g.setFont (lf.cond (11.0f, true).withExtraKerningFactor (0.04f));
-            g.drawText (juce::CharPointer_UTF8 (subs[i]), in.withTrimmedTop (in.getHeight() * 0.5f + 2), juce::Justification::topLeft);
+            k->setBounds (r.removeFromLeft (segW - 8));
+            r.removeFromLeft (8);
         }
     }
 
-    void mouseDown (const juce::MouseEvent& e) override
-    {
-        for (int i = 0; i < 3; ++i)
-            if (segment (i).contains (e.getPosition()) && i != position)
-            {
-                position = i;
-                repaint();
-                if (onChange) onChange (i);
-            }
-    }
-
 private:
-    juce::Rectangle<int> segment (int i) const
-    {
-        auto r = getLocalBounds().withTrimmedLeft (labelW).reduced (4);
-        return r.withWidth (segW).translated (i * segW, 0);
-    }
+    juce::OwnedArray<LedKey> keys;
 };
 } // namespace tf
