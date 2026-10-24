@@ -65,24 +65,9 @@ StripComponent::StripComponent (AudioEngine& e, int index)
 
     lcd.chainRow = true;
     lcd.topSize = 15.0f;
-    // Click: the chain. Double-click: the first block's own window.
-    lcd.onClick = [this]
-    {
-        if (clickPending)
-        {
-            clickPending = false;
-            if (onEditSound) onEditSound (t);
-            return;
-        }
-        clickPending = true;
-        juce::Component::SafePointer<StripComponent> safe (this);
-        juce::Timer::callAfterDelay (juce::MouseEvent::getDoubleClickTimeout(), [safe]
-        {
-            if (safe == nullptr || ! safe->clickPending) return;
-            safe->clickPending = false;
-            if (safe->onOpenChain) safe->onOpenChain (safe->t);
-        });
-    };
+    // Click: the chain, straight away. A double-click's second click lands on the chain's overlay,
+    // which turns it into "open the first block's window" (DeckComponent::openChain).
+    lcd.onClick = [this] { if (onOpenChain) onOpenChain (t); };
     lcd.setTooltip ("Click for this track's inputs and chain. Double-click to open its first plug-in's window.");
 
     mute.onClick = [&p] { p.mute = ! p.mute.load(); };
@@ -138,17 +123,14 @@ void StripComponent::mouseDown (const juce::MouseEvent& e)
         onOpenChain (t);
 }
 
-void StripComponent::refresh (bool blink)
+void StripComponent::rebuildText()
 {
     auto& p = engine.track[t];
-    auto* tape = engine.getTape();
-    auto mode = engine.tapeEngine.getMode();
     const bool bounce = (AudioEngine::Feed) p.feed.load() == AudioEngine::Feed::bounce;
+    const auto chain = engine.getChain (t);
 
-    // ---- the display: what plays, what feeds it, the chain ----
     lcd.top = engine.describeSource (t);
     auto port = p.midiPort.load();
-    auto chain = engine.getChain (t);
     bool chainPlays = false;   // anything in the chain that listens to a controller
     for (auto& b : chain)
         chainPlays = chainPlays || b.role == BlockRole::instrument || b.role == BlockRole::midiFx || b.role == BlockRole::external;
@@ -171,15 +153,32 @@ void StripComponent::refresh (bool blink)
         lcd.blockStates.add (b.role == BlockRole::pending ? 2 : (b.bypass ? 1 : 0));
     lcd.roomForMore = (int) chain.size() < AudioEngine::maxBlocks;
 
+    if (bounce)                                      { tag = "BOUNCE";     tagColour = Pal::bounce; }
+    else if (hasAudio && hasMidi && ! chain.empty()) { tag = "AUDIO+MIDI"; tagColour = Pal::orange; }
+    else if (hasAudio)                               { tag = "AUDIO";      tagColour = Pal::orange; }
+    else if (! chain.empty())                        { tag = "MIDI";       tagColour = Pal::midiBlue; }
+    else                                             { tag = {};           tagColour = {}; }
+}
+
+void StripComponent::refresh (bool blink)
+{
+    auto& p = engine.track[t];
+    auto* tape = engine.getTape();
+    auto mode = engine.tapeEngine.getMode();
+
+    // ---- the display: what plays, what feeds it, the chain (rebuilt only when something changed,
+    //      or once a second in case an input or device name moved without saying) ----
+    const auto version = engine.viewVersion.load();
+    if (version != shownVersion || ++framesSinceText >= 30)
+    {
+        shownVersion = version;
+        framesSinceText = 0;
+        rebuildText();
+    }
+
     // Armed means live: say so, so nobody waits to hear the tape on an armed track.
     lcd.low = p.armed.load() && mode != Mode::rec ? juce::String ("LIVE IN")
               : p.mute.load() ? juce::String ("MUTED") : utf ("\xe2\x86\x92 TAPE");
-
-    if (bounce)                  { tag = "BOUNCE";     tagColour = Pal::bounce; }
-    else if (hasAudio && hasMidi && ! chain.empty()) { tag = "AUDIO+MIDI"; tagColour = Pal::orange; }
-    else if (hasAudio)           { tag = "AUDIO";      tagColour = Pal::orange; }
-    else if (! chain.empty())    { tag = "MIDI";       tagColour = Pal::midiBlue; }
-    else                         { tag = {};           tagColour = {}; }
 
     // What's on the tape under the head: noise reduction and recorded speed.
     lcd.nrLamp = false;

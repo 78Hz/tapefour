@@ -62,7 +62,7 @@ InlayCard::InlayCard (Tape& t) : tape (t)
     addAndMakeVisible (nrOn);
     addAndMakeVisible (nrOff);
 
-    closeX.textSize = 22.0f;
+    closeX.textSize = 20.0f;
     closeX.setTooltip ("Put the inlay back in its case");
     closeX.onClick = [this] { if (onClose) onClose(); };
     addAndMakeVisible (closeX);

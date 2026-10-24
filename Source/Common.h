@@ -75,8 +75,6 @@ inline constexpr int defaultTapeModel = 1;   // tapes made before models existed
 inline constexpr float tapeRefPeak = 0.2512f;
 
 enum class Mode : int { stop = 0, play, rec, ff, rew };
-// Values are stored in settings and tapes: only ever append.
-enum class Source : int { none = 0, audio, instrument, bounce, hardware };
 
 inline float dbToGain (float db) noexcept { return std::pow (10.0f, db * 0.05f); }
 

@@ -30,8 +30,6 @@ public:
     std::function<void()> onFindPlugins;
     std::function<void (const juce::String&)> onMessage;
 
-    void selectBlock (int blockId);
-
     void paint (juce::Graphics&) override;
     void resized() override;
     void mouseDown (const juce::MouseEvent&) override;

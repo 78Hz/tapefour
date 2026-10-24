@@ -132,12 +132,19 @@ private:
 class ExternalBlock : public Block
 {
 public:
-    ExternalBlock() { levelDb = 0.0f; }
-    juce::String getName() const override   { return name; }
+    /** outPort: the MidiHub output slot it plays (-1: none yet). */
+    explicit ExternalBlock (int port = -1, int midiChannel = 1, int input = -1, bool pair = false)
+    {
+        outPort = port;
+        channel = juce::jlimit (0, 16, midiChannel);
+        returnInput = input;
+        returnPair = pair;
+    }
+    /** The engine shows the output's name (its alias on the deck) in place of this. */
+    juce::String getName() const override   { return "HARDWARE SYNTH"; }
     BlockRole role() const override         { return BlockRole::external; }
     std::unique_ptr<juce::XmlElement> saveState (bool) override;   // the engine adds the port's id and name
 
-    juce::String name { "HARDWARE SYNTH" };   // message thread: the output's name on the deck
     std::atomic<int>  outPort { -1 };         // MidiHub output slot
     std::atomic<int>  channel { 1 };          // 1..16, or 0 = as played (MPE)
     std::atomic<int>  returnInput { -1 };     // audio comes back on this input (-1 none)

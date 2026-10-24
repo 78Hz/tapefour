@@ -66,7 +66,7 @@ void ChannelStrip::process (const float* tape, const float* live, float* out, in
         {
             const auto k = start + i;
             const auto f = (float) i * inv;
-            if (liveMix != liveTarget)
+            if (! juce::exactlyEqual (liveMix, liveTarget))
                 liveMix = liveTarget > liveMix ? std::min (liveTarget, liveMix + liveStep) : std::max (liveTarget, liveMix - liveStep);
 
             // The trim only acts on the live input; the tape comes back at the level it was recorded.

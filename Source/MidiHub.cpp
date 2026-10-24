@@ -5,9 +5,6 @@ namespace tf
 {
 namespace
 {
-    juce::Array<juce::MidiDeviceInfo> availableInputs()  { return juce::MidiInput::getAvailableDevices(); }
-    juce::Array<juce::MidiDeviceInfo> availableOutputs() { return juce::MidiOutput::getAvailableDevices(); }
-
     bool contains (const juce::Array<juce::MidiDeviceInfo>& list, const juce::String& id)
     {
         for (auto& d : list) if (d.identifier == id) return true;
@@ -59,6 +56,7 @@ private:
 //==============================================================================
 MidiHub::MidiHub (juce::AudioDeviceManager& dm) : deviceManager (dm)
 {
+    updateDeviceLists();
     any.ensureSize (8192);
     // Every slot exists from the start, so the audio thread never sees one appear or vanish.
     for (int k = 0; k < maxPorts; ++k)
@@ -174,7 +172,7 @@ int MidiHub::findOrCreateInput (const juce::String& id, const juce::String& name
             return take (k);
 
     // Full: reuse the slot of a controller that isn't plugged in and that no track uses.
-    auto ins = availableInputs();
+    const auto& ins = devicesIn;
     for (int k = 1; k < maxPorts; ++k)
         if (! contains (ins, in[k]->id) && ! (isSlotInUse && isSlotInUse (k, false)))
         {
@@ -201,7 +199,7 @@ int MidiHub::findOrCreateOutput (const juce::String& id, const juce::String& nam
         if (out[k]->id.isEmpty())
             return take (k);
 
-    auto outs = availableOutputs();
+    const auto& outs = devicesOut;
     for (int k = 0; k < maxPorts; ++k)
         if (! contains (outs, out[k]->id) && ! (isSlotInUse && isSlotInUse (k, true)))
         {
@@ -214,7 +212,7 @@ int MidiHub::findOrCreateOutput (const juce::String& id, const juce::String& nam
 int MidiHub::adoptNewInputs()
 {
     int added = 0;
-    for (auto& d : availableInputs())
+    for (auto& d : devicesIn)
     {
         bool known = false;
         for (int k = 1; k < maxPorts; ++k)
@@ -229,24 +227,34 @@ int MidiHub::adoptNewInputs()
     return added;
 }
 
+void MidiHub::updateDeviceLists()
+{
+    // Asking the system for its MIDI devices can take milliseconds (more on Windows and macOS), so it's
+    // done once here and again only when a device comes or goes; everything else reads these lists.
+    devicesIn = juce::MidiInput::getAvailableDevices();
+    devicesOut = juce::MidiOutput::getAvailableDevices();
+}
+
 void MidiHub::scanForNewDevices()
 {
-    for (auto& d : availableInputs())  findOrCreateInput (d.identifier, d.name);
-    for (auto& d : availableOutputs()) findOrCreateOutput (d.identifier, d.name);
+    updateDeviceLists();
+    for (auto& d : devicesIn)  findOrCreateInput (d.identifier, d.name);
+    for (auto& d : devicesOut) findOrCreateOutput (d.identifier, d.name);
 }
 
 void MidiHub::devicesChanged()
 {
     // A controller or interface was plugged in or out while running.
+    updateDeviceLists();
     adoptNewInputs();
-    for (auto& d : availableOutputs()) findOrCreateOutput (d.identifier, d.name);
+    for (auto& d : devicesOut) findOrCreateOutput (d.identifier, d.name);
     refresh();
     if (onDevicesChanged) onDevicesChanged();
 }
 
 void MidiHub::refresh()
 {
-    auto ins = availableInputs();
+    const auto& ins = devicesIn;
     for (int k = 1; k < maxPorts; ++k)
     {
         auto& p = *in[k];
@@ -279,7 +287,7 @@ void MidiHub::refresh()
         p.wasAvailable = available;
     }
 
-    auto outs = availableOutputs();
+    const auto& outs = devicesOut;
     for (auto& op : out)
     {
         auto& o = *op;
@@ -311,7 +319,7 @@ void MidiHub::sampleRateChanged (double sr)
 
 std::vector<MidiHub::InputInfo> MidiHub::getInputs() const
 {
-    auto ins = availableInputs();
+    const auto& ins = devicesIn;
     std::vector<InputInfo> result;
     for (int k = 0; k < maxPorts; ++k)
     {
@@ -325,7 +333,7 @@ std::vector<MidiHub::InputInfo> MidiHub::getInputs() const
 
 std::vector<MidiHub::OutputInfo> MidiHub::getOutputs() const
 {
-    auto outs = availableOutputs();
+    const auto& outs = devicesOut;
     std::vector<OutputInfo> result;
     for (int k = 0; k < maxPorts; ++k)
     {
@@ -448,12 +456,12 @@ void MidiHub::restoreState (const juce::XmlElement* hw, const juce::XmlElement* 
         }
         // Controllers plugged in for the first time come in switched on; synth outputs wait to be ticked.
         adoptNewInputs();
-        for (auto& d : availableOutputs()) findOrCreateOutput (d.identifier, d.name);
+        for (auto& d : devicesOut) findOrCreateOutput (d.identifier, d.name);
     }
     else
     {
         // First run, or settings from before per-track MIDI: carry over what was enabled.
-        for (auto& d : availableInputs())
+        for (auto& d : devicesIn)
         {
             auto k = findOrCreateInput (d.identifier, d.name);
             if (k < 0) continue;
@@ -464,7 +472,7 @@ void MidiHub::restoreState (const juce::XmlElement* hw, const juce::XmlElement* 
                         on = x->getBoolAttribute ("enabled");
             in[k]->active = on;
         }
-        for (auto& d : availableOutputs())
+        for (auto& d : devicesOut)
             findOrCreateOutput (d.identifier, d.name);
     }
     refresh();

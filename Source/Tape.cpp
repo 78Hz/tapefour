@@ -23,8 +23,8 @@ Tape::Tape (int typeIndex, int modelIndex)
         speedMilli[t].reset (new std::atomic<uint16_t>[(size_t) numBlocks]);
         dirty[t].reset (new std::atomic<uint8_t>[(size_t) numSeconds]);
 
-        for (int b = 0; b < numBlocks; ++b) { flags[t][b] = 0; speedMilli[t][b] = 0; }
-        for (int s = 0; s < numSeconds; ++s) dirty[t][s] = 0;
+        for (int b = 0; b < numBlocks; ++b) { flagsAt (t, b) = 0; speedMilliAt (t, b) = 0; }
+        for (int s = 0; s < numSeconds; ++s) dirtyAt (t, s) = 0;
     }
 
     id = juce::Uuid().toString();
@@ -59,10 +59,10 @@ void Tape::writeCell (int track, int64_t c, float v, bool nrEncoded, float speed
     data[track][c].store ((int16_t) juce::roundToInt (juce::jlimit (-1.0f, 1.0f, v * fluxScale) * 32767.0f), std::memory_order_relaxed);
 
     auto b = (int) (c / blockCells);
-    flags[track][b].store ((uint8_t) (1 | (nrEncoded ? 2 : 0) | ((juce::jlimit (0, 2, pos) + 1) << 2)), std::memory_order_relaxed);
-    speedMilli[track][b].store ((uint16_t) juce::jlimit (0, 65535, juce::roundToInt (speed * 1000.0f)), std::memory_order_relaxed);
+    flagsAt (track, b).store ((uint8_t) (1 | (nrEncoded ? 2 : 0) | ((juce::jlimit (0, 2, pos) + 1) << 2)), std::memory_order_relaxed);
+    speedMilliAt (track, b).store ((uint16_t) juce::jlimit (0, 65535, juce::roundToInt (speed * 1000.0f)), std::memory_order_relaxed);
     // Release: a saver that sees the flag also sees the cell.
-    dirty[track][(size_t) (c / cellRate)].store (1, std::memory_order_release);
+    dirtyAt (track, (int) (c / cellRate)).store (1, std::memory_order_release);
     dataDirty.store (true, std::memory_order_release);
 }
 
@@ -108,7 +108,7 @@ bool Tape::writeAudio (const juce::File& folder)
     {
         int lastNeeded = -1;
         for (int s = numSeconds - 1; s >= 0; --s)
-            if (dirty[t][s].load (std::memory_order_acquire) != 0) { lastNeeded = s; break; }
+            if (dirtyAt (t, s).load (std::memory_order_acquire) != 0) { lastNeeded = s; break; }
 
         if (lastNeeded < 0)
             continue;
@@ -130,7 +130,7 @@ bool Tape::writeAudio (const juce::File& folder)
 
             // Clear the flag before copying: if the audio thread writes this second again
             // while it's being copied, the flag goes back up and it is saved again next time.
-            if (dirty[t][s].exchange (0, std::memory_order_acq_rel) == 0 && ! beyondEnd)
+            if (dirtyAt (t, s).exchange (0, std::memory_order_acq_rel) == 0 && ! beyondEnd)
                 continue;
 
             auto firstCell = (int64_t) s * cellRate;
@@ -142,7 +142,7 @@ bool Tape::writeAudio (const juce::File& folder)
             if (! out.write (chunk.data(), count * sizeof (int16_t)))
             {
                 ok = false;
-                dirty[t][s].store (1, std::memory_order_release);
+                dirtyAt (t, s).store (1, std::memory_order_release);
             }
         }
         out.flush();
@@ -150,13 +150,7 @@ bool Tape::writeAudio (const juce::File& folder)
     }
 
     if (! ok)
-    {
-        // Put back what didn't make it, so the next save tries again.
-        for (int t = 0; t < numTracks; ++t)
-            for (int s = 0; s < numSeconds; ++s)
-                if (dirty[t][s].load()) { dataDirty = true; break; }
-        dataDirty = true;
-    }
+        dataDirty = true;   // the seconds that didn't make it are still marked: the next save retries them
     return ok;
 }
 
@@ -187,8 +181,8 @@ std::unique_ptr<juce::XmlElement> Tape::createMetadata() const
         auto* sp = static_cast<uint8_t*> (sb.getData());
         for (int b = 0; b < numBlocks; ++b)
         {
-            fp[b] = flags[t][b].load();
-            auto v = speedMilli[t][b].load();
+            fp[b] = flagsAt (t, b).load();
+            auto v = speedMilliAt (t, b).load();
             sp[b * 2] = (uint8_t) (v & 0xff);
             sp[b * 2 + 1] = (uint8_t) (v >> 8);
         }
@@ -294,9 +288,9 @@ std::unique_ptr<Tape> Tape::load (const juce::File& folder)
         auto* sp = static_cast<const uint8_t*> (sb.getData());
         for (int b = 0; b < nb; ++b)
         {
-            tape->flags[t][b] = fp[b];
+            tape->flagsAt (t, b) = fp[b];
             if ((size_t) b * 2 + 1 < sb.getSize())
-                tape->speedMilli[t][b] = (uint16_t) (sp[b * 2] | (sp[b * 2 + 1] << 8));
+                tape->speedMilliAt (t, b) = (uint16_t) (sp[b * 2] | (sp[b * 2 + 1] << 8));
         }
 
         auto file = pcmFile (folder, t);

@@ -6,24 +6,11 @@
 #include "ChainEditor.h"
 #include "InlayCard.h"
 #include "TapeWriter.h"
+#include "PluginWindow.h"
 
 namespace tf
 {
 class SetupWindow;
-
-class PluginWindow : public juce::DocumentWindow
-{
-public:
-    PluginWindow (juce::AudioProcessor& plugin, const juce::String& title, std::function<void()> onClose);
-    void closeButtonPressed() override { if (closeCallback) closeCallback(); }
-
-    /** Transport keys typed while the plug-in has the keyboard still reach the deck. */
-    std::function<bool (const juce::KeyPress&)> onDeckKey;
-    bool keyPressed (const juce::KeyPress& k) override { return onDeckKey != nullptr && onDeckKey (k); }
-
-private:
-    std::function<void()> closeCallback;
-};
 
 /**
     The whole front panel, laid out like a portastudio at a fixed design size
@@ -41,7 +28,7 @@ public:
 
     void prepareToQuit();
     /** Shows a message in the status display. */
-    void notice (const juce::String& message, double seconds) { say (message, seconds); }
+    void notice (const juce::String& text, double seconds) { say (text, seconds); }
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -124,14 +111,16 @@ private:
     int chainTrack = -1;                       // whose chain is open
     std::vector<LearnTarget> learnTargets;
     std::unique_ptr<juce::Component> learnLayer;
+    juce::String learnShown;
     TapeWriter writer;
     bool tapeBusy = false;      // a tape is being loaded or made
 
     juce::String message;
     double messageUntil = 0;
     int frame = 0, stoppedFrames = 0, recordingFrames = 0, midiHold = 0, midiOutHold = 0;
+    bool hasRunSinceCapture = false;   // the tape has moved since plug-ins were last asked for their sound
     juce::String counterText { "000" }, shownTransport;
-    bool recLamp = false, playLamp = false, midiLamp = false, midiOutLamp = false;
+    bool midiLamp = false, midiOutLamp = false;
 
     // computer keyboard as a MIDI keyboard
     juce::String keyMap { "awsedftgyhujkolp;" };

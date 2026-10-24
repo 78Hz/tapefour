@@ -72,11 +72,10 @@ public:
 
     /** Punch-in and punch-out crossfade, like the gap between a deck's erase and record heads. */
     static constexpr double punchFadeSeconds = 0.006;
-    bool anyPlayback() const noexcept         { return blockHasPlayback; }
     bool isRecordingNow() const noexcept      { return blockHasRecording; }
 
 private:
-    void writeSpan (int t, double p, float v, bool nr, float spd, int pos) noexcept;
+    void writeSpan (int t, double p, float v, bool nr, float spd, int switchPos) noexcept;
     void finishPunch (int t) noexcept;
     void configureCompanders (int type);
     void configureModel (int model, int speedSel, int switchPos);
@@ -154,7 +153,7 @@ private:
     // playback EQ against what's on the tape
     Biquad sigEq[numTracks], hissEq[numTracks];
     int sigEqKey[numTracks] { -1, -1, -1, -1 }, hissEqKey = -1;
-    float satK = 1.0f, sensGain = 1.0f, modDepth = 0.0f, hissLevel = 0.0f;
+    float satK = 1.0f, sensGain = 1.0f, modDepth = 0.0f;
     Biquad emphLo[numTracks], emphHi[numTracks], deemphLo[numTracks], deemphHi[numTracks];
     Biquad preAA[numTracks][2];
     Biquad hissShape[numTracks];

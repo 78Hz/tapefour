@@ -1,4 +1,4 @@
-# ThreadSanitizer suppressions for code outside TapeFour (none needed so far).
+# ThreadSanitizer suppressions for code outside TapeFour.
 # JUCE's MPESynthesiser takes its voice lock and its note lock in opposite orders in
 # setCurrentPlaybackSampleRate() and noteAdded(). TapeFour only prepares an instrument before the
 # audio thread can see it, or while audio is stopped, so the two orders never overlap.

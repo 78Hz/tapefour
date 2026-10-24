@@ -62,18 +62,21 @@ std::vector<MidiMapper::Mapping> MidiMapper::getMappings() const
 
 void MidiMapper::remove (int id)
 {
+    ++changes;
     const juce::SpinLock::ScopedLockType sl (lock);
     mappings.erase (std::remove_if (mappings.begin(), mappings.end(), [id] (const Mapping& m) { return m.id == id; }), mappings.end());
 }
 
 void MidiMapper::removeForTarget (const Target& t)
 {
+    ++changes;
     const juce::SpinLock::ScopedLockType sl (lock);
     mappings.erase (std::remove_if (mappings.begin(), mappings.end(), [&t] (const Mapping& m) { return m.target == t; }), mappings.end());
 }
 
 void MidiMapper::forgetBlock (int track, int blockId)
 {
+    ++changes;
     const juce::SpinLock::ScopedLockType sl (lock);
     mappings.erase (std::remove_if (mappings.begin(), mappings.end(), [=] (const Mapping& m)
                     { return m.target.plugin && m.target.track == track && m.target.blockId == blockId; }), mappings.end());
@@ -83,12 +86,14 @@ void MidiMapper::forgetBlock (int track, int blockId)
 
 void MidiMapper::setPickup (int id, bool on)
 {
+    ++changes;
     const juce::SpinLock::ScopedLockType sl (lock);
     for (auto& m : mappings) if (m.id == id) { m.pickup = on; m.pickedUp = false; }
 }
 
 void MidiMapper::setPassThrough (int id, bool on)
 {
+    ++changes;
     const juce::SpinLock::ScopedLockType sl (lock);
     for (auto& m : mappings) if (m.id == id) m.passThrough = on;
 }
@@ -132,6 +137,7 @@ juce::String MidiMapper::labelFor (const Target& t) const
 
 void MidiMapper::addMapping (Mapping m)
 {
+    ++changes;
     const juce::SpinLock::ScopedLockType sl (lock);
     // One message moves one control, and one control has one message.
     mappings.erase (std::remove_if (mappings.begin(), mappings.end(), [&m] (const Mapping& o)
@@ -179,7 +185,7 @@ void MidiMapper::poll()
     if (learnSeen.empty())
         return;
     const auto now = juce::Time::getMillisecondCounterHiRes();
-    if (learnFirstMs == 0.0) learnFirstMs = now;
+    if (juce::exactlyEqual (learnFirstMs, 0.0)) learnFirstMs = now;
 
     const auto& first = learnSeen.front();
     const bool isNote = (first.status & 0xf0) == 0x90;

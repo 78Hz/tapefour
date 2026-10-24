@@ -12,7 +12,7 @@ public:
     LcdButton() : juce::Button ("lcd") { setWantsKeyboardFocus (false); setMouseClickGrabsKeyboardFocus (false); }
 
     juce::String top, sub, low;
-    bool showLamps = false, nrLamp = false, eqLamp = false, midiLamp = false;
+    bool nrLamp = false, eqLamp = false, midiLamp = false;   // the track displays' lamps
     juce::Colour nrColour = Pal::amber, eqColour = Pal::green;
 
     /** The track's chain as a row of little blocks (strip displays). */
@@ -64,39 +64,10 @@ public:
             return;
         }
 
-        if (showLamps)
-        {
-            // the lamps get a row of their own, so narrow strips keep all three lines of text
-            auto lamps = in.removeFromBottom (12).removeFromRight (136);
-            in.removeFromBottom (3);
-            g.setFont (lf.mono (12.0f));
-            g.setColour (Pal::lcdDim);
-            g.drawText ("NR", lamps.removeFromLeft (20), juce::Justification::centredLeft);
-            drawLamp (g, lamps.removeFromLeft (12).toFloat().withSizeKeepingCentre (8, 8), nrLamp, nrColour);
-            lamps.removeFromLeft (10);
-            g.setColour (Pal::lcdDim);
-            g.drawText ("EQ", lamps.removeFromLeft (20), juce::Justification::centredLeft);
-            drawLamp (g, lamps.removeFromLeft (12).toFloat().withSizeKeepingCentre (8, 8), eqLamp, eqColour);
-            lamps.removeFromLeft (10);
-            g.setColour (Pal::lcdDim);
-            g.drawText ("MIDI", lamps.removeFromLeft (36), juce::Justification::centredLeft);
-            drawLamp (g, lamps.removeFromLeft (12).toFloat().withSizeKeepingCentre (8, 8), midiLamp, Pal::green);
-        }
-        auto bottom = in.removeFromBottom (14);
+        // the deck's other displays: a heading and one line under it
         g.setColour (Pal::lcdDim);
-        if (low.isNotEmpty() || showLamps)
-        {
-            // three lines: routing in the middle, audio path at the bottom
-            g.setFont (lf.mono (13.0f));
-            g.drawFittedText (sub, in.withTrimmedTop (std::max (0, in.getHeight() - 16)), juce::Justification::bottomLeft, 1, 0.9f);
-            g.setFont (lf.mono (12.0f));
-            g.drawFittedText (low, bottom, juce::Justification::bottomLeft, 1, 0.9f);
-        }
-        else
-        {
-            g.setFont (lf.mono (13.0f));
-            g.drawFittedText (sub, bottom, juce::Justification::bottomLeft, 1, 0.9f);
-        }
+        g.setFont (lf.mono (13.0f));
+        g.drawFittedText (sub, in.removeFromBottom (14), juce::Justification::bottomLeft, 1, 0.9f);
     }
 
     void paintChainLayout (juce::Graphics& g, juce::Rectangle<int> in)
@@ -130,16 +101,16 @@ public:
         g.setFont (lf.mono (10.5f));
         int x = row.getX();
         const int right = row.getRight();
-        auto box = [&] (const juce::String& text, int state, bool ghost)
+        auto box = [&] (const juce::String& label, int state, bool ghost)
         {
-            auto w = std::max (22, (int) juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), text) + 8);
+            auto w = std::max (22, (int) juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), label) + 8);
             auto b = juce::Rectangle<int> (x, row.getY(), w, row.getHeight()).toFloat();
             auto alpha = ghost || state != 0 ? 0.5f : 1.0f;
             g.setColour (Pal::lcdDim.withAlpha (alpha));
             if (state == 2) { juce::Path p; p.addRoundedRectangle (b.reduced (0.5f), 2.0f); juce::PathStrokeType (1.0f).createDashedStroke (p, p, std::array<float, 2> { 3.0f, 2.0f }.data(), 2); g.fillPath (p); }
             else g.drawRoundedRectangle (b.reduced (0.5f), 2.0f, 1.0f);
             g.setColour ((state == 0 && ! ghost ? Pal::lcdText : Pal::lcdDim).withAlpha (alpha));
-            g.drawText (text, b, juce::Justification::centred, false);
+            g.drawText (label, b, juce::Justification::centred, false);
             x += w;
         };
         const int n = blocks.size();
@@ -239,13 +210,13 @@ public:
             textArea = face.withTrimmedTop (face.getHeight() * 0.52f).withTrimmedBottom (2.0f);
         }
 
-        juce::AttributedString text;
-        text.append (getButtonText(), lf.cond (textSize, true).withExtraKerningFactor (0.14f), Pal::cream.withMultipliedAlpha (alpha));
+        juce::AttributedString caption;
+        caption.append (getButtonText(), lf.cond (textSize, true).withExtraKerningFactor (0.14f), Pal::cream.withMultipliedAlpha (alpha));
         if (sub.isNotEmpty())
-            text.append ("  " + sub, lf.cond (textSize - 2.5f, false).withExtraKerningFactor (0.06f), Pal::muted.withMultipliedAlpha (alpha));
-        text.setJustification (hasLed ? juce::Justification::centredTop : juce::Justification::centred);
-        text.setWordWrap (juce::AttributedString::none);
-        text.draw (g, hasLed ? textArea : face);
+            caption.append ("  " + sub, lf.cond (textSize - 2.5f, false).withExtraKerningFactor (0.06f), Pal::muted.withMultipliedAlpha (alpha));
+        caption.setJustification (hasLed ? juce::Justification::centredTop : juce::Justification::centred);
+        caption.setWordWrap (juce::AttributedString::none);
+        caption.draw (g, hasLed ? textArea : face);
     }
 };
 
@@ -254,8 +225,8 @@ public:
 class LcdChip : public juce::Button
 {
 public:
-    explicit LcdChip (const juce::String& text, const juce::String& subText = {})
-        : juce::Button (text), sub (subText) { setWantsKeyboardFocus (false); setMouseClickGrabsKeyboardFocus (false); }
+    explicit LcdChip (const juce::String& label, const juce::String& subText = {})
+        : juce::Button (label), sub (subText) { setWantsKeyboardFocus (false); setMouseClickGrabsKeyboardFocus (false); }
 
     juce::String sub;
     bool chosen = false, dim = false, dashed = false;
@@ -387,6 +358,8 @@ public:
     }
 
     std::function<void()> onDismiss;
+    /** If set, sees clicks outside the card first; returning true means it dealt with the click. */
+    std::function<bool (juce::Point<int>)> onClickOutside;
     bool cardShadow = true;   // off for cards that cast their own
     float dimming = 0.62f;
 
@@ -401,11 +374,10 @@ public:
 
     void mouseDown (const juce::MouseEvent& e) override
     {
-        if (e.eventComponent == this && onDismiss)
-            onDismiss();
+        if (e.eventComponent != this) return;
+        if (onClickOutside && onClickOutside (e.getPosition())) return;
+        if (onDismiss) onDismiss();
     }
-
-    juce::Component* getCard() const noexcept { return card.get(); }
 
 private:
     std::unique_ptr<juce::Component> card;
@@ -416,8 +388,8 @@ private:
 class ChipButton : public juce::Button
 {
 public:
-    explicit ChipButton (const juce::String& text, const juce::String& subText = {})
-        : juce::Button (text), hint (subText) { setWantsKeyboardFocus (false); setMouseClickGrabsKeyboardFocus (false); }
+    explicit ChipButton (const juce::String& label, const juce::String& subText = {})
+        : juce::Button (label), hint (subText) { setWantsKeyboardFocus (false); setMouseClickGrabsKeyboardFocus (false); }
 
     juce::String hint;
     bool chosen = false;
@@ -460,63 +432,6 @@ public:
             g.drawFittedText (getButtonText(), in.removeFromTop (in.getHeight() / 2), juce::Justification::bottomLeft, 1, 0.8f);
             g.setFont (lf.cond (15.0f));
             g.drawFittedText (hint, in.withTrimmedTop (4), juce::Justification::topLeft, 1, 0.8f);
-        }
-    }
-};
-
-//==============================================================================
-/** Dark hardware button; optionally a latching "pill" or with an indicator lamp. */
-class FlatButton : public juce::Button
-{
-public:
-    explicit FlatButton (const juce::String& text) : juce::Button (text) { setWantsKeyboardFocus (false); setMouseClickGrabsKeyboardFocus (false); }
-
-    bool pill = false, lamp = false, lampOn = false, pressedLook = false;
-    juce::Colour lampColour = Pal::amber, onColour = Pal::orange, face = Pal::button;
-    float textSize = 15.0f;
-
-    void paintButton (juce::Graphics& g, bool over, bool down) override
-    {
-        auto& lf = DeckLookAndFeel::get();
-        auto r = getLocalBounds().toFloat();
-
-        if (pill)
-        {
-            bool on = getToggleState();
-            g.setColour (on ? onColour : juce::Colour (0xff1f1e1b));
-            g.fillRoundedRectangle (r, 4.0f);
-            g.setColour (on ? juce::Colour (0xff1a1917) : Pal::muted);
-        }
-        else
-        {
-            bool sunk = down || pressedLook;
-            auto faceR = r.withTrimmedBottom (3.0f).translated (0, sunk ? 2.0f : 0.0f);
-            if (! sunk)
-            {
-                g.setColour (Pal::dark);
-                g.fillRoundedRectangle (r.withTrimmedTop (3.0f), 5.0f);
-            }
-            g.setColour (over ? face.brighter (0.08f) : face);
-            g.fillRoundedRectangle (faceR, 5.0f);
-            g.setColour (Pal::cream);
-            r = faceR;
-        }
-
-        g.setFont (lf.cond (textSize, true).withExtraKerningFactor (0.14f));
-        auto label = getButtonText();
-        auto tr = r.toNearestInt();
-        if (lamp)
-        {
-            auto tw = (int) juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), label) + 34;
-            auto block = tr.withSizeKeepingCentre (std::min (tr.getWidth() - 8, tw), tr.getHeight());
-            drawLamp (g, block.removeFromLeft (12).toFloat().withSizeKeepingCentre (10, 10), lampOn, lampColour);
-            block.removeFromLeft (10);
-            g.setColour (Pal::cream);
-            g.drawFittedText (label, block, juce::Justification::centredLeft, 1, 0.85f);
-        }
-        else
-        {
-            g.drawFittedText (label, tr.reduced (4, 0), juce::Justification::centred, 1, 0.8f);
         }
     }
 };
@@ -702,16 +617,16 @@ public:
         g.fillRoundedRectangle (r, 4.0f);
 
         auto inner = r.reduced (5.0f);
-        auto colW = (inner.getWidth() - (numChannels - 1) * 3.0f) / numChannels;
+        auto colW = (inner.getWidth() - (float) (numChannels - 1) * 3.0f) / (float) numChannels;
         auto segH = (inner.getHeight() - 19 * 3.0f) / 20.0f;
 
         for (int c = 0; c < numChannels; ++c)
         {
             auto db = juce::Decibels::gainToDecibels (level[c], -100.0f) + 12.0f;
-            auto x = inner.getX() + c * (colW + 3.0f);
+            auto x = inner.getX() + (float) c * (colW + 3.0f);
             for (int i = 0; i < 20; ++i)
             {
-                auto y = inner.getBottom() - (i + 1) * segH - i * 3.0f;
+                auto y = inner.getBottom() - (float) (i + 1) * segH - (float) i * 3.0f;
                 auto col = vu[i] >= 3 ? Pal::red : (vu[i] >= 0 ? Pal::amber : Pal::green);
                 bool on = db >= vu[i];
                 g.setColour (on ? col : juce::Colour (0xff34322d));

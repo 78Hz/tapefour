@@ -136,10 +136,10 @@ float TapeEngine::tanhThirdHarmonicPoint()
             double re1 = 0, im1 = 0, re3 = 0, im3 = 0;
             for (int i = 0; i < n; ++i)
             {
-                auto ph = juce::MathConstants<double>::twoPi * i / n;
-                auto y = std::tanh (a * std::sin (ph));
-                re1 += y * std::cos (ph);       im1 += y * std::sin (ph);
-                re3 += y * std::cos (3 * ph);   im3 += y * std::sin (3 * ph);
+                auto angle = juce::MathConstants<double>::twoPi * i / n;
+                auto y = std::tanh (a * std::sin (angle));
+                re1 += y * std::cos (angle);       im1 += y * std::sin (angle);
+                re3 += y * std::cos (3 * angle);   im3 += y * std::sin (3 * angle);
             }
             return std::hypot (re3, im3) / std::hypot (re1, im1);
         };
@@ -165,8 +165,8 @@ void TapeEngine::calibrateHiss()
         auto rms = aWeightedRms (sr, [&] { return shape.process (hissSample (n, p)); });
 
         // Normalise to the A-weighting's own gain at 1 kHz.
-        double ph = 0;
-        auto ref = aWeightedRms (sr, [&] { ph += juce::MathConstants<double>::twoPi * 1000.0 / sr; return (float) std::sin (ph); });
+        double phase = 0;
+        auto ref = aWeightedRms (sr, [&] { phase += juce::MathConstants<double>::twoPi * 1000.0 / sr; return (float) std::sin (phase); });
         hissCal[eq] = std::max (1.0e-6f, rms / (ref * std::sqrt (2.0f)));
     }
 }
@@ -228,13 +228,13 @@ void TapeEngine::configureModel (int m, int speedSel, int switchPos)
     {
         Biquad b;
         double g = targetDb;
-        for (int it = 0; it < 8 && targetDb != 0.0f; ++it)
+        for (int it = 0; it < 8 && ! juce::exactlyEqual (targetDb, 0.0f); ++it)
         {
             if (high) b.setHighShelf (sr, fc, g, 0.7); else b.setLowShelf (sr, fc, g, 0.7);
             auto got = 20.0 * std::log10 (magnitudeAt (b, f, sr));
             g += targetDb - got;
         }
-        return targetDb != 0.0f ? g : 0.0;
+        return ! juce::exactlyEqual (targetDb, 0.0f) ? g : 0.0;
     };
     auto hiDb = fit (true, hiFc, 10000.0, hiTarget);
     auto loDb = fit (false, 160.0, 100.0, loTarget);
@@ -486,7 +486,7 @@ void TapeEngine::readAll (float* const* out, int n) noexcept
     // Playback EQ: the switch picks 120 or 70 us. Hiss follows the tape's own formulation,
     // the recording follows the position it was recorded at.
     auto sw = juce::jlimit (0, 2, params.tapeSwitch.load());
-    auto eqUs = [] (int pos) { return pos == 0 ? 120 : 70; };
+    auto eqUs = [] (int position) { return position == 0 ? 120 : 70; };
     const int playUs = eqUs (sw);
     {
         auto key = tm->eqMicroseconds * 1000 + playUs;
@@ -610,7 +610,7 @@ void TapeEngine::writeTrack (int t, const float* in, int n, double latencySample
     }
 }
 
-void TapeEngine::writeSpan (int t, double p, float v, bool nr, float spd, int pos) noexcept
+void TapeEngine::writeSpan (int t, double p, float v, bool nr, float spd, int switchPos) noexcept
 {
     wroteThisBlock[t] = true;
 
@@ -629,7 +629,7 @@ void TapeEngine::writeSpan (int t, double p, float v, bool nr, float spd, int po
 
     runNr[t] = nr;
     runSpeed[t] = spd;
-    runPos[t] = pos;
+    runPos[t] = switchPos;
     const auto fadeCells = std::max (1.0, punchFadeSeconds * cellRate * spd);
     // A NORMAL-position erase head can't fully erase metal tape: the old recording,
     // mostly its bass, survives about 30 dB down under the new one.
@@ -662,7 +662,7 @@ void TapeEngine::writeSpan (int t, double p, float v, bool nr, float spd, int po
         replacedHead[t] = (replacedHead[t] + 1) % punchRing;
         replacedCount[t] = std::min (replacedCount[t] + 1, punchRing);
 
-        tape->writeCell (t, c, val, nr, spd, pos);
+        tape->writeCell (t, c, val, nr, spd, switchPos);
     }
     prevPos[t] = b;
     prevVal[t] = v;
@@ -681,7 +681,7 @@ void TapeEngine::finishPunch (int t) noexcept
     {
         // j = 0 is the last cell written: almost all old; j = k-1 is almost all new.
         const auto& r = replaced[t][(replacedHead[t] - 1 - j + punchRing) % punchRing];
-        const auto g = (float) (j + 0.5f) / (float) k;
+        const auto g = ((float) j + 0.5f) / (float) k;
         const auto now = tape->readCell (t, r.cell);
         tape->writeCell (t, r.cell, r.old + (now - r.old) * g, runNr[t], runSpeed[t], runPos[t]);
     }

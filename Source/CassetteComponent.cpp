@@ -105,7 +105,7 @@ CassetteComponent::CassetteComponent()
 void CassetteComponent::resized()
 {
     // The write-on label, in component pixels.
-    auto sx = getWidth() / shellW, sy = getHeight() / shellH;
+    auto sx = (float) getWidth() / shellW, sy = (float) getHeight() / shellH;
     nameLabel.setBounds (juce::Rectangle<float> (122.0f * sx, 402.0f * sy, 760.0f * sx, 62.0f * sy).toNearestInt());
 }
 
@@ -133,7 +133,7 @@ float CassetteComponent::packDiameter (float f) const
 void CassetteComponent::update (const Tape* tape, double pos)
 {
     // Still, and nothing new: nothing to draw.
-    if ((tape != nullptr) == hasTape && tape == lastTape && pos == lastPos)
+    if ((tape != nullptr) == hasTape && tape == lastTape && juce::exactlyEqual (pos, lastPos))
         return;
     lastTape = tape;
     hasTape = tape != nullptr;
@@ -197,7 +197,7 @@ void CassetteComponent::drawHub (juce::Graphics& g, juce::Point<float> c, float 
     for (int k = 0; k < 6; ++k)
     {
         g.setColour (st.hubTeeth);
-        g.fillPath (tooth, rot (k * juce::MathConstants<float>::pi / 3.0f));
+        g.fillPath (tooth, rot ((float) k * juce::MathConstants<float>::pi / 3.0f));
     }
 
     g.setColour (st.hubCore.interpolatedWith (st.hub, 0.5f));
@@ -206,7 +206,7 @@ void CassetteComponent::drawHub (juce::Graphics& g, juce::Point<float> c, float 
     g.drawEllipse (circle (58), 3.0f);
     g.setColour (st.spindleTeeth);
     for (int k = 0; k < 6; ++k)
-        g.fillPath (spline, rot (k * juce::MathConstants<float>::pi / 3.0f));
+        g.fillPath (spline, rot ((float) k * juce::MathConstants<float>::pi / 3.0f));
     g.setColour (st.hubCore);
     g.fillEllipse (circle (28));
 }
@@ -294,7 +294,7 @@ void CassetteComponent::drawPrint (juce::Graphics& g) const
 void CassetteComponent::paint (juce::Graphics& g)
 {
     auto& lf = DeckLookAndFeel::get();
-    g.addTransform (juce::AffineTransform::scale (getWidth() / shellW, getHeight() / shellH));
+    g.addTransform (juce::AffineTransform::scale ((float) getWidth() / shellW, (float) getHeight() / shellH));
     auto shell = juce::Rectangle<float> (shellW, shellH);
     auto st = styleFor (model);
 
@@ -403,7 +403,7 @@ void CassetteComponent::paint (juce::Graphics& g)
     g.strokePath (lower, juce::PathStrokeType (2.0f));
     g.setColour (model == 0 ? juce::Colours::black.withAlpha (0.07f) : juce::Colours::white.withAlpha (0.08f));
     for (int k = 0; k < 6; ++k)
-        g.fillRect (210.0f - 2 * k, 507.0f + 10 * k, 584.0f + 4 * k, 2.0f);
+        g.fillRect (210.0f - 2.0f * (float) k, 507.0f + 10.0f * (float) k, 584.0f + 4.0f * (float) k, 2.0f);
     g.setColour (st.hole);
     g.fillEllipse (248, 582, 36, 36);
     g.fillEllipse (720, 582, 36, 36);
@@ -429,7 +429,7 @@ void CassetteComponent::paint (juce::Graphics& g)
     auto screwY = model == 0 ? 114.0f : 44.0f;
     for (auto p : std::initializer_list<juce::Point<float>> { { 48, screwY }, { 956, screwY }, { 502, 562 } })
     {
-        auto big = p.y != 562.0f;
+        auto big = ! juce::exactlyEqual (p.y, 562.0f);
         auto r = juce::Rectangle<float> (big ? 34.0f : 22.0f, big ? 34.0f : 22.0f).withCentre (p);
         g.setColour (st.screw);
         g.fillEllipse (r);

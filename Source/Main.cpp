@@ -20,8 +20,8 @@ public:
     {
         auto s = std::min ((float) getWidth() / DeckComponent::designWidth, (float) getHeight() / DeckComponent::designHeight);
         deck.setBounds (0, 0, DeckComponent::designWidth, DeckComponent::designHeight);
-        deck.setTransform (juce::AffineTransform::scale (s).translated ((getWidth() - DeckComponent::designWidth * s) * 0.5f,
-                                                                        (getHeight() - DeckComponent::designHeight * s) * 0.5f));
+        deck.setTransform (juce::AffineTransform::scale (s).translated (((float) getWidth() - (float) DeckComponent::designWidth * s) * 0.5f,
+                                                                        ((float) getHeight() - (float) DeckComponent::designHeight * s) * 0.5f));
     }
 
     DeckComponent deck;
@@ -42,16 +42,32 @@ public:
         auto area = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay() != nullptr
                         ? juce::Desktop::getInstance().getDisplays().getPrimaryDisplay()->userArea
                         : juce::Rectangle<int> (0, 0, 1440, 1000);
-        auto s = std::min ({ 1.0f, (area.getWidth() - 40.0f) / DeckComponent::designWidth,
-                             (area.getHeight() - 60.0f) / DeckComponent::designHeight });
+        auto s = std::min ({ 1.0f, ((float) area.getWidth() - 40.0f) / (float) DeckComponent::designWidth,
+                             ((float) area.getHeight() - 60.0f) / (float) DeckComponent::designHeight });
         centreWithSize ((int) (DeckComponent::designWidth * s), (int) (DeckComponent::designHeight * s));
+
+        // Where it was last time, if that's still on a screen (JUCE checks).
+        if (auto saved = settings.getValue (windowKey); saved.isNotEmpty())
+            restoreWindowStateFromString (saved);
         setVisible (true);
         content->deck.grabKeyboardFocus();
     }
 
     void closeButtonPressed() override { juce::JUCEApplication::getInstance()->systemRequestedQuit(); }
 
+    void saveWindowState (juce::PropertiesFile& settings) { settings.setValue (windowKey, getWindowStateAsString()); }
+
+    /** Brings the window back to the front (when TapeFour is started again while running). */
+    void bringToFront()
+    {
+        if (isMinimised()) setMinimised (false);
+        toFront (true);
+    }
+
     ScaledDeck* content = nullptr;
+
+private:
+    static constexpr const char* windowKey = "windowState";
 };
 } // namespace tf
 
@@ -102,7 +118,10 @@ public:
     void shutdown() override
     {
         if (mainWindow != nullptr)
+        {
+            mainWindow->saveWindowState (*appProperties.getUserSettings());
             mainWindow->content->deck.prepareToQuit();
+        }
         mainWindow.reset();
 
         if (engine != nullptr)
@@ -115,7 +134,12 @@ public:
     }
 
     void systemRequestedQuit() override { quit(); }
-    void anotherInstanceStarted (const juce::String&) override {}
+    void anotherInstanceStarted (const juce::String&) override
+    {
+        // Only one TapeFour at a time (both would want the audio device and the tape); a second start
+        // brings this one forward instead.
+        if (mainWindow != nullptr) mainWindow->bringToFront();
+    }
 
 private:
     std::unique_ptr<tf::DeckLookAndFeel> lookAndFeel;

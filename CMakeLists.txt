@@ -2,6 +2,9 @@ cmake_minimum_required(VERSION 3.22)
 
 # CI passes its run number so every build has its own version: 0.2.<build>.
 set(TAPEFOUR_BUILD_NUMBER "0" CACHE STRING "Build number (patch version)")
+# The oldest macOS it runs on (must be set before project()); a command-line value wins.
+set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
+
 project(TapeFour VERSION 0.2.${TAPEFOUR_BUILD_NUMBER} LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -97,6 +100,9 @@ target_sources(TapeFour PRIVATE
     Source/CassetteComponent.cpp
     Source/StripComponent.cpp
     Source/DeckComponent.cpp
+    Source/DeckLearn.cpp
+    Source/PluginWindow.cpp
+    Source/BlockPicker.cpp
     Source/ChainEditor.cpp
     Source/InlayCard.cpp
     Source/SetupWindow.cpp)
@@ -120,6 +126,16 @@ target_link_libraries(TapeFour
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags)
+
+# TapeFour's own code builds without a single warning (JUCE's recommended set, GCC and Clang).
+# -DTAPEFOUR_WERROR=ON keeps it that way: any new warning in our sources stops the build.
+option(TAPEFOUR_WERROR "Treat warnings in TapeFour's own sources as errors (GCC/Clang)" OFF)
+if(TAPEFOUR_WERROR AND NOT MSVC)
+    file(GLOB tapefourOwnSources CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Source/*.cpp
+                                                    ${CMAKE_CURRENT_SOURCE_DIR}/Tests/*.cpp
+                                                    ${CMAKE_CURRENT_SOURCE_DIR}/Tests/fixtures/*.c)
+    set_source_files_properties(${tapefourOwnSources} PROPERTIES COMPILE_OPTIONS "-Werror")
+endif()
 
 # Headless checks: cmake -DTAPEFOUR_TESTS=ON, then run EngineTest, MixerTest and ScanTest.
 option(TAPEFOUR_TESTS "Build the test programs" OFF)

@@ -18,6 +18,16 @@ Open the repository's **Actions** tab, pick the latest green **Build** run, and 
 | Mac (Apple silicon or Intel, macOS 11+) | **TapeFour-macos-universal** | Unzip and move `TapeFour.app` to Applications. It isn't notarised, so the first time, right-click it and choose **Open**, then **Open** again. Allow microphone access when asked: that's how macOS lets a program record from any audio input. |
 | Linux (64-bit) | **TapeFour-linux-x64** | Extract the `.tar.gz` and run `TapeFour`. It needs ALSA (every distribution has it); JACK is used if a JACK server is running. |
 
+### What it needs
+
+| | Minimum | Comfortable |
+|---|---|---|
+| System | Windows 10 (64-bit), macOS 11, or a 64-bit Linux from 2022 on (glibc 2.35, as Ubuntu 22.04) | |
+| Processor | Any 64-bit dual-core from the last ten years. The deck itself uses about 1% of one core playing and under 10% recording through heavy built-in chains (256-sample buffer, 48 kHz) | Plug-ins are what cost: budget for them as in any DAW |
+| Memory | 4 GB. The loaded tape is held in memory: 350 MB for a C-46, 460 MB for a C-60, 690 MB for a C-90 | 8 GB or more with large sample-based plug-ins |
+| Disk | As much again for each tape on the shelf (a blank isn't accepted without room for the whole tape) | An SSD for the tape shelf |
+| Screen | 1280 × 720 (the deck scales to the window) | 1920 × 1080 or larger |
+
 ## First run
 
 1. Click the amber display at the top right (**SETUP ›**). Under **Audio**:
@@ -136,6 +146,7 @@ The other sliders are wow, flutter, HF loss, track crosstalk, dropouts and speed
 
 - **Tapes**: `Documents/TapeFour/Tape Shelf/`, one folder per tape (the audio, `tape.xml` for what's recorded where, and `deck.xml` for the deck that goes with it). Tapes are saved in the background: every five seconds while recording, so a crash costs seconds rather than a take; whenever the transport has been stopped for a second; and on eject and on quit.
 - **Settings**: `TapeFour.settings` in `%APPDATA%\TapeFour\` (Windows), `~/Library/Application Support/TapeFour/` (macOS) or `~/.config/TapeFour/` (Linux). This holds the audio device, MIDI controllers and synths, each track's chain (including each plug-in's state and its MIDI mappings), deck MIDI mappings, knob positions and tape character. It's only written when something has changed.
+- **The window** opens where and at the size it was last time. Starting TapeFour while it's already running brings the running one to the front (two copies would fight over the audio device and the tape).
 - **Crash reports**: if TapeFour ever crashes it writes a report to `TapeFour/Crashes/` next to the settings (a `.txt` with the version and a stack trace, and on Windows a `.dmp`), and says so the next time it starts. Sending one along with a description of what you were doing makes the problem findable.
 
 ## Building it yourself
@@ -159,6 +170,13 @@ Add `-DTAPEFOUR_TESTS=ON` to also build the headless test programs, which every 
 To check real plug-ins on your machine, run `MixerTest` with `TAPEFOUR_SMOKE_DIR` set to a plug-in folder (for LV2, the folder holding the `.lv2` bundles): every format scans it, and each instrument found is loaded and played. `TAPEFOUR_CLAP_LOG=1` makes the app print what CLAP plug-ins ask of it.
 
 `-DTAPEFOUR_SANITIZE=address` or `thread` (with Clang or GCC) builds them with the address/undefined-behaviour or thread sanitizer; GitHub runs both on every push.
+
+### Working on the code
+
+- **Warnings are errors** in CI on Linux, macOS and the sanitizer builds: `-DTAPEFOUR_WERROR=ON` turns every warning in TapeFour's own files (not JUCE's) into an error with GCC or Clang, under JUCE's recommended warning set (`-Wshadow`, `-Wsign-conversion`, `-Wfloat-equal`, `-Wswitch-enum` and the rest). Use it locally to catch them before pushing.
+- **Performance**: `TAPEFOUR_BENCH=1 MixerTest` times the audio callback for a stopped deck, playback with all the tape character on, recording through heavy chains, and unarmed chains (which rest), and prints each as a share of the real-time budget.
+- **Layout**: `Source/` holds the engine (`AudioEngine`, `TapeEngine`, `Tape`, `ChannelStrip`, `Blocks`, `MidiHub`, `MidiMapper`, `ClapFormat`, `PluginScan`) and the interface (`DeckComponent` with `DeckLearn` for MIDI learn, `StripComponent`, `ChainEditor` with `BlockPicker`, `SetupWindow`, `CassetteComponent`, `InlayCard`, `PluginWindow`, `Widgets.h`). No engine file includes an interface file, so the engine can be tested headless (as `MixerTest` does).
+- **Known limitation**: plug-ins run inside TapeFour's own process. Scanning is isolated (a plug-in that crashes while being scanned is set aside), but a plug-in that crashes while playing takes TapeFour with it. The tape is saved every five seconds while recording, so a take loses at most that.
 
 ## Licence
 

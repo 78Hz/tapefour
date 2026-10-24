@@ -26,7 +26,6 @@ public:
     explicit Tape (int typeIndex, int modelIndex = defaultTapeModel);
     ~Tape();
 
-    int getType() const noexcept                { return type; }
     const TapeTypeInfo& getTypeInfo() const     { return tapeTypes[type]; }
     int getModel() const noexcept               { return model; }
     const TapeModel& getModelInfo() const       { return tapeModels[model]; }
@@ -34,7 +33,6 @@ public:
     juce::String productName() const            { return juce::String (getModelInfo().name) + juce::String (getTypeInfo().minutes * 2); }
     int64_t getLengthCells() const noexcept     { return lengthCells; }
     double getLengthSeconds() const noexcept    { return (double) lengthCells / cellRate; }
-    int getNumBlocks() const noexcept           { return numBlocks; }
     int blockAt (double pos) const noexcept     { return juce::jlimit (0, numBlocks - 1, (int) (pos / blockCells)); }
 
     // ---- audio thread ----
@@ -48,16 +46,16 @@ public:
     void writeCell (int track, int64_t c, float v, bool nrEncoded, float speed, int position) noexcept;
 
     // ---- metadata (safe to read from any thread) ----
-    bool isRecorded (int track, int block) const noexcept   { return (flags[track][block].load (std::memory_order_relaxed) & 1) != 0; }
-    bool isNrEncoded (int track, int block) const noexcept  { return (flags[track][block].load (std::memory_order_relaxed) & 2) != 0; }
+    bool isRecorded (int track, int block) const noexcept   { return (flagsAt (track, block).load (std::memory_order_relaxed) & 1) != 0; }
+    bool isNrEncoded (int track, int block) const noexcept  { return (flagsAt (track, block).load (std::memory_order_relaxed) & 2) != 0; }
     /** The tape switch position this stretch was recorded at (0 normal, 1 chrome, 2 metal), or the tape's own if not known. */
     int recordedPosition (int track, int block) const noexcept
     {
-        auto f = (flags[track][block].load (std::memory_order_relaxed) >> 2) & 3;
+        auto f = (flagsAt (track, block).load (std::memory_order_relaxed) >> 2) & 3;
         return f == 0 ? naturalPosition() : f - 1;
     }
     int naturalPosition() const noexcept        { return positionForIec (getModelInfo().iecType); }
-    float recordedSpeed (int track, int block) const noexcept { return speedMilli[track][block].load (std::memory_order_relaxed) / 1000.0f; }
+    float recordedSpeed (int track, int block) const noexcept { return speedMilliAt (track, block).load (std::memory_order_relaxed) / 1000.0f; }
     double usedSeconds() const;
     int tracksUsed() const;
 
@@ -106,6 +104,11 @@ private:
     // nothing on any current CPU but make the sharing well-defined.
     using Cell = std::atomic<int16_t>;
     static_assert (sizeof (Cell) == sizeof (int16_t) && Cell::is_always_lock_free);
+    // Per track, per block (or per second) of tape; indexed through these so the conversions live in one place.
+    std::atomic<uint8_t>&  flagsAt (int t, int b) const noexcept      { return flags[t][(size_t) b]; }
+    std::atomic<uint16_t>& speedMilliAt (int t, int b) const noexcept { return speedMilli[t][(size_t) b]; }
+    std::atomic<uint8_t>&  dirtyAt (int t, int s) const noexcept      { return dirty[t][(size_t) s]; }
+
     Cell* data[numTracks] {};
     std::unique_ptr<std::atomic<uint8_t>[]>  flags[numTracks];
     std::unique_ptr<std::atomic<uint16_t>[]> speedMilli[numTracks];

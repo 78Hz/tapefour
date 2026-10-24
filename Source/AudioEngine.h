@@ -102,6 +102,9 @@ public:
     std::atomic<bool>& midiOutFlash = midi.outFlash;
     std::atomic<bool>  recallDeckWithTape { false };
     std::atomic<float> inputPeak[maxInputs] {};          // per interface input, for the signal bars
+    /** Goes up whenever anything a track's display shows changes (its chain, inputs, routing, devices),
+        so the displays rebuild their text only then. */
+    std::atomic<juce::uint32> viewVersion { 1 };
     /** A transport command from a controller (MMC or a mapped button), for the deck to carry out. */
     std::atomic<int>   remoteCommand { 0 };
 
@@ -160,8 +163,6 @@ public:
     juce::String midiOutputLabel (int slot) const { return midi.outputLabel (slot); }
 
     // ---- device info ----
-    double getSampleRate() const noexcept { return sampleRate; }
-    int getBufferSize() const noexcept { return bufferSize; }
     juce::String getDeviceSummary() const;
     juce::StringArray getActiveInputNames() const;
     juce::StringArray getOutputPairNames() const;
@@ -169,10 +170,13 @@ public:
     /** The computer keyboard is MIDI controller slot 0. */
     void injectMidi (const juce::MidiMessage& m, int port = computerKeyboardPort);
 
-    // For tests: ports with no device behind them.
+    // ---- test hooks: not used by the app ----
+    /** MIDI ports with no device behind them, for driving the engine without hardware. */
     int addVirtualMidiInput (const juce::String& name)  { return midi.addVirtualInput (name); }
     int addVirtualMidiOutput (const juce::String& name) { return midi.addVirtualOutput (name); }
-    std::function<void (int slot, const juce::MidiBuffer&)>& midiOutTap = midi.outTap;   // audio thread
+    /** Sees every block of outgoing MIDI, on the audio thread. Set it only while the audio callback
+        isn't running (the tests drive the callback themselves). */
+    void setMidiOutTapForTests (std::function<void (int slot, const juce::MidiBuffer&)> tap) { midi.outTap = std::move (tap); }
 
     juce::String getStartupProblem() const { return startupProblem; }
 

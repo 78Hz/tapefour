@@ -3,6 +3,7 @@
 #include "../Source/TapeWriter.h"
 #include "../Source/ClapFormat.h"
 #include <cstdio>
+#include <thread>
 
 using namespace tf;
 
@@ -153,6 +154,7 @@ struct Transposer : TestProcessor
     bool acceptsMidi() const override { return true; }
     bool producesMidi() const override { return true; }
     bool isMidiEffect() const override { return true; }
+    using juce::AudioProcessor::processBlock;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer& m) override
     {
         juce::MidiBuffer out;
@@ -173,6 +175,7 @@ struct CcCounter : TestProcessor
     bool acceptsMidi() const override { return true; }
     bool producesMidi() const override { return true; }
     bool isMidiEffect() const override { return true; }
+    using juce::AudioProcessor::processBlock;
     void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer& m) override
     {
         for (const auto meta : m) if (meta.getMessage().isController() && meta.getMessage().getControllerNumber() >= 20 && meta.getMessage().getControllerNumber() < 30) ++ccs;
@@ -186,7 +189,16 @@ struct Gain : TestProcessor
     const juce::String getName() const override { return "HALF"; }
     bool acceptsMidi() const override { return false; }
     bool producesMidi() const override { return false; }
+    using juce::AudioProcessor::processBlock;
     void processBlock (juce::AudioBuffer<float>& b, juce::MidiBuffer&) override { b.applyGain (0.5f); }
+};
+
+// Counts its blocks: for checking when a plug-in is (and isn't) called.
+struct Counting : Gain
+{
+    std::atomic<int> blocks { 0 };
+    using juce::AudioProcessor::processBlock;
+    void processBlock (juce::AudioBuffer<float>& b, juce::MidiBuffer& m) override { ++blocks; Gain::processBlock (b, m); }
 };
 
 // Counts what the front panel asks it. A VST3's hasEditor() builds and throws away a whole editor
@@ -225,6 +237,68 @@ juce::String firstName (AudioEngine& e, int t)
 int main()
 {
     juce::ScopedJuceInitialiser_GUI juceInit;
+    // TAPEFOUR_BENCH=1: how long the audio callback takes, for typical and heavy sessions (no tests run).
+    if (juce::SystemStats::getEnvironmentVariable ("TAPEFOUR_BENCH", {}).isNotEmpty())
+    {
+        auto bench = [] (const char* name, int buffer, std::function<void (Rig&)> setup)
+        {
+            Rig m;
+            FakeDevice dev;
+            m.engine->audioDeviceAboutToStart (&dev);
+            setup (m);
+            std::vector<float> in0 ((size_t) buffer), in1 ((size_t) buffer), o0 ((size_t) buffer), o1 ((size_t) buffer);
+            for (int i = 0; i < buffer; ++i) { in0[(size_t) i] = 0.2f * (float) std::sin (i * 0.05); in1[(size_t) i] = in0[(size_t) i]; }
+            const float* ins[2] { in0.data(), in1.data() };
+            float* outs[2] { o0.data(), o1.data() };
+            for (int b = 0; b < 200; ++b) m.engine->audioDeviceIOCallbackWithContext (ins, 2, outs, 2, buffer, {});
+            std::vector<double> times;
+            const int blocks = (int) (20.0 * sr / buffer);
+            for (int b = 0; b < blocks; ++b)
+            {
+                auto t0 = juce::Time::getHighResolutionTicks();
+                m.engine->audioDeviceIOCallbackWithContext (ins, 2, outs, 2, buffer, {});
+                times.push_back (juce::Time::highResolutionTicksToSeconds (juce::Time::getHighResolutionTicks() - t0) * 1.0e6);
+            }
+            std::sort (times.begin(), times.end());
+            double sum = 0; for (auto t : times) sum += t;
+            const double budget = buffer / sr * 1.0e6;
+            std::printf ("%-58s avg %7.1f us (%5.1f%%)  p99 %7.1f us  max %7.1f us  budget %6.0f us\n", name,
+                         sum / (double) times.size(), 100.0 * sum / (double) times.size() / budget, times[times.size() * 99 / 100], times.back(), budget);
+        };
+        auto character = [] (Rig& m)
+        {
+            auto& p = m.engine->tapeEngine.params;
+            p.hiss = 0.55f; p.wow = 0.3f; p.flutter = 0.25f; p.sat = 0.5f; p.hf = 0.2f; p.xtalk = 0.3f; p.drop = 0.1f; p.drift = 0.2f;
+            p.nrOn = true; p.nrType = 0;
+        };
+        auto heavy = [&] (Rig& m)
+        {
+            character (m);
+            for (int t = 0; t < numTracks; ++t)
+            {
+                auto& e = *m.engine;
+                e.clearChain (t);
+                e.setTrackInput (t, -1);
+                e.insertBlock (t, -1, BuiltIn::createSynth (BuiltIn::poly));
+                e.insertBlock (t, -1, BuiltIn::createFx (BuiltIn::tapeEcho));
+                e.insertBlock (t, -1, BuiltIn::createFx (BuiltIn::spring));
+                e.insertBlock (t, -1, BuiltIn::createFx (BuiltIn::plate));
+                e.track[t].armed = true;
+            }
+            for (int k : { 48, 52, 55, 59, 62, 64 })   // a six-note chord on every track
+                m.engine->injectMidi (juce::MidiMessage::noteOn (1, k, (juce::uint8) 100));
+            m.cmd (TapeEngine::Command::rec);
+        };
+        for (int buffer : { 64, 256 })
+        {
+            std::printf ("-- %d-sample buffer at 48 kHz --\n", buffer);
+            bench ("stopped, nothing armed", buffer, [] (Rig&) {});
+            bench ("playing 4 tracks, all tape character, 2:1 NR", buffer, [&] (Rig& m) { character (m); m.cmd (TapeEngine::Command::play); });
+            bench ("recording 4 tracks: synth (6 voices) + echo + spring + plate", buffer, heavy);
+            bench ("same, but 4 tracks playing back unarmed (chains idle)", buffer, [&] (Rig& m) { heavy (m); for (auto& t : m.engine->track) t.armed = false; m.cmd (TapeEngine::Command::play); });
+        }
+        return 0;
+    }
     const double pan = std::cos (juce::MathConstants<double>::pi / 4.0);
     // Each pass through the tape changes the level by the cassette's sensitivity.
     const double gen = std::pow (10.0, tapeModels[defaultTapeModel].sensitivity / 20.0);
@@ -463,20 +537,20 @@ int main()
         m.run (0.3);
 
         // Hardware synth on track 3: controller A goes out on channel 5, audio comes back on IN 1.
-        auto synth = me.addVirtualMidiOutput ("Juno");
+        auto juno = me.addVirtualMidiOutput ("Juno");
         std::vector<juce::MidiMessage> sent;
         juce::SpinLock sentLock;
-        me.midiOutTap = [&] (int slot, const juce::MidiBuffer& b)
+        me.setMidiOutTapForTests ([&] (int slot, const juce::MidiBuffer& sentBuffer)
         {
-            if (slot != synth) return;
+            if (slot != juno) return;
             const juce::SpinLock::ScopedLockType sl (sentLock);
-            for (const auto meta : b) sent.push_back (meta.getMessage());
-        };
+            for (const auto meta : sentBuffer) sent.push_back (meta.getMessage());
+        });
         me.track[0].armed = false;
         me.track[1].armed = false;
         me.clearChain (2);
         me.setTrackInput (2, -1);
-        auto extId = me.addExternal (2, -1, synth);
+        auto extId = me.addExternal (2, -1, juno);
         auto* ext = dynamic_cast<ExternalBlock*> (me.findBlock (2, extId));
         ext->channel = 5;
         ext->returnInput = 0;
@@ -503,7 +577,7 @@ int main()
         int offs = 0;
         for (auto& msg : sent) if (msg.isAllNotesOff()) ++offs;
         check (offs == 16, "hardware: re-routing silences the old route (all notes off, 16 channels)", offs, 16);
-        me.midiOutTap = nullptr;
+        me.setMidiOutTapForTests (nullptr);
 
         // Deck state: everything savable goes out and comes back.
         me.track[0].fader = 0.31f; me.track[0].pan = 0.4f; me.track[0].high = -0.5f;
@@ -521,7 +595,7 @@ int main()
         check (std::abs (me.masterFader.load() - 0.6f) < 1e-4f && std::abs (me.tapeEngine.params.pitch.load() - 3.7f) < 1e-4f,
                "deck recall: master and pitch come back", me.masterFader.load(), 0.6);
         auto hwBack = me.getChain (2);
-        check (hwBack.size() == 1 && hwBack[0].role == BlockRole::external && hwBack[0].outPort == synth && hwBack[0].channel == 7 && hwBack[0].returnInput == 0,
+        check (hwBack.size() == 1 && hwBack[0].role == BlockRole::external && hwBack[0].outPort == juno && hwBack[0].channel == 7 && hwBack[0].returnInput == 0,
                "deck recall: hardware synth route comes back", hwBack.empty() ? -1 : hwBack[0].channel, 7);
         check (me.track[0].midiPort.load() == keysA && me.track[1].midiPort.load() == keysB, "deck recall: each track's controller comes back",
                me.track[0].midiPort.load(), keysA);
@@ -595,10 +669,10 @@ int main()
         }
 
         // The rule for each source.
-        check (AudioEngine::recordLatencySamples (false, true, false, 1200, 900, 48, 0) == 900.0
-               && AudioEngine::recordLatencySamples (false, false, true, 1200, 900, 48, 0) == 0.0
-               && AudioEngine::recordLatencySamples (true, false, false, 1200, 900, 48, 0) == 2148.0
-               && AudioEngine::recordLatencySamples (true, true, false, 1200, 900, 48, 64) == 2212.0,
+        check (juce::exactlyEqual (AudioEngine::recordLatencySamples (false, true, false, 1200, 900, 48, 0), 900.0)
+               && juce::exactlyEqual (AudioEngine::recordLatencySamples (false, false, true, 1200, 900, 48, 0), 0.0)
+               && juce::exactlyEqual (AudioEngine::recordLatencySamples (true, false, false, 1200, 900, 48, 0), 2148.0)
+               && juce::exactlyEqual (AudioEngine::recordLatencySamples (true, true, false, 1200, 900, 48, 64), 2212.0),
                "latency: instruments wait for the output only; audio and synths for the round trip", 900, 900);
         fakeInputLatency = fakeOutputLatency = 0;
     }
@@ -657,7 +731,7 @@ int main()
         auto back = Tape::load (dir);
         int64_t diff = 0;
         for (int64_t c = 0; back != nullptr && c < (int64_t) cellRate * 3; ++c)
-            if (back->readCell (0, c) != tape.readCell (0, c)) ++diff;
+            if (! juce::exactlyEqual (back->readCell (0, c), tape.readCell (0, c))) ++diff;
         check (back != nullptr && diff == 0 && back->isRecorded (0, 20), "saved while recording: the tape on disk matches", (double) diff, 0.0);
         dir.deleteRecursively();
         juce::MessageManager::getInstance()->runDispatchLoopUntil (50);   // let the writer's callbacks run while the tape exists
@@ -795,6 +869,78 @@ int main()
                    "plug-in state: an open window isn't asked every save, only once a minute and at natural moments",
                    regular, 1);
             me.clearChain (3);
+        }
+
+        // A chain nobody hears (its track unarmed, the fade back to tape over) is left alone, and
+        // picks up again when the track is armed.
+        {
+            audioIn (me, 2, 0);
+            auto counting = std::make_unique<Counting>();
+            auto* c = counting.get();
+            me.insertBlock (2, -1, hostedBlock (std::move (counting)));
+            me.track[2].armed = true;
+            m.run (0.1);
+            me.track[2].armed = false;
+            m.run (0.1);                       // the fade back to tape
+            const int settled = c->blocks.load();
+            m.run (0.5);
+            const int whileUnheard = c->blocks.load() - settled;
+            me.track[2].armed = true;
+            m.run (0.1);
+            check (settled > 0 && whileUnheard == 0 && c->blocks.load() > settled,
+                   "chains: an unarmed track's chain rests, and runs again when armed", whileUnheard, 0);
+            me.track[2].armed = false;
+            me.clearChain (2);
+        }
+
+        // A plug-in being restarted or reconfigured on another thread holds its callback lock, or is
+        // suspended: the audio thread must leave it alone until it's done.
+        {
+            audioIn (me, 2, 0);
+            me.track[2].armed = true;
+            auto counting = std::make_unique<Counting>();
+            auto* c = counting.get();
+            me.insertBlock (2, -1, hostedBlock (std::move (counting)));
+            m.run (0.1);
+            const int running = c->blocks.load();
+            c->suspendProcessing (true);
+            m.run (0.1);
+            const int whileSuspended = c->blocks.load() - running;
+            c->suspendProcessing (false);
+            int whileLocked = 0;
+            {
+                // The lock is held by another thread, as the message thread does during a restart.
+                juce::WaitableEvent locked, release;
+                std::thread other ([&] { const juce::ScopedLock busy (c->getCallbackLock()); locked.signal(); release.wait (-1); });
+                locked.wait (-1);
+                const int before = c->blocks.load();
+                m.run (0.1);
+                whileLocked = c->blocks.load() - before;
+                release.signal();
+                other.join();
+            }
+            const int before = c->blocks.load();
+            m.run (0.1);
+            check (running > 0 && whileSuspended == 0 && whileLocked == 0 && c->blocks.load() > before,
+                   "plug-ins: never called while suspended or held by another thread (restart race)", whileSuspended + whileLocked, 0);
+            me.track[2].armed = false;
+            me.clearChain (2);
+        }
+
+        // The track displays rebuild their text only when what they show changes.
+        {
+            auto v0 = me.viewVersion.load();
+            auto id = me.insertBlock (3, -1, BuiltIn::createFx (BuiltIn::plate));
+            auto v1 = me.viewVersion.load();
+            me.setBlockBypass (3, id, true);
+            auto v2 = me.viewVersion.load();
+            me.setTrackInput (3, 1);
+            auto v3 = me.viewVersion.load();
+            m.run (0.1);
+            auto v4 = me.viewVersion.load();
+            me.removeBlock (3, id);
+            check (v1 > v0 && v2 > v1 && v3 > v2 && v4 == v3 && me.viewVersion.load() > v4,
+                   "track display: the view version moves with edits, not with playing", (int) (v4 - v3), 0);
         }
 
         // The front panel reads the chain 30 times a second per strip; the plug-in is asked once.

@@ -71,7 +71,7 @@ jobs:
           key: juce-8.0.11-${{ runner.os }}
 
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DTAPEFOUR_TESTS=ON -DTAPEFOUR_BUILD_NUMBER=${{ env.BUILD_NUMBER }}
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DTAPEFOUR_TESTS=ON -DTAPEFOUR_WERROR=ON -DTAPEFOUR_BUILD_NUMBER=${{ env.BUILD_NUMBER }}
 
       - name: Build
         run: cmake --build build --parallel
@@ -113,7 +113,7 @@ jobs:
 
       - name: Configure (Apple silicon and Intel in one app)
         run: >
-          cmake -S . -B build -G Xcode -DTAPEFOUR_TESTS=ON -DTAPEFOUR_BUILD_NUMBER=${{ env.BUILD_NUMBER }}
+          cmake -S . -B build -G Xcode -DTAPEFOUR_TESTS=ON -DTAPEFOUR_WERROR=ON -DTAPEFOUR_BUILD_NUMBER=${{ env.BUILD_NUMBER }}
           "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
 
       - name: Build
@@ -170,7 +170,7 @@ jobs:
 
       - name: Configure
         run: >
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DTAPEFOUR_TESTS=ON
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DTAPEFOUR_TESTS=ON -DTAPEFOUR_WERROR=ON
           -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DTAPEFOUR_SANITIZE=${{ matrix.sanitizer }}
 
       - name: Build the tests

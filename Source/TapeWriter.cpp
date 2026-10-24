@@ -103,10 +103,7 @@ void TapeWriter::saveTape (Tape& tape, std::function<void (bool)> whenDone)
                  if (whenDone) whenDone (*ok);
              });
 }
-} // namespace tf
 
-namespace tf
-{
 void TapeWriter::retire (std::unique_ptr<Tape> tape)
 {
     if (tape == nullptr) return;

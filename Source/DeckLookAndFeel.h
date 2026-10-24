@@ -20,7 +20,6 @@ namespace Pal
     inline const juce::Colour line      { 0xff4a4741 };
     inline const juce::Colour button    { 0xff46443e };
     inline const juce::Colour orange    { 0xffe8702a };
-    inline const juce::Colour orangeDk  { 0xffc2451d };
     inline const juce::Colour lcd       { 0xff1c140a };
     inline const juce::Colour lcdText   { 0xfff0a640 };
     inline const juce::Colour lcdDim    { 0xffc98a35 };
@@ -34,7 +33,6 @@ namespace Pal
     inline const juce::Colour menuHead  { 0xff7a3d14 };
     inline const juce::Colour midiBlue  { 0xff6f93b8 };
     inline const juce::Colour bounce    { 0xffd8c26a };
-    inline const juce::Colour armRed    { 0xff5a1f16 };
 }
 
 class DeckLookAndFeel : public juce::LookAndFeel_V4

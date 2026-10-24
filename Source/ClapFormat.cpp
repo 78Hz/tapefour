@@ -335,13 +335,13 @@ public:
     const juce::String getProgramName (int) override { return {}; }
     void changeProgramName (int, const juce::String&) override {}
 
-    void prepareToPlay (double sampleRate, int blockSize) override
+    void prepareToPlay (double newRate, int maxBlock) override
     {
         if (active) releaseResources();
-        maxFrames = std::max (32, blockSize);
-        rate = sampleRate;
+        maxFrames = std::max (32, maxBlock);
+        rate = newRate;
         allocatePorts();
-        active = plugin->activate (plugin, sampleRate, 1, (uint32_t) maxFrames);
+        active = plugin->activate (plugin, newRate, 1, (uint32_t) maxFrames);
         if (active && latencyExt != nullptr)
             setLatencySamples ((int) latencyExt->get (plugin));
     }
@@ -361,6 +361,7 @@ public:
         active = false;
     }
 
+    using juce::AudioProcessor::processBlock;
     void processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi) override
     {
         const int n = buffer.getNumSamples();
@@ -505,7 +506,7 @@ private:
 
     ClapInstance (const BusesProperties& buses, std::unique_ptr<Host> h, const clap_plugin_t* p,
                   const clap_plugin_descriptor_t* d, const juce::PluginDescription& desc)
-        : AudioPluginInstance (buses), host (std::move (h)), plugin (p), description (desc)
+        : AudioPluginInstance (buses), plugin (p), host (std::move (h)), description (desc)
     {
         host->owner = this;
         noteEffect = hasFeature (d, CLAP_PLUGIN_FEATURE_NOTE_EFFECT);
@@ -713,22 +714,23 @@ private:
         c.url = "https://github.com/78Hz/tapefour";
         c.version = "0.2";
         c.get_extension = &hostExtension;
-        c.request_restart = [] (const clap_host_t* host)
+        c.request_restart = [] (const clap_host_t* clapHost)
         {
-            onMain (host, [] (ClapInstance& self)
+            onMain (clapHost, [] (ClapInstance& self)
             {
                 if (! self.active) return;
                 const auto sr = self.rate;
                 const auto bs = self.maxFrames;
-                self.suspendProcessing (true);
+                // Held for the whole restart: the audio thread only tries this lock, so it skips the
+                // plug-in until it's active again, rather than calling into it half way through.
+                const juce::ScopedLock sl (self.getCallbackLock());
                 self.prepareToPlay (sr, bs);
-                self.suspendProcessing (false);
             });
         };
         c.request_process = [] (const clap_host_t*) {};
-        c.request_callback = [] (const clap_host_t* host)
+        c.request_callback = [] (const clap_host_t* clapHost)
         {
-            onMain (host, [] (ClapInstance& self) { self.plugin->on_main_thread (self.plugin); });
+            onMain (clapHost, [] (ClapInstance& self) { self.plugin->on_main_thread (self.plugin); });
         };
     }
 

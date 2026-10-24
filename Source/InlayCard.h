@@ -33,7 +33,7 @@ private:
     juce::TextEditor* speed = nullptr;
     juce::TextEditor* date = nullptr;
     ChipButton nrOn { "ON" }, nrOff { "OFF" };
-    FlatButton closeX { "X" };
+    LedKey closeX { "X", {}, false };
 };
 
 /** The inlay standing in its case beside the cassette. Click to take it out. */

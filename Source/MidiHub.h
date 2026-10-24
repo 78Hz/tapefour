@@ -82,7 +82,7 @@ public:
         Time::getMillisecondCounterHiRes() terms. */
     void endBlock (double blockStartMs, double sampleRate, int numSamples) noexcept;
 
-    std::function<void (int slot, const juce::MidiBuffer&)> outTap;   // tests: sees outgoing MIDI, audio thread
+    std::function<void (int slot, const juce::MidiBuffer&)> outTap;   // test hook (AudioEngine::setMidiOutTapForTests): sees outgoing MIDI, audio thread
     std::atomic<bool> inFlash { false }, outFlash { false };
 
     static bool looksLikeMpeController (const juce::String& name);
@@ -129,6 +129,8 @@ private:
     int anyBend = 48;
     double sampleRate = 48000.0;
     juce::MidiDeviceListConnection listConnection;
+    juce::Array<juce::MidiDeviceInfo> devicesIn, devicesOut;   // as of the last change (message thread)
+    void updateDeviceLists();
     std::unique_ptr<Sender> sender;
     MidiMapper* mapper = nullptr;
     void* mapperSink = nullptr;

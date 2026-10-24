@@ -111,11 +111,13 @@ double aWeighted (const std::vector<float>& v, double from, double to)
     };
     // gain at 1 kHz, to normalise
     double g1 = 0; { double s2 = 0; for (int i = 0; i < (int) sr * 2; ++i) { auto y = run (std::sin (juce::MathConstants<double>::twoPi * 1000.0 * i / sr)); if (i > sr) s2 += y * y; } g1 = std::sqrt (s2 / sr) * std::sqrt (2.0); }
-    for (auto& x : xs) x = 0; for (auto& y : ys) y = 0; l1 = l2 = 0;
+    for (auto& x : xs) x = 0;
+    for (auto& y : ys) y = 0;
+    l1 = l2 = 0;
     auto a = (size_t) (from * sr), b = std::min (v.size(), (size_t) (to * sr));
     double s2 = 0; size_t n = 0;
     for (size_t i = 0; i < b; ++i) { auto y = run (v[i]); if (i >= a) { s2 += y * y; ++n; } }
-    return std::sqrt (s2 / std::max<size_t> (1, n)) / g1;
+    return std::sqrt (s2 / (double) std::max<size_t> (1, n)) / g1;
 }
 } // namespace
 

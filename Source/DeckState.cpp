@@ -85,14 +85,10 @@ void AudioEngine::restoreTrackChain (int t, const juce::XmlElement& chainXml)
         }
         else if (kind == "external")
         {
-            auto e = std::make_unique<ExternalBlock>();
-            e->readCommon (*bx);
             auto out = bx->hasAttribute ("outId") ? midi.findOrCreateOutput (bx->getStringAttribute ("outId"), bx->getStringAttribute ("outName")) : -1;
-            e->outPort = out;
-            e->name = midi.outputLabel (out);
-            e->channel = juce::jlimit (0, 16, bx->getIntAttribute ("channel", 1));
-            e->returnInput = bx->getIntAttribute ("return", -1);
-            e->returnPair = bx->getBoolAttribute ("returnPair");
+            auto e = std::make_unique<ExternalBlock> (out, bx->getIntAttribute ("channel", 1), bx->getIntAttribute ("return", -1),
+                                                      bx->getBoolAttribute ("returnPair"));
+            e->readCommon (*bx);
             insertBlock (t, -1, std::move (e));
         }
         else if (auto b = BuiltIn::restore (*bx))
@@ -138,14 +134,9 @@ void AudioEngine::migrateOldTrack (int t, const juce::XmlElement& x)
 
         case hardware:
         {
-            auto e = std::make_unique<ExternalBlock>();
             auto out = x.hasAttribute ("midiOutId") ? midi.findOrCreateOutput (x.getStringAttribute ("midiOutId"), x.getStringAttribute ("midiOutName")) : -1;
-            e->outPort = out;
-            e->name = midi.outputLabel (out);
-            e->channel = juce::jlimit (0, 16, x.getIntAttribute ("midiOutChannel", 1));
-            e->returnInput = juce::jmax (0, x.getIntAttribute ("input", t));
-            e->returnPair = x.getBoolAttribute ("pair");
-            insertBlock (t, -1, std::move (e));
+            insertBlock (t, -1, std::make_unique<ExternalBlock> (out, x.getIntAttribute ("midiOutChannel", 1),
+                                                                 juce::jmax (0, x.getIntAttribute ("input", t)), x.getBoolAttribute ("pair")));
             break;
         }
 

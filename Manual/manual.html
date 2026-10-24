@@ -186,6 +186,9 @@ td:first-child { font-weight: 600; }
   </tbody>
 </table>
 
+<p>TAPE·FOUR needs a 64-bit computer with at least 4 GB of memory. The loaded tape is held in memory and takes the same again on disk: 350 MB for a C-46, 460 MB for a C-60 and 690 MB for a C-90. The deck itself uses little processor time (about 1% of one core while playing); plug-ins are what cost.</p>
+<p>The window opens where you last left it. Starting TAPE·FOUR again while it's running brings the running copy to the front.</p>
+
 <h2>Audio interface</h2>
 <p>Click the amber display at the top right of the deck (<span class="lcd">SETUP ›</span>) to open Setup, then go to the <strong>Audio</strong> tab.</p>
 <figure class="narrow"><img src="images/setup_audio.png" alt="Setup, Audio tab"><figcaption><b>Setup → Audio.</b> Choose the audio system and your interface, then the sample rate and buffer size, and the outputs.</figcaption></figure>
@@ -716,6 +719,8 @@ td:first-child { font-weight: 600; }
     <tr><td>Nothing is heard and the status says <span class="lcd">SOLOED TRACK IS MUTED</span></td><td>Every soloed track is also muted, and mute wins. Unmute it or clear the solos.</td></tr>
     <tr><td>A mapped knob does nothing at first</td><td>That's pickup: turn it past the control's current position (the status display says which way), or untick Pickup for it in Setup → MIDI &amp; Deck.</td></tr>
     <tr><td>A knob moves a control and a synth at once</td><td>Untick <strong>Also plays</strong> for that mapping.</td></tr>
+    <tr><td><span class="lcd">NOT ENOUGH DISK SPACE</span></td><td>A blank tape is only put in if the disk can hold the whole of it (all four tracks recorded end to end). Free some space, or choose a shorter tape.</td></tr>
+    <tr><td><span class="lcd">DISK NEARLY FULL</span></td><td>Shown when you press REC and the disk couldn't hold the rest of the tape. The take still records; anything that can't be written is retried at every save, so free some space before you stop.</td></tr>
     <tr><td><span class="lcd">LAST SESSION CRASHED</span></td><td>The report is in the Crashes folder (see above). The tape was saved up to five seconds before the crash.</td></tr>
     <tr><td>A ghost of an old take is audible</td><td>You recorded over a metal tape at NORMAL. Record over it again at METAL to erase it fully.</td></tr>
   </tbody>

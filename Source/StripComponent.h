@@ -36,10 +36,12 @@ private:
     Meter meter;
     Fader fader;
     LedKey mute { "MUTE", juce::Colour (0xffff8a3d) }, solo { "SOLO", juce::Colour (0xffffe27a) }, arm { "ARM", juce::Colour (0xffff4a32) };
-    bool clickPending = false;
     juce::String tag, shownTag;
     juce::Colour tagColour, shownTagColour;
     int midiHold = 0;
+    juce::uint32 shownVersion = 0;   // the engine's viewVersion the display text was built from
+    int framesSinceText = 0;
+    void rebuildText();
 };
 
 class MasterStrip : public juce::Component

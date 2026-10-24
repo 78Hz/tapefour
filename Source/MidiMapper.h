@@ -94,6 +94,8 @@ public:
     void beginLearn (const Target&, juce::AudioProcessorParameter* param = nullptr, const juce::String& paramName = {});
     void cancelLearn();
     bool isLearning() const noexcept { return learning.load(); }
+    /** Goes up with every mapping added, removed or changed (for redrawing only when needed). */
+    std::atomic<int> changes { 0 };
     Target getLearnTarget() const { return learnTarget; }
     /** Finishes learning once a control has been moved; call a few times a second. */
     void poll();

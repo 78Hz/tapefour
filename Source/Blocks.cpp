@@ -73,6 +73,7 @@ public:
     void noteTimbreChanged() override    { updateNote(); }
     void noteKeyStateChanged() override  {}
 
+    using juce::MPESynthesiserVoice::renderNextBlock;
     void renderNextBlock (juce::AudioBuffer<float>& out, int start, int num) override
     {
         if (! amp.isActive()) return;
@@ -161,6 +162,7 @@ public:
     void noteTimbreChanged() override    {}
     void noteKeyStateChanged() override  {}
 
+    using juce::MPESynthesiserVoice::renderNextBlock;
     void renderNextBlock (juce::AudioBuffer<float>& out, int start, int num) override
     {
         if (! amp.isActive()) return;
@@ -229,6 +231,7 @@ public:
     const juce::String getName() const override { return BuiltIn::synthName (kind); }
     void prepareToPlay (double sr, int) override { synth.setCurrentPlaybackSampleRate (sr); }
     void releaseResources() override {}
+    using juce::AudioProcessor::processBlock;   // the double-precision overload stays the base one
     void processBlock (juce::AudioBuffer<float>& b, juce::MidiBuffer& m) override
     {
         b.clear();
@@ -326,6 +329,7 @@ public:
         prePos = 0;
     }
 
+    using juce::AudioProcessor::processBlock;   // the double-precision overload stays the base one
     void processBlock (juce::AudioBuffer<float>& b, juce::MidiBuffer&) override
     {
         juce::Reverb::Parameters p;
@@ -387,6 +391,7 @@ public:
         }
     }
 
+    using juce::AudioProcessor::processBlock;   // the double-precision overload stays the base one
     void processBlock (juce::AudioBuffer<float>& b, juce::MidiBuffer&) override
     {
         const auto fb = 0.45f + 0.47f * decay->get();
@@ -450,6 +455,7 @@ public:
         phase = 0.0;
     }
 
+    using juce::AudioProcessor::processBlock;   // the double-precision overload stays the base one
     void processBlock (juce::AudioBuffer<float>& b, juce::MidiBuffer&) override
     {
         const int n = b.getNumSamples();
@@ -560,8 +566,9 @@ void ProcessorBlock::process (juce::AudioBuffer<float>& stereo, int numSamples, 
     if (! prepared)
         return;
 
+    // Busy (being restarted or reconfigured on another thread) or suspended: this block goes without it.
     const juce::ScopedTryLock sl (processor->getCallbackLock());
-    if (! sl.isLocked())
+    if (! sl.isLocked() || processor->isSuspended())
         return;
 
     // A program change from a controller changes the sound: worth saving next time.

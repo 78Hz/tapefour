@@ -57,4 +57,15 @@ std::unique_ptr<Tape> TapeShelf::createBlank (int type, int model)
     tape->name = "tape " + juce::String ((int) list().size() + 1);
     return tape;
 }
+
+juce::int64 TapeShelf::bytesForFullTape (const TapeTypeInfo& type)
+{
+    const auto cells = (juce::int64) type.minutes * 60 * cellRate;
+    return numTracks * cells * (juce::int64) sizeof (int16_t) + 16 * 1024 * 1024;   // + the deck state and a margin
+}
+
+juce::int64 TapeShelf::freeSpace()
+{
+    return getFolder().getBytesFreeOnVolume();
+}
 } // namespace tf
