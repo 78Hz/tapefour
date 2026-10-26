@@ -28,6 +28,9 @@ jobs:
       - name: Build
         run: cmake --build build --config Release --parallel
 
+      - name: Test the cassette and deck formats
+        run: build/FormatTest_artefacts/Release/FormatTest.exe
+
       - name: Test the tape engine
         run: build/EngineTest_artefacts/Release/EngineTest.exe
 
@@ -76,6 +79,9 @@ jobs:
       - name: Build
         run: cmake --build build --parallel
 
+      - name: Test the cassette and deck formats
+        run: build/FormatTest_artefacts/Release/FormatTest
+
       - name: Test the tape engine
         run: xvfb-run -a build/EngineTest_artefacts/Release/EngineTest
 
@@ -118,6 +124,9 @@ jobs:
 
       - name: Build
         run: cmake --build build --config Release --parallel
+
+      - name: Test the cassette and deck formats
+        run: build/FormatTest_artefacts/Release/FormatTest
 
       - name: Test the tape engine
         run: build/EngineTest_artefacts/Release/EngineTest
@@ -174,7 +183,7 @@ jobs:
           -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DTAPEFOUR_SANITIZE=${{ matrix.sanitizer }}
 
       - name: Build the tests
-        run: cmake --build build --parallel --target EngineTest MixerTest
+        run: cmake --build build --parallel --target FormatTest EngineTest MixerTest
 
       - name: Run them
         env:
@@ -182,5 +191,6 @@ jobs:
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1:suppressions=${{ github.workspace }}/Tests/ubsan.supp
           TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1:suppressions=${{ github.workspace }}/Tests/tsan.supp
         run: |
+          build/FormatTest_artefacts/RelWithDebInfo/FormatTest
           xvfb-run -a build/EngineTest_artefacts/RelWithDebInfo/EngineTest
           xvfb-run -a build/MixerTest_artefacts/RelWithDebInfo/MixerTest

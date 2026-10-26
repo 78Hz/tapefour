@@ -69,6 +69,18 @@ juce_add_binary_data(TapeFourFonts SOURCES
     Resources/fonts/ShareTechMono-Regular.ttf
     Resources/fonts/Caveat-Variable.ttf)
 
+# The cassette (.cass) and deck (.deck) formats: plain C++17 with no JUCE, so that other
+# products can read and write them too. Specifications: docs/formats/.
+add_library(tapeformats STATIC
+    Formats/Json.cpp
+    Formats/Zip.cpp
+    Formats/Cassette.cpp
+    Formats/Deck.cpp)
+target_include_directories(tapeformats PUBLIC Formats)
+target_compile_features(tapeformats PUBLIC cxx_std_17)
+target_compile_options(tapeformats PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+target_link_libraries(tapeformats PRIVATE juce::juce_recommended_warning_flags)
+
 juce_add_gui_app(TapeFour
     PRODUCT_NAME "TapeFour"
     COMPANY_NAME "78Hz"
@@ -118,6 +130,7 @@ target_include_directories(TapeFour PRIVATE ${TAPEFOUR_CLAP_INCLUDE})
 target_link_libraries(TapeFour
     PRIVATE
         TapeFourFonts
+        tapeformats
         juce::juce_audio_utils
         juce::juce_audio_processors
         juce::juce_dsp
@@ -132,12 +145,13 @@ target_link_libraries(TapeFour
 option(TAPEFOUR_WERROR "Treat warnings in TapeFour's own sources as errors (GCC/Clang)" OFF)
 if(TAPEFOUR_WERROR AND NOT MSVC)
     file(GLOB tapefourOwnSources CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Source/*.cpp
+                                                    ${CMAKE_CURRENT_SOURCE_DIR}/Formats/*.cpp
                                                     ${CMAKE_CURRENT_SOURCE_DIR}/Tests/*.cpp
                                                     ${CMAKE_CURRENT_SOURCE_DIR}/Tests/fixtures/*.c)
     set_source_files_properties(${tapefourOwnSources} PROPERTIES COMPILE_OPTIONS "-Werror")
 endif()
 
-# Headless checks: cmake -DTAPEFOUR_TESTS=ON, then run EngineTest, MixerTest and ScanTest.
+# Headless checks: cmake -DTAPEFOUR_TESTS=ON, then run FormatTest, EngineTest, MixerTest and ScanTest.
 option(TAPEFOUR_TESTS "Build the test programs" OFF)
 if(TAPEFOUR_TESTS)
     function(tapefour_test name)
@@ -146,9 +160,14 @@ if(TAPEFOUR_TESTS)
         target_compile_definitions(${name} PRIVATE ${TAPEFOUR_PLATFORM_DEFS} JUCE_MODAL_LOOPS_PERMITTED=1)
         target_compile_options(${name} PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
         target_include_directories(${name} PRIVATE ${TAPEFOUR_CLAP_INCLUDE})
-        target_link_libraries(${name} PRIVATE juce::juce_audio_utils juce::juce_dsp
+        target_link_libraries(${name} PRIVATE tapeformats juce::juce_audio_utils juce::juce_dsp
             PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
     endfunction()
+
+    # The format library on its own, without JUCE.
+    add_executable(FormatTest Tests/FormatTest.cpp)
+    target_link_libraries(FormatTest PRIVATE tapeformats juce::juce_recommended_warning_flags)
+    set_target_properties(FormatTest PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/FormatTest_artefacts/$<CONFIG>)
 
     tapefour_test(EngineTest Tests/EngineTest.cpp Source/Tape.cpp Source/TapeEngine.cpp)
     tapefour_test(MixerTest Tests/MixerTest.cpp ${TAPEFOUR_ENGINE_SOURCES})
