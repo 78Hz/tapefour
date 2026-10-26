@@ -29,6 +29,8 @@ public:
     void prepareToQuit();
     /** Shows a message in the status display. */
     void notice (const juce::String& text, double seconds) { say (text, seconds); }
+    /** Puts a .cass file on the shelf and loads it (from the menu, the command line, or a double-click). */
+    void openCassetteFile (const juce::File& cassFile);
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -47,9 +49,12 @@ private:
     void saveTape (bool announce, bool withDeck = true, bool fresh = false);
     /** Saves the tape in the deck, then makes or loads the next one in the background and puts it in. */
     void switchTape (std::function<std::unique_ptr<Tape>()> make, std::function<void (Tape&)> after, const juce::String& busyText);
-    void insertBlank (int type, int model);
+    void insertBlank (int type, int model, const juce::String& grade = "new");
     void loadFromShelf (const juce::String& id);
     void showEjectMenu();
+    void exportCassette();
+    void chooseCassetteFile();
+    void toggleWriteProtect();
 
     // tracks
     void openChain (int track);
@@ -74,6 +79,8 @@ private:
     void openSetup (int tab);
 
     void say (const juce::String& message, double seconds = 2.5);
+    std::unique_ptr<juce::FileChooser> chooser;
+    juce::File pendingCassette;   // asked for while a tape was still loading
     void transport (TapeEngine::Command c);
     juce::String speedLabel() const;
     void syncSpeed();

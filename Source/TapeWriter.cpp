@@ -73,32 +73,32 @@ void TapeWriter::saveTape (Tape& tape, std::function<void (bool)> whenDone)
 {
     // Snapshot what the message thread owns.
     auto folder = TapeShelf::folderFor (tape.id);
-    std::shared_ptr<juce::XmlElement> meta (tape.createMetadata().release());
-    std::shared_ptr<juce::XmlElement> deck;
-    if (tape.deckState != nullptr && tape.deckNeedsWriting)
+    auto meta = tape.snapshot();
+    std::shared_ptr<juce::XmlElement> session;
+    if (tape.session != nullptr && tape.sessionNeedsWriting)
     {
-        deck = std::make_shared<juce::XmlElement> (*tape.deckState);
-        tape.deckNeedsWriting = false;
+        session = std::make_shared<juce::XmlElement> (*tape.session);
+        tape.sessionNeedsWriting = false;
     }
     tape.markMetaSaved();
 
     auto ok = std::make_shared<bool> (true);
     auto* t = &tape;
-    enqueue ([t, folder, meta, deck, ok]
+    enqueue ([t, folder, meta, session, ok]
              {
-                 // Audio first: the metadata never claims a recording whose audio isn't on disk.
+                 // Audio first: the cassette's description never claims a recording whose audio isn't on disk.
                  *ok = t->writeAudio (folder);
-                 if (deck != nullptr) *ok = Tape::writeDeck (*deck, folder) && *ok;
-                 *ok = Tape::writeMetadata (*meta, folder) && *ok;
+                 if (session != nullptr) *ok = Tape::writeSession (*session, folder) && *ok;
+                 *ok = Tape::writeSnapshot (*meta, folder) && *ok;
              },
-             [ok, whenDone, deck, t]
+             [ok, whenDone, session, t]
              {
                  // Saving failed: mark it so the next autosave tries again. (The tape is still alive:
                  // a retired tape is deleted after this has run.)
                  if (! *ok)
                  {
                      t->restoreDirtyAfterFailedSave();
-                     if (deck != nullptr) t->deckNeedsWriting = true;
+                     if (session != nullptr) t->sessionNeedsWriting = true;
                  }
                  if (whenDone) whenDone (*ok);
              });

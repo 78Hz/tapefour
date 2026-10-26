@@ -23,12 +23,15 @@ struct Rig
     TapeEngine eng;
     double phase = 0;
 
-    explicit Rig (int model = defaultTapeModel) : tape (1, model)
+    // A perfect machine and a perfect cassette, so each test hears only what it measures.
+    explicit Rig (int model = defaultTapeModel) : tape (1, model, tfmt::Condition())
     {
         eng.prepare (sr, bs);
-        auto& p = eng.params;
-        p.hiss = 0; p.wow = 0; p.flutter = 0; p.sat = 0.5f; p.hf = 0; p.xtalk = 0; p.drop = 0; p.drift = 0;
-        p.nrOn = false;
+        eng.params.sat = 0.5f;
+        eng.params.nrOn = false;
+        auto& m = eng.machine;
+        m.wowPct = 0; m.flutterPct = 0; m.driftPct = 0; m.cutoffHz = 20000.0f; m.crosstalkDb = -120.0f;
+        eng.setHissForTests (false);
         eng.setTape (&tape);
     }
 
@@ -121,8 +124,135 @@ double aWeighted (const std::vector<float>& v, double from, double to)
 }
 } // namespace
 
+// The tape's whole character, recorded and played: twenty numbers that change if any of it does.
+std::vector<double> characterSignature (Rig& r)
+{
+    r.run (1.0, TapeEngine::Command::rec, true, 1000.0, tapeRefPeak);
+    r.rewindTo (0);
+    std::vector<double> sig;
+    auto own = r.run (1.0, TapeEngine::Command::play, false, 0, 0, 0);
+    r.rewindTo (0);
+    auto next = r.run (1.0, TapeEngine::Command::play, false, 0, 0, 1);
+    for (auto* v : { &own, &next })
+        for (int k = 0; k < 10; ++k)
+        {
+            double e = 0;
+            for (size_t i = (size_t) (k * 4800); i < (size_t) ((k + 1) * 4800) && i < v->size(); ++i)
+                e += (double) (*v)[i] * (*v)[i] * (double) (1 + (int) (i % 7));
+            sig.push_back (e);
+        }
+    return sig;
+}
+
 int main()
 {
+    {   // 0. The split into cassette and machine changed nothing it shouldn't have. These numbers were
+        //    recorded and played by the engine before the split, with its old defaults (hiss 0.55, wow 0.30,
+        //    flutter 0.25, drive 0.5, HF loss 0.20, crosstalk 0.30, drift 0.20, NR on, no dropouts). The same
+        //    settings, as they convert, must give the same sound.
+        static const double before[] { 457.5322862, 492.060268, 492.0634275, 492.4476368, 493.1673327, 491.6123144,
+                                       491.6096707, 490.965613, 491.3987192, 463.57769, 7.865097508e-09, 7.598422481e-09,
+                                       8.935458353e-09, 1.080143634e-08, 6.399276531e-09, 8.220858832e-09, 8.95409076e-09,
+                                       6.984399025e-09, 1.011320478e-08, 8.652631648e-09 };
+        Rig r;
+        tfmt::Condition c;
+        c.hissDb = (0.55 - 0.5) * 24.0;   // the old HISS control
+        r.tape.setCondition (c);
+        r.eng.setHissForTests (true);
+        auto& m = r.eng.machine;
+        m.wowPct = 0.30f * 0.5f; m.flutterPct = 0.25f * 0.3f; m.driftPct = 0.20f;
+        m.cutoffHz = (float) (20000.0 * std::pow (0.25, 0.20)); m.crosstalkDb = -80.0f + 0.30f * 50.0f;
+        r.eng.params.nrOn = true;
+        auto now = characterSignature (r);
+        double worst = 0;
+        for (size_t k = 0; k < now.size(); ++k)
+            worst = std::max (worst, std::abs (now[k] - before[k]) / before[k]);
+        check (worst < 1.0e-4, "converted settings sound as before the split (worst relative change)", worst, 0.0);
+    }
+
+    {   // 0b. A tape saved before the cassette format is converted on loading, and sounds the same.
+        auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("tf_legacy_test");
+        dir.deleteRecursively();
+        dir.createDirectory();
+        // Its track 1: a second of tone, as the old deck stored it (16-bit, full-scale flux).
+        juce::MemoryBlock pcm;
+        for (int c = 0; c < cellRate; ++c)
+        {
+            auto v = (int16_t) juce::roundToInt (8000.0 * std::sin (juce::MathConstants<double>::twoPi * 500.0 * c / cellRate));
+            pcm.append (&v, sizeof (v));
+        }
+        dir.getChildFile ("track1.pcm").replaceWithData (pcm.getData(), pcm.getSize());
+        juce::MemoryBlock flags, speeds;
+        for (int b = 0; b < 10; ++b) { uint8_t f = 1 | 2 | (1 << 2); flags.append (&f, 1); uint16_t sp = 1000; speeds.append (&sp, 2); }
+        juce::XmlElement x ("TAPEFOUR_TAPE");
+        x.setAttribute ("version", 2); x.setAttribute ("id", "legacy-tape"); x.setAttribute ("name", "four track demos");
+        x.setAttribute ("created", "24 OCT 2026"); x.setAttribute ("type", 2); x.setAttribute ("model", 2);
+        x.setAttribute ("fluxScale", 1.0); x.setAttribute ("counterZero", 64000.0); x.setAttribute ("position", 1000.0);
+        auto* sheet = x.createNewChildElement ("TRACK_SHEET");
+        sheet->setAttribute ("layout", "inlay1");
+        sheet->createNewChildElement ("LINE")->setAttribute ("text", "DEMOS");
+        auto* tr = x.createNewChildElement ("TRACK");
+        tr->setAttribute ("index", 0); tr->setAttribute ("flags", flags.toBase64Encoding()); tr->setAttribute ("speeds", speeds.toBase64Encoding());
+        x.writeTo (dir.getChildFile ("tape.xml"));
+        juce::XmlElement deck ("DECK");
+        deck.setAttribute ("version", 4);
+        auto* td = deck.createNewChildElement ("TAPE_DECK");
+        td->setAttribute ("hiss", 0.75); td->setAttribute ("drop", 0.35); td->setAttribute ("speed", 1);
+        deck.writeTo (dir.getChildFile ("deck.xml"));
+
+        auto t = Tape::load (dir);
+        bool audioSame = t != nullptr;
+        for (int c = 0; audioSame && c < cellRate; c += 13)
+            audioSame = std::abs (t->readCell (0, c) - 8000.0f * (float) std::sin (juce::MathConstants<double>::twoPi * 500.0 * c / cellRate) / 32767.0f) < 2.0e-4f;
+        check (audioSame, "legacy: the recording loads unchanged", audioSame ? 1 : 0, 1);
+        check (t != nullptr && t->getModel() == 2 && t->getTypeInfo().minutes == 45 && t->name == "four track demos" && t->trackSheet[0] == "DEMOS"
+                   && t->createdIso == "2026-10-24T00:00:00Z" && t->isNrEncoded (0, 3) && ! t->isRecorded (0, 11),
+               "legacy: formulation, length, label, inlay, date and maps carry over", 1, 1);
+        check (t != nullptr && std::abs (t->getCondition().hissDb - 6.0) < 1e-6 && std::abs (t->getCondition().dropoutsPerMinute - 14.7) < 1e-6
+                   && t->getCondition().grade == "chewed",
+               "legacy: its old hiss and dropouts become the cassette's condition", t != nullptr ? t->getCondition().dropoutsPerMinute : -1, 14.7);
+        check (t != nullptr && std::abs (t->counterZero.load() - 64000.0) < 1e-6 && t->session != nullptr
+                   && std::abs (t->session->getChildByName ("TAPE_DECK")->getDoubleAttribute ("counterZero") - 64000.0) < 1e-6,
+               "legacy: the old deck file becomes the session, with the counter's zero", 1, 1);
+        check (dir.getChildFile (tfmt::CassFiles::manifest).existsAsFile() && dir.getChildFile ("session.xml").existsAsFile()
+                   && dir.getChildFile ("tape-v2.xml.bak").existsAsFile() && ! dir.getChildFile ("tape.xml").existsAsFile(),
+               "legacy: converted in place, the old files kept aside", 1, 1);
+        auto again = Tape::load (dir);
+        bool same = again != nullptr && again->id == "legacy-tape" && again->getCondition() == t->getCondition();
+        for (int c = 0; same && c < cellRate; c += 13) same = std::abs (again->readCell (0, c) - t->readCell (0, c)) < 1e-9f;
+        check (same && again->isNrEncoded (0, 3) && again->recordedPosition (0, 3) == 0,
+               "legacy: the converted cassette loads again as itself", same ? 1 : 0, 1);
+        dir.deleteRecursively();
+    }
+
+    {   // 0c. Dropouts are places on the cassette: the same on every play, and gone when the deck plays it as new.
+        Rig r;
+        tfmt::Condition c;
+        c.dropoutsPerMinute = 300.0;   // dense, so two seconds always hold several
+        r.tape.setCondition (c);
+        for (int64_t cell = 0; cell < (int64_t) cellRate * 3; ++cell)
+            r.tape.writeCell (0, cell, 0.25f * (float) std::sin (juce::MathConstants<double>::twoPi * 400.0 * (double) cell / cellRate), false, 0, 1.0f, 0);
+        auto first = r.run (2.5, TapeEngine::Command::play, false, 0, 0);
+        r.rewindTo (0);
+        auto second = r.run (2.5, TapeEngine::Command::play, false, 0, 0);
+        // (the tape's modulation noise is different on every play, as on a real one: compare where the dips are)
+        int dips = 0, moved = 0;
+        for (double t0 = 0.2; t0 < 2.4; t0 += 0.01)
+        {
+            const bool a = rms (first, t0, t0 + 0.01) < 0.7 * rms (first, 0.1, 2.4);
+            const bool b = rms (second, t0, t0 + 0.01) < 0.7 * rms (second, 0.1, 2.4);
+            dips += a ? 1 : 0;
+            moved += a != b ? 1 : 0;
+        }
+        check (dips > 2 && moved == 0, "dropouts: at the same places on every play (windows that differ)", moved, 0.0);
+        r.rewindTo (0);
+        r.eng.machine.honoursTapeCondition = false;
+        auto asNew = r.run (2.5, TapeEngine::Command::play, false, 0, 0);
+        double lowest = 1.0;
+        for (double t0 = 0.2; t0 < 2.4; t0 += 0.02) lowest = std::min (lowest, rms (asNew, t0, t0 + 0.02) / rms (asNew, 0.1, 2.4));
+        check (lowest > 0.95, "dropouts: none when the deck plays every cassette as new", lowest, 1.0);
+    }
+
     const double sineRms = 0.5 / std::sqrt (2.0);
 
     {   // 1. clean record and playback at 1 7/8
@@ -165,7 +295,7 @@ int main()
 
     {   // 3. NR pushes hiss down on blank tape
         Rig r;
-        r.eng.params.hiss = 0.55f;
+        r.eng.setHissForTests (true);
         r.eng.params.nrOn = false;
         auto plain = r.run (1.0, TapeEngine::Command::play, false, 0, 0, 1);
         r.rewindTo (0);
@@ -221,6 +351,13 @@ int main()
         check (std::abs (freq (out, 0.2, 0.9) - 500.0) < 3.0, "punch: before the punch-in untouched", freq (out, 0.2, 0.9), 500.0);
         check (std::abs (freq (out, 1.2, 1.8) - 2000.0) < 5.0, "punch: punched section replaced", freq (out, 1.2, 1.8), 2000.0);
         check (std::abs (freq (out, 2.2, 2.9) - 500.0) < 3.0, "punch: after the punch-out untouched", freq (out, 2.2, 2.9), 500.0);
+    }
+
+    {   // 6b. a broken-out tab: REC won't go down
+        Rig r;
+        r.tape.protectA = true;
+        r.run (0.2, TapeEngine::Command::rec, true, 1000.0, tapeRefPeak);
+        check (r.eng.getMode() != Mode::rec && ! r.tape.isRecorded (0, 0), "write-protect: a tape with its tab out can't be recorded on", (int) r.eng.getMode(), 0);
     }
 
     {   // 7. end of tape stops the transport
@@ -287,7 +424,7 @@ int main()
             // S/N: blank tape hiss, A-weighted, below Dolby level
             {
                 Rig r (m);
-                r.eng.params.hiss = 0.5f;
+                r.eng.setHissForTests (true);   // the cassette as measured: a new one adds nothing
                 auto out = r.run (2.5, TapeEngine::Command::play, false, 0, 0, 1);
                 auto snr = db (refRms / aWeighted (out, 0.8, 2.4));
                 check (std::abs (snr - tm.snr) < 1.0, label ("hiss S/N, A-weighted (dB)").c_str(), snr, tm.snr);
@@ -314,15 +451,11 @@ int main()
         check (std::abs (spread - want) < 3.0, "modulation noise: BASIC vs MX sidebands (dB)", spread, want);
         check (modSide[0] > modSide[1] && modSide[1] > modSide[2] && modSide[2] > modSide[3], "modulation noise falls BASIC > SD > XR > MX", modSide[0], modSide[3]);
 
-        // An old tape (before models) still plays at the level it was recorded.
-        Tape old (1);
+        // A tape from before models (and before the cassette format) loads as SD at full-scale flux.
         auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("tf_model_test");
         dir.deleteRecursively();
-        old.save (dir);
-        auto xml = juce::XmlDocument::parse (dir.getChildFile ("tape.xml"));
-        xml->removeAttribute ("model");
-        xml->removeAttribute ("fluxScale");
-        xml->writeTo (dir.getChildFile ("tape.xml"));
+        dir.createDirectory();
+        dir.getChildFile ("tape.xml").replaceWithText ("<TAPEFOUR_TAPE version=\"1\" id=\"old-one\" name=\"old\" type=\"1\"/>");
         auto loaded = Tape::load (dir);
         check (loaded != nullptr && loaded->getModel() == defaultTapeModel, "old tapes load as SD", loaded != nullptr ? loaded->getModel() : -1, defaultTapeModel);
         dir.deleteRecursively();
@@ -407,7 +540,7 @@ int main()
         Rig r;
         // a steady 200 Hz tone already on the tape
         for (int64_t c = 0; c < (int64_t) cellRate * 4; ++c)
-            r.tape.writeCell (0, c, 0.3f * (float) std::sin (juce::MathConstants<double>::twoPi * 200.0 * (double) c / cellRate), false, 1.0f, 0);
+            r.tape.writeCell (0, c, 0.3f * (float) std::sin (juce::MathConstants<double>::twoPi * 200.0 * (double) c / cellRate), false, 0, 1.0f, 0);
         r.run (1.0, TapeEngine::Command::play, true, 0, 0);
         r.run (0.5, TapeEngine::Command::rec, true, 0, 0);     // punch in silence...
         r.run (1.0, TapeEngine::Command::play, true, 0, 0);    // ...and out again

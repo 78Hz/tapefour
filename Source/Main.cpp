@@ -113,6 +113,8 @@ public:
 
         if (auto crashes = tf::CrashHandler::takeNewReportCount (*appProperties.getUserSettings()); crashes > 0)
             mainWindow->content->deck.notice ("LAST SESSION CRASHED - REPORT SAVED IN TAPEFOUR/CRASHES", 8.0);
+
+        openCassettesIn (commandLine);
     }
 
     void shutdown() override
@@ -134,14 +136,30 @@ public:
     }
 
     void systemRequestedQuit() override { quit(); }
-    void anotherInstanceStarted (const juce::String&) override
+    void anotherInstanceStarted (const juce::String& commandLine) override
     {
         // Only one TapeFour at a time (both would want the audio device and the tape); a second start
-        // brings this one forward instead.
+        // brings this one forward instead, with any cassette it was asked to open.
         if (mainWindow != nullptr) mainWindow->bringToFront();
+        openCassettesIn (commandLine);
     }
 
 private:
+    /** A .cass file named on the command line (or double-clicked) goes in the deck. */
+    void openCassettesIn (const juce::String& commandLine)
+    {
+        if (mainWindow == nullptr) return;
+        for (auto& arg : juce::StringArray::fromTokens (commandLine, true))
+        {
+            juce::File f (arg.unquoted());
+            if (juce::File::isAbsolutePath (arg.unquoted()) && f.hasFileExtension ("cass") && f.existsAsFile())
+            {
+                mainWindow->content->deck.openCassetteFile (f);   // waits for a tape that's still loading
+                return;
+            }
+        }
+    }
+
     std::unique_ptr<tf::DeckLookAndFeel> lookAndFeel;
     juce::ApplicationProperties appProperties;
     std::unique_ptr<tf::AudioEngine> engine;

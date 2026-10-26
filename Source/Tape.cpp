@@ -1,43 +1,213 @@
 #include "Tape.h"
+#include "Zip.h"
 
 #include <cstdlib>
 
 namespace tf
 {
-Tape::Tape (int typeIndex, int modelIndex)
-    : type (juce::jlimit (0, numTapeTypes - 1, typeIndex)),
-      model (juce::jlimit (0, numTapeModels - 1, modelIndex))
+namespace
 {
-    lengthCells = (int64_t) tapeTypes[type].minutes * 60 * cellRate;
-    numBlocks   = (int) ((lengthCells + blockCells - 1) / blockCells);
-    numSeconds  = (int) ((lengthCells + cellRate - 1) / cellRate);
+    constexpr const char* sessionFile = "session.xml";
+    constexpr const char* inlayLayout = "tf4-inlay-1";
+
+    juce::String madeByThisProgram()
+    {
+       #ifdef JUCE_APPLICATION_VERSION_STRING
+        return juce::String (juce::CharPointer_UTF8 ("TAPE\xc2\xb7" "FOUR ")) + JUCE_APPLICATION_VERSION_STRING;
+       #else
+        return juce::String (juce::CharPointer_UTF8 ("TAPE\xc2\xb7" "FOUR"));
+       #endif
+    }
+
+    std::string str (const juce::String& s)  { return s.toStdString(); }
+    juce::String str (const std::string& s)  { return juce::String::fromUTF8 (s.c_str()); }
+    std::filesystem::path pathOf (const juce::File& f) { return tfmt::pathFromUtf8 (f.getFullPathName().toStdString()); }
+
+    uint64_t fnv1a (const juce::String& s)
+    {
+        uint64_t h = 1469598103934665603ull;
+        for (auto c : s.toStdString()) { h ^= (uint8_t) c; h *= 1099511628211ull; }
+        return h;
+    }
+
+    juce::String accentText (juce::uint32 argb)
+    {
+        return "#" + juce::String::toHexString ((int) (argb & 0xffffff)).paddedLeft ('0', 6);
+    }
+}
+
+tfmt::Formulation formulationOf (const TapeModel& m)
+{
+    tfmt::Formulation f;
+    f.name = m.name;
+    f.line = m.line;
+    f.position = m.position;
+    f.basedOn = m.basedOn;
+    f.accent = str (accentText (m.accent));
+    f.iecType = m.iecType;
+    f.eqMicroseconds = m.eqMicroseconds;
+    // Measured to a tenth of a dB: written as such, not as the nearest float (3.8, not 3.7999999523).
+    auto tenth = [] (float v) { return std::round ((double) v * 10.0) / 10.0; };
+    f.mol100 = tenth (m.mol100);
+    f.mol400 = tenth (m.mol400);
+    f.sol10k = tenth (m.sol10k);
+    f.snrDbA = tenth (m.snr);
+    f.modNoiseDb = tenth (m.modNoise);
+    f.sensitivityDb = tenth (m.sensitivity);
+    return f;
+}
+
+//==============================================================================
+Tape::Tape (int typeIndex, int modelIndex, const tfmt::Condition& c)
+{
+    typeInfo = tapeTypes[juce::jlimit (0, numTapeTypes - 1, typeIndex)];
+    model = juce::jlimit (0, numTapeModels - 1, modelIndex);
+    modelInfo = tapeModels[model];
+    formulation = formulationOf (modelInfo);
+    lengthCells = (int64_t) typeInfo.minutes * 60 * cellRate;
+    allocate();
+
+    id = juce::Uuid().toString();
+    createdIso = str (tfmt::isoNow());
+    madeBy = str (madeByThisProgram());
+    for (int i = 0; i < Inlay::numFields; ++i)
+        trackSheet.add ({});
+    trackSheet.set (Inlay::date, juce::Time::getCurrentTime().formatted ("%d.%m.%y"));
+    recorders = { tf4DeckId };
+    currentRecorder = 1;
+    seed = fnv1a (id);
+    setCondition (c);
+}
+
+Tape::Tape (const tfmt::CassetteInfo& info)
+{
+    // The length: one of the standard ones, or what it says.
+    typeInfo = { nullptr, info.minutesPerSide, 0.0f };
+    for (auto& tt : tapeTypes)
+        if (tt.minutes == info.minutesPerSide) typeInfo = tt;
+    if (typeInfo.name == nullptr)
+    {
+        lengthName = "C-" + std::to_string (info.minutesPerSide * 2);
+        typeInfo.name = lengthName.c_str();
+        typeInfo.fullPackMm = juce::jlimit (34.0f, 56.0f, 40.0f + (float) (info.minutesPerSide - 23) * (8.0f / 22.0f));
+    }
+
+    // The formulation: one of ours, or the numbers it brings with it.
+    formulation = info.formulation;
+    model = -1;
+    for (int k = 0; k < numTapeModels; ++k)
+        if (formulationOf (tapeModels[k]) == info.formulation) model = k;
+    if (model >= 0)
+    {
+        modelInfo = tapeModels[model];
+    }
+    else
+    {
+        formulationStrings[0] = info.formulation.name;
+        formulationStrings[1] = info.formulation.line;
+        formulationStrings[2] = info.formulation.position;
+        formulationStrings[3] = info.formulation.basedOn;
+        modelInfo.name = formulationStrings[0].c_str();
+        modelInfo.line = formulationStrings[1].c_str();
+        modelInfo.position = formulationStrings[2].c_str();
+        modelInfo.basedOn = formulationStrings[3].c_str();
+        modelInfo.iecType = info.formulation.iecType >= 4 ? 4 : info.formulation.iecType >= 2 ? 2 : 1;
+        modelInfo.eqMicroseconds = info.formulation.eqMicroseconds == 70 ? 70 : 120;
+        modelInfo.mol100 = (float) info.formulation.mol100;
+        modelInfo.mol400 = (float) info.formulation.mol400;
+        modelInfo.sol10k = (float) info.formulation.sol10k;
+        modelInfo.snr = (float) info.formulation.snrDbA;
+        modelInfo.modNoise = (float) info.formulation.modNoiseDb;
+        modelInfo.sensitivity = (float) info.formulation.sensitivityDb;
+        auto accent = juce::String (info.formulation.accent).trimCharactersAtStart ("#");
+        modelInfo.accent = accent.length() == 6 ? (0xff000000u | (juce::uint32) accent.getHexValue32()) : 0xffe8702au;
+        // Its artwork: the built-in tape of the same type.
+        model = defaultTapeModel;
+        for (int k = numTapeModels - 1; k >= 0; --k)
+            if (tapeModels[k].iecType == modelInfo.iecType) model = k;
+    }
+
+    lengthCells = info.cellsPerTrack;
+    layout = info.layout;
+    allocate();
+    if (! info.tracks.empty()) setFluxScale ((float) info.tracks.front().fluxScale);
+
+    id = str (info.id);
+    createdIso = str (info.created);
+    madeBy = info.madeBy;
+    name = str (info.label);
+    for (int i = 0; i < Inlay::numFields; ++i)
+        trackSheet.add (info.inlayLayout == inlayLayout && (size_t) i < info.inlay.size() ? str (info.inlay[(size_t) i]) : juce::String());
+    if (info.inlayLayout != inlayLayout)
+        trackSheet.set (Inlay::title, name);
+    recorders = info.recorders;
+    unknownManifest = info.unknown;
+    seed = fnv1a (id);
+    setCondition (info.condition);
+}
+
+void Tape::allocate()
+{
+    numBlocks  = (int) ((lengthCells + blockCells - 1) / blockCells);
+    numSeconds = (int) ((lengthCells + cellRate - 1) / cellRate);
 
     for (int t = 0; t < numTracks; ++t)
     {
         // calloc'd zeroes are valid int16 atomics, and pages stay untouched until recorded on.
         data[t] = static_cast<Cell*> (std::calloc ((size_t) lengthCells, sizeof (Cell)));
         if (data[t] == nullptr)
+        {
+            for (auto*& d : data) { std::free (d); d = nullptr; }
             throw std::bad_alloc();
+        }
 
         flags[t].reset (new std::atomic<uint8_t>[(size_t) numBlocks]);
+        recorder[t].reset (new std::atomic<uint8_t>[(size_t) numBlocks]);
         speedMilli[t].reset (new std::atomic<uint16_t>[(size_t) numBlocks]);
         dirty[t].reset (new std::atomic<uint8_t>[(size_t) numSeconds]);
 
-        for (int b = 0; b < numBlocks; ++b) { flagsAt (t, b) = 0; speedMilliAt (t, b) = 0; }
+        for (int b = 0; b < numBlocks; ++b) { flagsAt (t, b) = 0; recorderAt (t, b) = 0; speedMilliAt (t, b) = 0; }
         for (int s = 0; s < numSeconds; ++s) dirtyAt (t, s) = 0;
     }
-
-    id = juce::Uuid().toString();
-    created = juce::Time::getCurrentTime().formatted ("%d %b %Y").toUpperCase();
-    for (int i = 0; i < Inlay::numFields; ++i)
-        trackSheet.add ({});
-    trackSheet.set (Inlay::date, juce::Time::getCurrentTime().formatted ("%d.%m.%y"));
 }
 
 Tape::~Tape()
 {
     for (auto* d : data)
         std::free (d);
+}
+
+juce::String Tape::created() const
+{
+    // "2026-10-27T09:30:00Z" -> "27 OCT 2026"
+    static const char* months[] { "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC" };
+    auto m = createdIso.substring (5, 7).getIntValue();
+    if (createdIso.length() < 10 || m < 1 || m > 12) return createdIso;
+    return juce::String (createdIso.substring (8, 10).getIntValue()).paddedLeft ('0', 2) + " " + months[m - 1] + " " + createdIso.substring (0, 4);
+}
+
+void Tape::setCondition (const tfmt::Condition& c)
+{
+    condition = c;
+    character.hissDb = (float) c.hissDb;
+    character.dropoutsPerMinute = (float) c.dropoutsPerMinute;
+    character.trebleLossDb = (float) c.trebleLossDb;
+    character.modNoiseDb = (float) c.modNoiseDb;
+    character.shellFlutterPct = (float) c.shellFlutterPct;
+    metaDirty = true;
+}
+
+void Tape::useRecorder (const std::string& deckId)
+{
+    auto it = std::find (recorders.begin(), recorders.end(), deckId);
+    if (it == recorders.end())
+    {
+        if (recorders.size() >= 255) return;   // the map has a byte for it
+        recorders.push_back (deckId);
+        metaDirty = true;
+        it = recorders.end() - 1;
+    }
+    currentRecorder = (uint8_t) (std::distance (recorders.begin(), it) + 1);
 }
 
 float Tape::readInterpolated (int track, double pos) const noexcept
@@ -51,7 +221,7 @@ float Tape::readInterpolated (int track, double pos) const noexcept
     return ((c3 * f + c2) * f + c1) * f + y1;
 }
 
-void Tape::writeCell (int track, int64_t c, float v, bool nrEncoded, float speed, int pos) noexcept
+void Tape::writeCell (int track, int64_t c, float v, bool nrEncoded, int nrType, float speed, int pos) noexcept
 {
     if (c < 0 || c >= lengthCells)
         return;
@@ -59,7 +229,10 @@ void Tape::writeCell (int track, int64_t c, float v, bool nrEncoded, float speed
     data[track][c].store ((int16_t) juce::roundToInt (juce::jlimit (-1.0f, 1.0f, v * fluxScale) * 32767.0f), std::memory_order_relaxed);
 
     auto b = (int) (c / blockCells);
-    flagsAt (track, b).store ((uint8_t) (1 | (nrEncoded ? 2 : 0) | ((juce::jlimit (0, 2, pos) + 1) << 2)), std::memory_order_relaxed);
+    flagsAt (track, b).store ((uint8_t) (1 | (nrEncoded ? 2 : 0) | ((juce::jlimit (0, 2, pos) + 1) << 2)
+                                           | (nrEncoded ? (juce::jlimit (0, 2, nrType) + 1) << 4 : 0)),
+                              std::memory_order_relaxed);
+    recorderAt (track, b).store (currentRecorder.load (std::memory_order_relaxed), std::memory_order_relaxed);
     speedMilliAt (track, b).store ((uint16_t) juce::jlimit (0, 65535, juce::roundToInt (speed * 1000.0f)), std::memory_order_relaxed);
     // Release: a saver that sees the flag also sees the cell.
     dirtyAt (track, (int) (c / cellRate)).store (1, std::memory_order_release);
@@ -90,7 +263,8 @@ bool Tape::needsSaving() const noexcept
 }
 
 //==============================================================================
-static juce::File pcmFile (const juce::File& folder, int t)  { return folder.getChildFile ("track" + juce::String (t + 1) + ".pcm"); }
+static juce::File pcmFile (const juce::File& folder, int t)  { return folder.getChildFile (tfmt::CassFiles::pcm (t)); }
+static juce::File mapFile (const juce::File& folder, int t)  { return folder.getChildFile (tfmt::CassFiles::map (t)); }
 
 bool Tape::writeAudio (const juce::File& folder)
 {
@@ -154,94 +328,207 @@ bool Tape::writeAudio (const juce::File& folder)
     return ok;
 }
 
-std::unique_ptr<juce::XmlElement> Tape::createMetadata() const
+std::shared_ptr<Tape::Snapshot> Tape::snapshot() const
 {
-    auto meta = std::make_unique<juce::XmlElement> ("TAPEFOUR_TAPE");
-    meta->setAttribute ("version", 2);
-    meta->setAttribute ("id", id);
-    meta->setAttribute ("name", name);
-    meta->setAttribute ("created", created);
-    meta->setAttribute ("type", type);
-    meta->setAttribute ("model", model);
-    meta->setAttribute ("fluxScale", fluxScale);
-    meta->setAttribute ("position", position.load());
-    meta->setAttribute ("counterZero", counterZero.load());
-    meta->setAttribute ("usedSeconds", usedSeconds());
-    meta->setAttribute ("tracksUsed", tracksUsed());
+    auto s = std::make_shared<Snapshot>();
+    auto& info = s->info;
+    info.id = str (id);
+    info.created = str (createdIso);
+    info.madeBy = madeBy;
+    info.label = str (name);
+    info.formulation = formulation;
+    info.minutesPerSide = typeInfo.minutes;
+    info.cellRate = cellRate;
+    info.cellsPerTrack = lengthCells;
+    info.blockCells = blockCells;
+    info.layout = layout;
+    for (int t = 0; t < numTracks; ++t)
+        info.tracks.push_back ({ tfmt::CassFiles::pcm (t), tfmt::CassFiles::map (t), "pcm-s16le", (double) fluxScale });
+    info.recorders = recorders;
+    info.condition = condition;
+    info.inlayLayout = inlayLayout;
+    for (auto& line : trackSheet) info.inlay.push_back (str (line));
+    info.unknown = unknownManifest;
 
-    auto* sheet = meta->createNewChildElement ("TRACK_SHEET");
-    sheet->setAttribute ("layout", "inlay1");
-    for (auto& line : trackSheet)
-        sheet->createNewChildElement ("LINE")->setAttribute ("text", line);
+    auto& st = s->state;
+    st.protectA = protectA.load();
+    st.protectB = protectB.load();
+    st.position = position.load();
+    st.lastUsed = tfmt::isoNow();
+    st.usedSeconds = usedSeconds();
+    st.tracksUsed = tracksUsed();
+    st.unknown = unknownState;
 
+    s->maps.resize (numTracks);
     for (int t = 0; t < numTracks; ++t)
     {
-        juce::MemoryBlock fb ((size_t) numBlocks), sb ((size_t) numBlocks * 2);
-        auto* fp = static_cast<uint8_t*> (fb.getData());
-        auto* sp = static_cast<uint8_t*> (sb.getData());
+        auto& m = s->maps[(size_t) t];
+        m.resize ((size_t) numBlocks);
         for (int b = 0; b < numBlocks; ++b)
         {
-            fp[b] = flagsAt (t, b).load();
-            auto v = speedMilliAt (t, b).load();
-            sp[b * 2] = (uint8_t) (v & 0xff);
-            sp[b * 2 + 1] = (uint8_t) (v >> 8);
+            m.flags[(size_t) b] = flagsAt (t, b).load (std::memory_order_relaxed);
+            m.recorder[(size_t) b] = recorderAt (t, b).load (std::memory_order_relaxed);
+            m.speedMilli[(size_t) b] = speedMilliAt (t, b).load (std::memory_order_relaxed);
         }
-        auto* tr = meta->createNewChildElement ("TRACK");
-        tr->setAttribute ("index", t);
-        tr->setAttribute ("flags", fb.toBase64Encoding());
-        tr->setAttribute ("speeds", sb.toBase64Encoding());
     }
-    return meta;
+    return s;
 }
 
-static bool replaceAtomically (const juce::XmlElement& xml, const juce::File& target)
+bool Tape::writeSnapshot (const Snapshot& s, const juce::File& folder)
 {
+    if (! folder.createDirectory()) return false;
+    auto dir = pathOf (folder);
+    std::string err;
+    // The maps first: the description never claims more than is on disk.
+    bool ok = true;
+    for (size_t t = 0; t < s.maps.size(); ++t)
+    {
+        const auto& m = s.maps[t];
+        auto file = mapFile (folder, (int) t);
+        bool any = std::any_of (m.flags.begin(), m.flags.end(), [] (uint8_t f) { return f != 0; });
+        if (any || file.existsAsFile())   // a track never recorded on has no map
+            ok = tfmt::writeMap (pathOf (file), m) && ok;
+    }
+    ok = tfmt::writeState (dir, s.state, err) && ok;
+    ok = tfmt::writeManifest (dir, s.info, err) && ok;
+    return ok;
+}
+
+bool Tape::writeSession (const juce::XmlElement& sessionXml, const juce::File& folder)
+{
+    if (! folder.createDirectory()) return false;
+    auto target = folder.getChildFile (sessionFile);
     auto tmp = target.getSiblingFile (target.getFileName() + ".tmp");
-    return xml.writeTo (tmp) && tmp.moveFileTo (target);
-}
-
-bool Tape::writeMetadata (const juce::XmlElement& meta, const juce::File& folder)
-{
-    return folder.createDirectory() && replaceAtomically (meta, folder.getChildFile ("tape.xml"));
-}
-
-bool Tape::writeDeck (const juce::XmlElement& deck, const juce::File& folder)
-{
-    return folder.createDirectory() && replaceAtomically (deck, folder.getChildFile ("deck.xml"));
+    return sessionXml.writeTo (tmp) && tmp.moveFileTo (target);
 }
 
 bool Tape::save (const juce::File& folder)
 {
-    // Audio first: the metadata never claims a recording whose audio isn't on disk yet.
+    // Audio first: the description never claims a recording whose audio isn't on disk yet.
     bool ok = writeAudio (folder);
-    if (deckState != nullptr && deckNeedsWriting)
+    if (session != nullptr && sessionNeedsWriting)
     {
-        if (writeDeck (*deckState, folder)) deckNeedsWriting = false;
+        if (writeSession (*session, folder)) sessionNeedsWriting = false;
         else ok = false;
     }
-    if (auto meta = createMetadata(); meta != nullptr && writeMetadata (*meta, folder))
+    if (writeSnapshot (*snapshot(), folder))
         metaDirty = false;
     else
         ok = false;
     return ok;
 }
 
+//==============================================================================
+static void readSession (Tape& tape, const juce::File& folder)
+{
+    if (auto x = juce::XmlDocument::parse (folder.getChildFile (sessionFile)); x != nullptr && x->hasTagName ("DECK"))
+    {
+        if (auto* td = x->getChildByName ("TAPE_DECK"))
+            tape.counterZero = juce::jlimit (0.0, (double) tape.getLengthCells(), td->getDoubleAttribute ("counterZero"));
+        tape.session = std::move (x);
+    }
+}
+
 std::unique_ptr<Tape> Tape::load (const juce::File& folder)
+{
+    if (! folder.getChildFile (tfmt::CassFiles::manifest).existsAsFile())
+        return loadLegacy (folder);
+
+    tfmt::CassetteInfo info;
+    std::string err;
+    if (! tfmt::readManifest (pathOf (folder), info, err))
+        return {};
+    // What this deck can hold: four tracks at its own cell rate.
+    if (info.cellRate != cellRate || info.blockCells != blockCells || info.tracks.size() != (size_t) numTracks
+        || info.cellsPerTrack <= 0 || info.cellsPerTrack > (int64_t) cellRate * 60 * 120)
+        return {};
+
+    std::unique_ptr<Tape> tape;
+    try { tape = std::make_unique<Tape> (info); }
+    catch (...) { return {}; }
+
+    tfmt::CassetteState st;
+    if (tfmt::readState (pathOf (folder), st, err))
+    {
+        tape->position = juce::jlimit (0.0, (double) tape->lengthCells, st.position);
+        tape->protectA = st.protectA;
+        tape->protectB = st.protectB;
+        tape->unknownState = st.unknown;
+    }
+
+    for (int t = 0; t < numTracks; ++t)
+    {
+        tfmt::TrackMap m;
+        tfmt::readMap (pathOf (folder.getChildFile (str (info.tracks[(size_t) t].map))), (size_t) tape->numBlocks, m);
+        for (int b = 0; b < tape->numBlocks; ++b)
+        {
+            tape->flagsAt (t, b) = m.flags[(size_t) b];
+            tape->recorderAt (t, b) = m.recorder[(size_t) b];
+            tape->speedMilliAt (t, b) = m.speedMilli[(size_t) b];
+        }
+
+        auto file = folder.getChildFile (str (info.tracks[(size_t) t].pcm));
+        if (file.existsAsFile())
+        {
+            juce::FileInputStream in (file);
+            if (in.openedOk())
+            {
+                auto cells = std::min<int64_t> (in.getTotalLength() / (int64_t) sizeof (int16_t), tape->lengthCells);
+                // Nothing else can see this tape yet, so read straight into it.
+                in.read (static_cast<void*> (tape->data[t]), (int) std::min<int64_t> (cells * (int64_t) sizeof (int16_t), (int64_t) std::numeric_limits<int>::max()));
+            }
+        }
+    }
+
+    readSession (*tape, folder);
+    tape->dataDirty = false;
+    tape->metaDirty = false;
+    return tape;
+}
+
+/** A tape from before the cassette format (tape.xml + deck.xml), converted in place. */
+std::unique_ptr<Tape> Tape::loadLegacy (const juce::File& folder)
 {
     auto xml = juce::XmlDocument::parse (folder.getChildFile ("tape.xml"));
     if (xml == nullptr || ! xml->hasTagName ("TAPEFOUR_TAPE"))
         return {};
 
+    // The old deck file held the tape's character with everything else; hiss and dropouts were
+    // the cassette's, and become its condition.
+    auto deckXml = juce::XmlDocument::parse (folder.getChildFile ("deck.xml"));
+    if (deckXml == nullptr || ! deckXml->hasTagName ("DECK"))
+        if (auto* inside = xml->getChildByName ("DECK"))
+            deckXml = std::make_unique<juce::XmlElement> (*inside);
+    tfmt::Condition cond;
+    {
+        auto* td = deckXml != nullptr ? deckXml->getChildByName ("TAPE_DECK") : nullptr;
+        auto hiss = td != nullptr ? td->getDoubleAttribute ("hiss", 0.55) : 0.55;
+        auto drop = td != nullptr ? td->getDoubleAttribute ("drop", 0.10) : 0.10;
+        cond.hissDb = std::round (juce::jlimit (-12.0, 12.0, (hiss - 0.5) * 24.0) * 100.0) / 100.0;
+        cond.dropoutsPerMinute = std::round (drop * drop * 2.0 * 60.0 * 1000.0) / 1000.0;
+        cond.grade = cond.dropoutsPerMinute < 0.1 ? "new" : cond.dropoutsPerMinute < 0.5 ? "used" : cond.dropoutsPerMinute < 2.5 ? "worn" : "chewed";
+    }
+
     std::unique_ptr<Tape> tape;
-    try { tape = std::make_unique<Tape> (xml->getIntAttribute ("type", 1), xml->getIntAttribute ("model", defaultTapeModel)); }
+    try { tape = std::make_unique<Tape> (xml->getIntAttribute ("type", 1), xml->getIntAttribute ("model", defaultTapeModel), cond); }
     catch (...) { return {}; }
     tape->setFluxScale ((float) juce::jlimit (0.1, 1.0, xml->getDoubleAttribute ("fluxScale", 1.0)));
 
     tape->id          = xml->getStringAttribute ("id", tape->id);
+    tape->seed        = fnv1a (tape->id);
     tape->name        = xml->getStringAttribute ("name");
-    tape->created     = xml->getStringAttribute ("created", tape->created);
     tape->position    = juce::jlimit (0.0, (double) tape->lengthCells, xml->getDoubleAttribute ("position"));
-    tape->counterZero = xml->getDoubleAttribute ("counterZero");
+    tape->counterZero = juce::jlimit (0.0, (double) tape->lengthCells, xml->getDoubleAttribute ("counterZero"));
+    tape->madeBy      = "TAPE-FOUR (before the cassette format)";
+    {
+        // "27 OCT 2026" -> ISO; the time of day wasn't kept.
+        auto parts = juce::StringArray::fromTokens (xml->getStringAttribute ("created"), " ", {});
+        static const char* months[] { "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC" };
+        int m = 0;
+        for (int i = 0; i < 12; ++i) if (parts.size() == 3 && parts[1].equalsIgnoreCase (months[i])) m = i + 1;
+        if (m > 0)
+            tape->createdIso = parts[2] + "-" + juce::String (m).paddedLeft ('0', 2) + "-" + parts[0].paddedLeft ('0', 2) + "T00:00:00Z";
+    }
 
     if (auto* sheet = xml->getChildByName ("TRACK_SHEET"))
     {
@@ -265,16 +552,6 @@ std::unique_ptr<Tape> Tape::load (const juce::File& folder)
         }
     }
 
-    // The deck lives in its own file, so a big plug-in state isn't rewritten with every autosave.
-    // Tapes from before kept it inside tape.xml.
-    if (auto deckFile = juce::XmlDocument::parse (folder.getChildFile ("deck.xml")); deckFile != nullptr && deckFile->hasTagName ("DECK"))
-        tape->deckState = std::move (deckFile);
-    else if (auto* deck = xml->getChildByName ("DECK"))
-    {
-        tape->deckState = std::make_unique<juce::XmlElement> (*deck);
-        tape->deckNeedsWriting = true;   // move it out to deck.xml at the next save
-    }
-
     for (auto* tr : xml->getChildWithTagNameIterator ("TRACK"))
     {
         auto t = tr->getIntAttribute ("index", -1);
@@ -289,6 +566,7 @@ std::unique_ptr<Tape> Tape::load (const juce::File& folder)
         for (int b = 0; b < nb; ++b)
         {
             tape->flagsAt (t, b) = fp[b];
+            if ((fp[b] & 1) != 0) tape->recorderAt (t, b) = 1;   // this deck recorded everything on it
             if ((size_t) b * 2 + 1 < sb.getSize())
                 tape->speedMilliAt (t, b) = (uint16_t) (sp[b * 2] | (sp[b * 2 + 1] << 8));
         }
@@ -300,14 +578,31 @@ std::unique_ptr<Tape> Tape::load (const juce::File& folder)
             if (in.openedOk())
             {
                 auto cells = std::min<int64_t> (in.getTotalLength() / (int64_t) sizeof (int16_t), tape->lengthCells);
-                // Nothing else can see this tape yet, so read straight into it.
                 in.read (static_cast<void*> (tape->data[t]), (int) std::min<int64_t> (cells * (int64_t) sizeof (int16_t), (int64_t) std::numeric_limits<int>::max()));
             }
         }
     }
 
+    // The session: the old deck file, with the counter's zero now kept in it.
+    if (deckXml != nullptr)
+    {
+        auto* td = deckXml->getChildByName ("TAPE_DECK");
+        if (td == nullptr) td = deckXml->createNewChildElement ("TAPE_DECK");
+        td->setAttribute ("counterZero", tape->counterZero.load());
+        tape->session = std::move (deckXml);
+    }
+
+    // Convert: the cassette's files, then the old ones kept aside (the track audio is the same).
     tape->dataDirty = false;
-    tape->metaDirty = tape->deckNeedsWriting;
+    bool converted = writeSnapshot (*tape->snapshot(), folder)
+                     && (tape->session == nullptr || writeSession (*tape->session, folder));
+    if (converted)
+    {
+        folder.getChildFile ("tape.xml").moveFileTo (folder.getChildFile ("tape-v2.xml.bak"));
+        folder.getChildFile ("deck.xml").moveFileTo (folder.getChildFile ("deck-v2.xml.bak"));
+    }
+    tape->metaDirty = ! converted;
+    tape->sessionNeedsWriting = ! converted && tape->session != nullptr;
     return tape;
 }
 } // namespace tf

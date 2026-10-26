@@ -10,7 +10,7 @@ namespace
     // Portastudio layout: mixer on the left, the tape section in a column on the right.
     const juce::Rectangle<int> bayPanel { 1020, 74, 560, 404 };
     const juce::Rectangle<int> transportPanel { 1020, 490, 560, 390 };
-    enum { audioTab = 0, midiTab = 1, tapeTab = 2, instrumentsTab = 3 };
+    enum { audioTab = 0, midiTab = 1, deckTab = 2, instrumentsTab = 3 };
     constexpr int mixerX = 20, mixerY = 74, mixerH = 806, stripW = 197, stripGap = 12, masterW = 150;
 
     void panelBackground (juce::Graphics& g, juce::Rectangle<int> r, juce::Colour c)
@@ -123,7 +123,7 @@ DeckComponent::DeckComponent (AudioEngine& e, juce::PropertiesFile& settings)
     nrButton.onClick = [this] { engine.tapeEngine.params.nrOn = ! engine.tapeEngine.params.nrOn.load(); nrButton.setLed (engine.tapeEngine.params.nrOn.load()); };
     addAndMakeVisible (nrButton);
     nrType.topSize = 14.0f;
-    nrType.onClick = [this] { openSetup (tapeTab); };
+    nrType.onClick = [this] { openSetup (deckTab); };
     nrType.setTooltip ("Noise reduction type and tape character");
     addAndMakeVisible (nrType);
 
@@ -370,6 +370,11 @@ void DeckComponent::transport (TapeEngine::Command c)
         return;
     }
 
+    if (c == TapeEngine::Command::rec && engine.getTape()->protectA.load())
+    {
+        say ("WRITE-PROTECTED: THE TAB IS BROKEN OUT", 4.0);
+        return;
+    }
     if (c == TapeEngine::Command::rec)
     {
         bool any = false;
@@ -583,14 +588,14 @@ void DeckComponent::saveTape (bool announce, bool withDeck, bool fresh)
     auto* t = engine.getTape();
     if (t == nullptr) return;
 
-    // The deck as it is now goes with the tape, so it can come back with it.
+    // The session as it is now goes with the tape, so it can come back with it.
     if (withDeck)
     {
         auto deck = engine.createDeckState (fresh);
-        if (t->deckState == nullptr || ! t->deckState->isEquivalentTo (deck.get(), false))
+        if (t->session == nullptr || ! t->session->isEquivalentTo (deck.get(), false))
         {
-            t->deckState = std::move (deck);
-            t->deckNeedsWriting = true;
+            t->session = std::move (deck);
+            t->sessionNeedsWriting = true;
         }
     }
 
@@ -623,15 +628,21 @@ void DeckComponent::switchTape (std::function<std::unique_ptr<Tape>()> make, std
                         if (*made == nullptr)
                         {
                             d.say ("THAT TAPE WOULD NOT LOAD", 4.0);
+                            d.pendingCassette = juce::File();
                             return;
                         }
                         d.writer.retire (d.engine.swapTape (std::move (*made)));
                         d.tapeChanged();
                         after (*d.engine.getTape());
+                        if (d.pendingCassette != juce::File())
+                        {
+                            auto next = std::exchange (d.pendingCassette, juce::File());
+                            d.openCassetteFile (next);
+                        }
                     });
 }
 
-void DeckComponent::insertBlank (int type, int model)
+void DeckComponent::insertBlank (int type, int model, const juce::String& grade)
 {
     // A tape that couldn't be filled is refused at the start, not discovered halfway through a take.
     if (const auto needed = TapeShelf::bytesForFullTape (tapeTypes[type]); TapeShelf::isShort (needed))
@@ -640,15 +651,17 @@ void DeckComponent::insertBlank (int type, int model)
              + juce::String (juce::roundToInt ((double) needed / (1024.0 * 1024.0))) + " MB", 6.0);
         return;
     }
-    switchTape ([type, model]
+    switchTape ([type, model, grade]
                 {
-                    auto tape = TapeShelf::createBlank (type, model);
+                    auto tape = TapeShelf::createBlank (type, model, grade);
                     TapeShelf::save (*tape);
                     return tape;
                 },
                 [safe = juce::Component::SafePointer<DeckComponent> (this)] (Tape& t)
                 {
-                    if (safe != nullptr) safe->say ("NEW BLANK " + t.productName());
+                    if (safe != nullptr)
+                        safe->say ((t.getCondition().grade == "new" ? juce::String ("NEW BLANK ") : juce::String (t.getCondition().grade).toUpperCase() + " BLANK ")
+                                   + t.productName());
                 },
                 "MAKING A BLANK TAPE...");
 }
@@ -664,9 +677,9 @@ void DeckComponent::loadFromShelf (const juce::String& id)
                     if (safe == nullptr) return;
                     auto& d = *safe;
                     auto label = "LOADED: " + loaded.name.toUpperCase();
-                    if (d.engine.recallDeckWithTape.load() && loaded.deckState != nullptr)
+                    if (d.engine.recallDeckWithTape.load() && loaded.session != nullptr)
                     {
-                        auto state = std::make_unique<juce::XmlElement> (*loaded.deckState);
+                        auto state = std::make_unique<juce::XmlElement> (*loaded.session);
                         d.engine.applyDeckState (*state);   // plug-in windows close as their plug-ins go
                         label += "  + DECK";
                     }
@@ -695,13 +708,32 @@ void DeckComponent::showEjectMenu()
         const auto& tm = tapeModels[k];
         juce::PopupMenu lengths;
         for (int i = 0; i < numTapeTypes; ++i)
-            lengths.addItem (juce::String (tm.name) + juce::String (tapeTypes[i].minutes * 2) + "   " + juce::String (tapeTypes[i].minutes) + " MIN PER SIDE",
-                             [this, i, k] { insertBlank (i, k); });
+        {
+            // The cassette's condition is chosen as it comes off the shelf: new, or one that has seen use.
+            juce::PopupMenu grades;
+            static const char* gradeText[] { "NEW", "USED", "WORN", "CHEWED" };
+            for (int g = 0; g < 4; ++g)
+            {
+                auto grade = juce::String (tfmt::Condition::grades()[(size_t) g]);
+                grades.addItem (gradeText[g], [this, i, k, grade] { insertBlank (i, k, grade); });
+            }
+            lengths.addSubMenu (juce::String (tm.name) + juce::String (tapeTypes[i].minutes * 2) + "   " + juce::String (tapeTypes[i].minutes) + " MIN PER SIDE",
+                                grades);
+        }
         m.addSubMenu (juce::String (tm.name) + utf ("   \xc2\xb7   ") + utf (tm.position) + utf ("   \xc2\xb7   ") + utf (tm.line), lengths);
+    }
+
+    if (auto* t = engine.getTape())
+    {
+        m.addSeparator();
+        m.addSectionHeader ("THIS CASSETTE");
+        m.addItem ("Export as a .cass file...", [this] { exportCassette(); });
+        m.addItem ("Write-protect it (break out the tab)", true, t->protectA.load(), [this] { toggleWriteProtect(); });
     }
 
     m.addSeparator();
     m.addSectionHeader ("TAPE SHELF");
+    m.addItem ("Open a .cass file...", [this] { chooseCassetteFile(); });
     auto* cur = engine.getTape();
     auto shelf = TapeShelf::list();
     if (shelf.empty())
@@ -709,13 +741,108 @@ void DeckComponent::showEjectMenu()
     for (auto& e : shelf)
     {
         auto text = (e.name.isNotEmpty() ? e.name : juce::String ("(no label)")) + utf ("   \xc2\xb7   ")
-                    + tapeModels[e.model].name + juce::String (tapeTypes[juce::jlimit (0, numTapeTypes - 1, e.type)].minutes * 2) + "  " + formatTime (e.usedSeconds) + " used  "
-                    + juce::String (e.tracksUsed) + "/4 trk  " + e.created;
+                    + e.formulation + juce::String (e.minutes * 2) + (e.grade.isNotEmpty() && e.grade != "new" ? " " + e.grade.toUpperCase() : juce::String())
+                    + "  " + formatTime (e.usedSeconds) + " used  " + juce::String (e.tracksUsed) + "/4 trk  " + e.created;
         auto id = e.id;
         m.addItem (text, true, cur != nullptr && cur->id == id, [this, id] { loadFromShelf (id); });
     }
 
     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&eject).withMinimumWidth (360));
+}
+
+void DeckComponent::toggleWriteProtect()
+{
+    auto* t = engine.getTape();
+    if (t == nullptr) return;
+    const bool on = ! t->protectA.load();
+    t->protectA = on;
+    if (t->getLayout() == tfmt::Layout::stereoTwoSides) t->protectB = on;
+    t->markMetaChanged();
+    saveTape (false, false);
+    say (on ? "TAB BROKEN OUT: THIS TAPE CAN'T BE RECORDED ON" : "TAB TAPED OVER: THIS TAPE CAN BE RECORDED ON", 4.0);
+}
+
+void DeckComponent::exportCassette()
+{
+    auto* t = engine.getTape();
+    if (t == nullptr) return;
+    auto fileName = juce::File::createLegalFileName (t->name.isNotEmpty() ? t->name : t->productName());
+    auto start = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("TapeFour").getChildFile (fileName + ".cass");
+    chooser = std::make_unique<juce::FileChooser> ("Export the cassette", start, "*.cass");
+    chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+                              | juce::FileBrowserComponent::warnAboutOverwriting,
+                          [this, safe = juce::Component::SafePointer<DeckComponent> (this)] (const juce::FileChooser& fc)
+    {
+        if (safe == nullptr) return;
+        auto target = fc.getResult();
+        auto* tape = engine.getTape();
+        if (target == juce::File() || tape == nullptr) return;
+        target = target.withFileExtension ("cass");
+        // What's on the shelf is what's exported: save first (the writer runs jobs in order).
+        saveTape (false);
+        auto id = tape->id;
+        auto error = std::make_shared<juce::String>();
+        auto ok = std::make_shared<bool> (false);
+        writer.enqueue ([id, target, error, ok] { *ok = TapeShelf::exportCassette (id, target, *error); },
+                        [safe, target, error, ok]
+                        {
+                            if (safe == nullptr) return;
+                            safe->say (*ok ? "EXPORTED " + target.getFileName().toUpperCase() : "COULD NOT EXPORT: " + error->toUpperCase().substring (0, 40), 5.0);
+                        });
+    });
+}
+
+void DeckComponent::chooseCassetteFile()
+{
+    chooser = std::make_unique<juce::FileChooser> ("Open a cassette", juce::File::getSpecialLocation (juce::File::userDocumentsDirectory), "*.cass");
+    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                          [safe = juce::Component::SafePointer<DeckComponent> (this)] (const juce::FileChooser& fc)
+    {
+        if (safe != nullptr && fc.getResult().existsAsFile())
+            safe->openCassetteFile (fc.getResult());
+    });
+}
+
+void DeckComponent::openCassetteFile (const juce::File& cassFile)
+{
+    if (tapeBusy)
+    {
+        pendingCassette = cassFile;   // opened as soon as the tape that's loading is in
+        return;
+    }
+    if (engine.tapeEngine.getMode() != Mode::stop)
+    {
+        say ("STOP THE TAPE FIRST");
+        return;
+    }
+    tfmt::CassetteInfo info;
+    juce::String error;
+    if (! TapeShelf::peek (cassFile, info, error))
+    {
+        say ("NOT A CASSETTE: " + error.toUpperCase().substring (0, 40), 5.0);
+        return;
+    }
+    // The tape in the deck is put away first, so a copy of it on the shelf can be replaced.
+    auto id = juce::String::fromUTF8 (info.id.c_str());
+    auto label = juce::String::fromUTF8 (info.label.c_str());
+    if (auto* cur = engine.getTape(); cur != nullptr && cur->id == id)
+    {
+        say ("THAT CASSETTE IS ALREADY IN THE DECK", 4.0);
+        return;
+    }
+    switchTape ([cassFile]
+                {
+                    juce::String importedId, err;
+                    if (! TapeShelf::importCassette (cassFile, importedId, err))
+                        return std::unique_ptr<Tape>();
+                    return TapeShelf::load (importedId);
+                },
+                [safe = juce::Component::SafePointer<DeckComponent> (this), label] (Tape& loaded)
+                {
+                    if (safe != nullptr)
+                        safe->say ("OPENED: " + (label.isNotEmpty() ? label : loaded.productName()).toUpperCase(), 4.0);
+                },
+                "OPENING CASSETTE...");
 }
 
 //==============================================================================

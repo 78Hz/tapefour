@@ -458,36 +458,56 @@ private:
 };
 
 //==============================================================================
-class TapePanel : public juce::Component,
+/** The machine (TF-4.deck): its mechanism and heads, the operator's tape drive and NR type,
+    and what the cassette in it is. The cassette's own condition is chosen when it is made. */
+class DeckPanel : public juce::Component,
                   private juce::Timer
 {
 public:
-    explicit TapePanel (AudioEngine& e) : engine (e)
+    explicit DeckPanel (AudioEngine& e) : engine (e)
     {
-        auto& tp = engine.tapeEngine.params;
-        auto signedDb = [] (float db) { return (db > 0.05f ? "+" : "") + juce::String (db, 1) + " dB"; };
-        add ("HISS",            &tp.hiss,    [signedDb] (double v)
+        auto& m = engine.tapeEngine.machine;
+        auto pct = [] (double v) { return juce::String (v, 2) + " %"; };
+        add ("WOW",          &m.wowPct,      0.0, 0.6, 1.0, true, pct);
+        add ("FLUTTER",      &m.flutterPct,  0.0, 0.3, 1.0, true, pct);
+        add ("SPEED DRIFT",  &m.driftPct,    0.0, 1.0, 1.0, true, [] (double v) { return utf ("\xc2\xb1") + juce::String (v, 2) + " %"; });
+        add ("HEADS",        &m.cutoffHz,    4000.0, 20000.0, 0.5, true, [] (double v) { return "TREBLE TO " + juce::String (v / 1000.0, 1) + " kHz"; });
+        add ("CROSSTALK",    &m.crosstalkDb, -100.0, -40.0, 1.0, true, [] (double v) { return v <= -99.5 ? juce::String ("NONE") : juce::String (v, 0) + " dB"; });
+        add ("TAPE DRIVE",   &engine.tapeEngine.params.sat, 0.0, 1.0, 1.0, false, [] (double v)
              {
-                 return v <= 0 ? juce::String ("OFF") : "TAPE " + signedDb (TapeEngine::hissOffsetDb ((float) v));
+                 auto db = TapeEngine::driveDb ((float) v);
+                 return "0 VU " + juce::String (db > 0.05f ? "+" : "") + juce::String (db, 1) + " dB";
              });
-        add ("WOW",             &tp.wow,     [] (double v) { return juce::String (v * 0.5, 2) + " %"; });
-        add ("FLUTTER",         &tp.flutter, [] (double v) { return juce::String (v * 0.3, 2) + " %"; });
-        add ("TAPE DRIVE",      &tp.sat,     [signedDb] (double v) { return "0 VU " + signedDb (TapeEngine::driveDb ((float) v)); });
-        add ("HF LOSS",         &tp.hf,      [] (double v) { return "-" + juce::String (v * 12.0, 1) + " dB @ 10k"; });
-        add ("TRACK CROSSTALK", &tp.xtalk,   [] (double v) { return v <= 0 ? juce::String ("OFF") : juce::String (-80.0 + v * 50.0, 0) + " dB"; });
-        add ("DROPOUTS",        &tp.drop,    [] (double v) { return v <= 0 ? juce::String ("NONE") : v < 0.25 ? juce::String ("RARE") : v < 0.6 ? juce::String ("OCCASIONAL") : juce::String ("FREQUENT"); });
-        add ("SPEED DRIFT",     &tp.drift,   [] (double v) { return utf ("\xc2\xb1") + juce::String (v, 2) + " %"; });
+        // "None" is stored as -120 dB, which the slider shows at its end.
+        crosstalk().slider.onValueChange = [this]
+        {
+            auto v = crosstalk().slider.getValue();
+            engine.tapeEngine.machine.crosstalkDb = v <= -99.5 ? -120.0f : (float) v;
+            crosstalk().value.setText (crosstalk().fmt (v), juce::dontSendNotification);
+            machineMoved();
+        };
+        crosstalk().slider.setValue (std::max (-100.0f, engine.tapeEngine.machine.crosstalkDb.load()), juce::dontSendNotification);
 
-        const char* presetNames[] { "CLEAN", "WELL KEPT", "WORN", "CHEWED" };
+        const char* presetNames[] { "NEW", "SERVICED", "WORN", "NEGLECTED" };
         for (int i = 0; i < 4; ++i)
         {
             auto* b = presets.add (new juce::TextButton (presetNames[i]));
-            b->onClick = [this, i] { applyPreset (i); };
+            b->onClick = [this, i] { applyPreset (tfmt::DeckDescription::conditions()[(size_t) i]); };
             addAndMakeVisible (b);
         }
 
+        asNew.setToggleState (! engine.tapeEngine.machine.honoursTapeCondition.load(), juce::dontSendNotification);
+        asNew.onClick = [this]
+        {
+            engine.tapeEngine.machine.honoursTapeCondition = ! asNew.getToggleState();
+            engine.saveSettings();
+            repaint();
+        };
+        asNew.setColour (juce::ToggleButton::textColourId, Pal::muted);
+        addAndMakeVisible (asNew);
+
         nrType.addItemList ({ "2:1 compander (broadband, dbx-style)", "Sliding band B (up to 10 dB HF)", "Sliding band C (up to 20 dB HF)" }, 1);
-        nrType.setSelectedItemIndex (tp.nrType.load(), juce::dontSendNotification);
+        nrType.setSelectedItemIndex (engine.tapeEngine.params.nrType.load(), juce::dontSendNotification);
         nrType.onChange = [this] { engine.tapeEngine.params.nrType = nrType.getSelectedItemIndex(); };
         for (auto* c : std::initializer_list<juce::Component*> { &nrType, &nrLabel, &presetLabel })
             addAndMakeVisible (c);
@@ -496,11 +516,11 @@ public:
             l->setFont (DeckLookAndFeel::get().cond (17.0f));
             l->setColour (juce::Label::textColourId, Pal::muted);
         }
-        controls[0]->slider.setDoubleClickReturnValue (true, 0.5);
-        controls[3]->slider.setDoubleClickReturnValue (true, 0.5);
-        controls[0]->slider.setTooltip ("Hiss relative to what this cassette really measures. Centre = as measured.");
-        controls[3]->slider.setTooltip ("How hard 0 VU drives the tape. Centre = Dolby level, as a calibrated deck would. "
-                                        "More drive: earlier saturation and treble compression.");
+        drive().slider.setDoubleClickReturnValue (true, 0.5);
+        drive().slider.setTooltip ("How hard 0 VU drives the tape. Centre = Dolby level, as a calibrated deck would. "
+                                   "More drive: earlier saturation and treble compression.");
+        controls[3]->slider.setTooltip ("Worn or misaligned heads lose treble on playback, whatever the tape.");
+        presetLabel.setTooltip ("The machine's mechanism and heads. A cassette's own condition is chosen when it is made, at EJECT.");
         startTimerHz (2);
     }
 
@@ -518,15 +538,22 @@ public:
         g.drawText ("THIS TAPE:  " + tape->productName() + utf ("  \xc2\xb7  ") + utf (m.position), r.removeFromTop (26), juce::Justification::centredLeft);
         g.setColour (Pal::lcdText);
         g.setFont (lf.mono (15.0f));
-        auto f1 = [] (float v) { return (v > 0 ? "+" : "") + juce::String (v, 1); };
+        auto f1 = [] (double v) { return (v > 0 ? "+" : "") + juce::String (v, 1); };
         g.drawText ("MOL 400 Hz " + f1 (m.mol400) + " dB   MOL 100 Hz " + f1 (m.mol100) + " dB   SOL 10 kHz " + f1 (m.sol10k) + " dB",
                     r.removeFromTop (22), juce::Justification::centredLeft);
         g.drawText ("S/N " + juce::String (m.snr, 1) + " dBA   MOD NOISE " + juce::String (m.modNoise, 1) + " dB   SENS " + f1 (m.sensitivity)
                         + " dB   EQ " + juce::String (m.eqMicroseconds) + utf (" \xc2\xb5s"),
                     r.removeFromTop (22), juce::Justification::centredLeft);
+        const auto& c = tape->getCondition();
+        const bool honoured = engine.tapeEngine.machine.honoursTapeCondition.load();
+        g.setColour (honoured ? Pal::lcdText : Pal::lcdDim);
+        g.drawText ("CONDITION " + juce::String (c.grade).toUpperCase() + "   HISS " + f1 (c.hissDb) + " dB   DROPOUTS "
+                        + juce::String (c.dropoutsPerMinute, 2) + "/MIN   TREBLE " + f1 (-c.trebleLossDb) + " dB   MOD " + f1 (c.modNoiseDb) + " dB",
+                    r.removeFromTop (22), juce::Justification::centredLeft);
         g.setColour (Pal::faint);
         g.setFont (lf.cond (15.0f));
-        g.drawText (utf ("Measured on ") + m.basedOn + utf (" (dB re Dolby level, 1\xe2\x85\x9e ips, no NR). The cassette sets these; choose another at EJECT."),
+        g.drawText (honoured ? utf ("Measured on ") + m.basedOn + utf (" (dB re Dolby level, 1\xe2\x85\x9e ips, no NR). The cassette sets these; choose another at EJECT.")
+                             : juce::String ("The deck is playing every cassette as new: its condition is ignored."),
                     r.removeFromTop (22), juce::Justification::centredLeft);
     }
 
@@ -542,16 +569,18 @@ public:
         {
             auto line = r.removeFromTop (34);
             c->label.setBounds (line.removeFromLeft (150));
-            c->value.setBounds (line.removeFromRight (150));
+            c->value.setBounds (line.removeFromRight (170));
             c->slider.setBounds (line.reduced (8, 0));
             r.removeFromTop (6);
         }
-        r.removeFromTop (14);
+        r.removeFromTop (4);
+        asNew.setBounds (r.removeFromTop (28).withTrimmedLeft (150));
+        r.removeFromTop (10);
         auto l1 = r.removeFromTop (30);
         nrLabel.setBounds (l1.removeFromLeft (150));
         nrType.setBounds (l1.withWidth (360));
         r.removeFromTop (18);
-        tapeInfo = r.removeFromTop (112);
+        tapeInfo = r.removeFromTop (134);
     }
 
 private:
@@ -563,7 +592,11 @@ private:
         std::function<juce::String (double)> fmt;
     };
 
-    void add (const juce::String& name, std::atomic<float>* target, std::function<juce::String (double)> fmt)
+    Control& drive()     { return *controls[5]; }
+    Control& crosstalk() { return *controls[4]; }
+
+    void add (const juce::String& name, std::atomic<float>* target, double lo, double hi, double skew, bool isMachine,
+              std::function<juce::String (double)> fmt)
     {
         auto c = std::make_unique<Control>();
         c->label.setText (name, juce::dontSendNotification);
@@ -573,19 +606,27 @@ private:
         c->value.setColour (juce::Label::textColourId, Pal::lcdText);
         c->target = target;
         c->fmt = std::move (fmt);
-        c->slider.setRange (0.0, 1.0);
+        c->slider.setRange (lo, hi);
+        c->slider.setSkewFactor (skew);
         auto* raw = c.get();
-        c->slider.onValueChange = [raw]
+        c->slider.onValueChange = [this, raw, isMachine]
         {
             raw->target->store ((float) raw->slider.getValue());
             raw->value.setText (raw->fmt (raw->slider.getValue()), juce::dontSendNotification);
+            if (isMachine) machineMoved();
         };
+        c->slider.onDragEnd = [this] { engine.saveSettings(); };
         c->slider.setValue (target->load(), juce::dontSendNotification);
         c->value.setText (c->fmt (target->load()), juce::dontSendNotification);
         addAndMakeVisible (c->label);
         addAndMakeVisible (c->value);
         addAndMakeVisible (c->slider);
         controls.push_back (std::move (c));
+    }
+
+    void machineMoved()
+    {
+        if (! applyingPreset) engine.setMachineCondition ("custom");
     }
 
     void timerCallback() override
@@ -595,25 +636,30 @@ private:
         if (key != shownTape) { shownTape = key; repaint(); }
     }
 
-    void applyPreset (int i)
+    void applyPreset (const std::string& grade)
     {
-        static const float p[4][8] {
-            { 0, 0, 0, 0, 0, 0, 0, 0 },
-            { 0.55f, 0.30f, 0.25f, 0.40f, 0.20f, 0.30f, 0.10f, 0.20f },
-            { 0.75f, 0.60f, 0.50f, 0.60f, 0.55f, 0.50f, 0.35f, 0.40f },
-            { 0.90f, 0.90f, 0.80f, 0.75f, 0.80f, 0.70f, 0.75f, 0.70f } };
-        for (size_t k = 0; k < controls.size(); ++k)
-            if (k != 3)   // drive is calibration, not wear
-                controls[k]->slider.setValue (p[i][k], juce::sendNotificationSync);
+        auto d = engine.getMachine();
+        d.applyCondition (grade);
+        applyingPreset = true;
+        controls[0]->slider.setValue (d.transport.wowPct, juce::sendNotificationSync);
+        controls[1]->slider.setValue (d.transport.flutterPct, juce::sendNotificationSync);
+        controls[2]->slider.setValue (d.transport.driftPct, juce::sendNotificationSync);
+        controls[3]->slider.setValue (d.heads.cutoffHz, juce::sendNotificationSync);
+        controls[4]->slider.setValue (std::max (-100.0, d.heads.crosstalkDb), juce::sendNotificationSync);
+        applyingPreset = false;
+        engine.setMachine (d);
+        engine.saveSettings();
     }
 
     AudioEngine& engine;
     std::vector<std::unique_ptr<Control>> controls;
     juce::OwnedArray<juce::TextButton> presets;
+    juce::ToggleButton asNew { "Play every cassette as new (ignore its condition)" };
     juce::ComboBox nrType;
-    juce::Label nrLabel { {}, "Noise reduction" }, presetLabel { {}, "Tape condition" };
+    juce::Label nrLabel { {}, "Noise reduction" }, presetLabel { {}, "Machine" };
     juce::Rectangle<int> tapeInfo;
     juce::String shownTape;
+    bool applyingPreset = false;
 };
 
 //==============================================================================
@@ -708,7 +754,7 @@ SetupWindow::SetupWindow (AudioEngine& engineRef, juce::PropertiesFile& settings
     tabs->setTabBarDepth (48);
     tabs->addTab ("AUDIO", Pal::panel, new Scrolling<AudioPanel> (engineRef), true);
     tabs->addTab ("MIDI & DECK", Pal::panel, new Scrolling<MidiPanel> (engineRef), true);
-    tabs->addTab ("TAPE", Pal::panel, new TapePanel (engineRef), true);
+    tabs->addTab ("DECK", Pal::panel, new DeckPanel (engineRef), true);
     tabs->addTab ("PLUG-INS", Pal::panel, new InstrumentsPanel (engineRef, settings), true);
     setContentNonOwned (tabs.get(), false);
     setResizable (true, false);

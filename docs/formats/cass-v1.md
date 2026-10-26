@@ -99,12 +99,15 @@ Readers must keep members they don't know when they rewrite the file.
 ## state.json
 
 ```json
-{ "writeProtect": { "A": false, "B": false }, "position": 1234567.5, "lastUsed": "2026-10-27T10:02:11Z" }
+{ "writeProtect": { "A": false, "B": false }, "position": 1234567.5, "lastUsed": "2026-10-27T10:02:11Z",
+  "summary": { "usedSeconds": 754.2, "tracksUsed": 3 } }
 ```
 
 - **writeProtect**: a tab broken out. A deck must not record on that side. A 4-track
   cassette is recorded through side A's tab.
 - **position**: where the tape is wound to, in cells along it.
+- **summary**: how far it is recorded and on how many tracks, so a list of cassettes needn't
+  read every map. It can always be worked out again from the maps.
 
 ## Track files
 

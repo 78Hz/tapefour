@@ -10,6 +10,7 @@
 */
 
 #include "Json.h"
+#include "Zip.h"   // pathFromUtf8
 
 #include <cstdint>
 #include <filesystem>
@@ -115,6 +116,9 @@ struct CassetteState
     bool protectA = false, protectB = false;   // write-protect tabs broken out
     double position = 0;                       // where the tape is wound to, in cells along it
     std::string lastUsed;                      // ISO 8601, UTC
+    // A summary for lists of cassettes, so they needn't read every map: may be recomputed from the maps.
+    double usedSeconds = 0;                    // to the end of the last recording
+    int tracksUsed = 0;
     Json unknown;
 };
 

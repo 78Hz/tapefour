@@ -9,7 +9,7 @@ namespace tf
 std::unique_ptr<juce::XmlElement> AudioEngine::createDeckState (bool freshPluginState)
 {
     auto deck = std::make_unique<juce::XmlElement> ("DECK");
-    deck->setAttribute ("version", 4);
+    deck->setAttribute ("version", 5);   // 5: the machine and the cassette's condition left the session
 
     for (int t = 0; t < numTracks; ++t)
     {
@@ -61,14 +61,9 @@ std::unique_ptr<juce::XmlElement> AudioEngine::createDeckState (bool freshPlugin
     x->setAttribute ("pitchPct", (double) tp.pitch.load());
     x->setAttribute ("nr", tp.nrOn.load());
     x->setAttribute ("nrType", tp.nrType.load());
-    x->setAttribute ("hiss", tp.hiss.load());
-    x->setAttribute ("wow", tp.wow.load());
-    x->setAttribute ("flutter", tp.flutter.load());
     x->setAttribute ("sat", tp.sat.load());
-    x->setAttribute ("hf", tp.hf.load());
-    x->setAttribute ("xtalk", tp.xtalk.load());
-    x->setAttribute ("drop", tp.drop.load());
-    x->setAttribute ("drift", tp.drift.load());
+    if (tape != nullptr)
+        x->setAttribute ("counterZero", tape->counterZero.load());
     return deck;
 }
 
@@ -204,14 +199,11 @@ void AudioEngine::applyDeckState (const juce::XmlElement& deck)
                                                                                       : x->getIntAttribute ("pitch") * 2.4);
         tp.nrOn        = x->getBoolAttribute ("nr", true);
         tp.nrType      = juce::jlimit (0, 2, x->getIntAttribute ("nrType"));
-        tp.hiss    = (float) x->getDoubleAttribute ("hiss", 0.55);
-        tp.wow     = (float) x->getDoubleAttribute ("wow", 0.30);
-        tp.flutter = (float) x->getDoubleAttribute ("flutter", 0.25);
-        tp.sat     = (float) x->getDoubleAttribute ("sat", 0.40);
-        tp.hf      = (float) x->getDoubleAttribute ("hf", 0.20);
-        tp.xtalk   = (float) x->getDoubleAttribute ("xtalk", 0.30);
-        tp.drop    = (float) x->getDoubleAttribute ("drop", 0.10);
-        tp.drift   = (float) x->getDoubleAttribute ("drift", 0.20);
+        tp.sat         = (float) x->getDoubleAttribute ("sat", 0.40);
+        // Sessions before version 5 also held the machine's and the cassette's character; the machine
+        // took its own from the settings once (restoreMachine), and each cassette from its old deck file.
+        if (tape != nullptr && x->hasAttribute ("counterZero"))
+            tape->counterZero = juce::jlimit (0.0, (double) tape->getLengthCells(), x->getDoubleAttribute ("counterZero"));
     }
 
     if (onDeckStateApplied) onDeckStateApplied();
@@ -257,11 +249,101 @@ void AudioEngine::restoreHardware (const juce::XmlElement* hw, const juce::XmlEl
     }
 }
 
+//==============================================================================
+tfmt::DeckDescription AudioEngine::factoryMachine()
+{
+    tfmt::DeckDescription d;
+    d.id = tf4DeckId;
+    d.name = juce::String (juce::CharPointer_UTF8 ("TAPE\xc2\xb7" "FOUR TF-4")).toStdString();
+    d.maker = "78Hz";
+    d.kind = "multitracker";
+    d.layouts = { "4-track-one-way" };
+    d.records = true;
+    d.headCount = 2;
+    d.speedsIps = { 1.875, 3.75 };
+    d.nrSystems = { "compander-2to1", "sliding-b", "sliding-c" };
+    d.tapeSwitch = "manual";
+    d.applyCondition ("serviced");
+    return d;
+}
+
+juce::File AudioEngine::getMachineFile() const
+{
+    return props.getFile().getSiblingFile ("TF-4.deck");
+}
+
+tfmt::DeckDescription AudioEngine::getMachine() const
+{
+    auto d = machineBase;
+    const auto& m = tapeEngine.machine;
+    // The controls hold floats; the file gets the numbers they mean (0.15, not 0.15000000596).
+    auto clean = [] (float v) { return std::round ((double) v * 1.0e5) / 1.0e5; };
+    d.transport.wowPct = clean (m.wowPct.load());
+    d.transport.flutterPct = clean (m.flutterPct.load());
+    d.transport.driftPct = clean (m.driftPct.load());
+    d.transport.speedErrorPct = clean (m.speedErrorPct.load());
+    d.heads.cutoffHz = std::round ((double) m.cutoffHz.load());
+    d.heads.crosstalkDb = clean (m.crosstalkDb.load());
+    d.honoursTapeCondition = m.honoursTapeCondition.load();
+    return d;
+}
+
+void AudioEngine::setMachine (const tfmt::DeckDescription& d)
+{
+    machineBase = d;
+    auto& m = tapeEngine.machine;
+    m.wowPct = (float) d.transport.wowPct;
+    m.flutterPct = (float) d.transport.flutterPct;
+    m.driftPct = (float) d.transport.driftPct;
+    m.speedErrorPct = (float) d.transport.speedErrorPct;
+    m.cutoffHz = (float) d.heads.cutoffHz;
+    m.crosstalkDb = (float) d.heads.crosstalkDb;
+    m.honoursTapeCondition = d.honoursTapeCondition;
+}
+
+void AudioEngine::restoreMachine (const juce::XmlElement* legacyDeck)
+{
+    auto file = getMachineFile();
+    tfmt::DeckDescription d;
+    std::string err;
+    if (file.existsAsFile() && tfmt::readDeck (tfmt::pathFromUtf8 (file.getFullPathName().toStdString()), d, err))
+    {
+        setMachine (d);
+        lastSavedMachine = tfmt::toJson (d).dump();
+        return;
+    }
+
+    d = factoryMachine();
+    // Settings from before the deck format kept the machine's character in the deck state.
+    if (auto* x = legacyDeck != nullptr ? legacyDeck->getChildByName ("TAPE_DECK") : nullptr; x != nullptr && x->hasAttribute ("wow"))
+    {
+        auto xt = x->getDoubleAttribute ("xtalk", 0.30);
+        d.transport.wowPct = x->getDoubleAttribute ("wow", 0.30) * 0.5;
+        d.transport.flutterPct = x->getDoubleAttribute ("flutter", 0.25) * 0.3;
+        d.transport.driftPct = x->getDoubleAttribute ("drift", 0.20);
+        d.heads.cutoffHz = 20000.0 * std::pow (0.25, x->getDoubleAttribute ("hf", 0.20));
+        d.heads.crosstalkDb = xt > 0.0 ? -80.0 + xt * 50.0 : -120.0;
+        d.condition = "custom";
+    }
+    setMachine (d);
+}
+
+void AudioEngine::saveMachine()
+{
+    auto d = getMachine();
+    auto text = tfmt::toJson (d).dump();
+    if (text == lastSavedMachine) return;
+    std::string err;
+    if (tfmt::writeDeck (tfmt::pathFromUtf8 (getMachineFile().getFullPathName().toStdString()), d, err))
+        lastSavedMachine = text;
+}
+
 void AudioEngine::restoreAll()
 {
     auto hw = props.getXmlValue ("hardware");
     auto deck = props.getXmlValue ("deck");
     restoreHardware (hw.get(), deck.get());
+    restoreMachine (deck.get());
 
     if (deck != nullptr)
     {
@@ -289,5 +371,6 @@ void AudioEngine::saveSettings (bool freshPluginState)
     if (auto hw = createHardwareState()) props.setValue ("hardware", hw.get());
     props.setValue ("recallDeckWithTape", recallDeckWithTape.load());
     props.saveIfNeeded();
+    saveMachine();
 }
 } // namespace tf

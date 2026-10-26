@@ -48,12 +48,13 @@ TAPE·FOUR keeps its own machine as `TF-4.deck` beside its settings.
 
 - **transport**: peak wow (slow, under 6 Hz) and flutter (fast) as a percentage of speed, slow
   drift, and a constant speed error (many portable players run fast).
-- **heads**: `cutoffHz`, where worn or misaligned heads start losing treble (applies to
-  recording and playback alike); `crosstalkDb`, how much of each neighbouring track a head
+- **heads**: `cutoffHz`, where worn or misaligned heads start losing treble on playback (gap
+  loss is a playing effect); `crosstalkDb`, how much of each neighbouring track a head
   picks up; `azimuthErrorMinutes`, the head's alignment in minutes of arc against a
-  cassette recorded by a perfectly aligned deck.
-- **condition**: `new`, `serviced`, `worn` or `neglected`. A name for the numbers above; the
-  numbers are what count.
+  cassette recorded by a perfectly aligned deck. (TAPE·FOUR's own machine is aligned, so it
+  doesn't apply this yet.)
+- **condition**: `new`, `serviced`, `worn` or `neglected`, or `custom` when set by hand. A name
+  for the numbers above; the numbers are what count.
 - **honoursTapeCondition**: false plays every cassette as if new: its formulation counts, its
   starting condition, wear and age don't.
 

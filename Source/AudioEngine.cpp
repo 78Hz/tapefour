@@ -253,6 +253,8 @@ void AudioEngine::injectMidi (const juce::MidiMessage& m, int port)
 //==============================================================================
 std::unique_ptr<Tape> AudioEngine::swapTape (std::unique_ptr<Tape> newTape)
 {
+    // Recordings made on it from now on name this machine.
+    if (newTape != nullptr) newTape->useRecorder (tf4DeckId);
     const juce::SpinLock::ScopedLockType sl (tapeLock);
     auto old = std::move (tape);
     tape = std::move (newTape);

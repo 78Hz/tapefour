@@ -312,6 +312,9 @@ Json toJson (const CassetteState& s)
     tabs.set ("B", s.protectB);
     j.set ("position", s.position);
     j.set ("lastUsed", s.lastUsed);
+    auto& summary = j.set ("summary");
+    summary.set ("usedSeconds", s.usedSeconds);
+    summary.set ("tracksUsed", s.tracksUsed);
     appendUnknown (j, s.unknown);
     return j;
 }
@@ -324,7 +327,9 @@ bool fromJson (const Json& j, CassetteState& s, std::string& error)
     s.protectB = j["writeProtect"]["B"].boolean();
     s.position = j["position"].number();
     s.lastUsed = j["lastUsed"].string();
-    s.unknown = leftovers (j, { "writeProtect", "position", "lastUsed" });
+    s.usedSeconds = j["summary"]["usedSeconds"].number();
+    s.tracksUsed = (int) j["summary"]["tracksUsed"].integer();
+    s.unknown = leftovers (j, { "writeProtect", "position", "lastUsed", "summary" });
     return true;
 }
 

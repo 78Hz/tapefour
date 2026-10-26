@@ -152,7 +152,7 @@ void InlayCard::paint (juce::Graphics& g)
                          12, headerH + 64, flapW - 20);
     g.setColour (Pal::ink);
     g.setFont (lf.hand (22.0f));
-    g.drawText (tape.created.toLowerCase(), 10, cardH - 52, flapW - 14, 30, juce::Justification::centredLeft);
+    g.drawText (tape.created().toLowerCase(), 10, cardH - 52, flapW - 14, 30, juce::Justification::centredLeft);
 
     // spine: type at the top, the title written down the length
     {

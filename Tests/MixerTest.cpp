@@ -2,6 +2,7 @@
 #include "../Source/AudioEngine.h"
 #include "../Source/TapeWriter.h"
 #include "../Source/ClapFormat.h"
+#include "../Source/TapeShelf.h"
 #include <cstdio>
 #include <thread>
 
@@ -58,17 +59,21 @@ struct Rig
     Rig()
     {
         propsFile.deleteFile();
+        propsFile.getSiblingFile ("TF-4.deck").deleteFile();
         props = std::make_unique<juce::PropertiesFile> (propsFile, juce::PropertiesFile::Options());
         engine = std::make_unique<AudioEngine> (*props);
         engine->deviceManager.removeAudioCallback (engine.get());   // we drive it ourselves
-        engine->swapTape (std::make_unique<Tape> (1));
+        engine->swapTape (std::make_unique<Tape> (1, defaultTapeModel, tfmt::Condition()));   // a perfect cassette...
         engine->audioDeviceAboutToStart (&device);
         auto& p = engine->tapeEngine.params;
-        p.hiss = 0; p.wow = 0; p.flutter = 0; p.sat = 0; p.hf = 0; p.xtalk = 0; p.drop = 0; p.drift = 0; p.nrOn = false;
+        p.sat = 0; p.nrOn = false;
+        auto& mc = engine->tapeEngine.machine;                                                 // ...on a perfect machine
+        mc.wowPct = 0; mc.flutterPct = 0; mc.driftPct = 0; mc.cutoffHz = 20000.0f; mc.crosstalkDb = -120.0f;
+        engine->tapeEngine.setHissForTests (false);
         for (auto& t : engine->track) { t.fader = 0.75f; t.gain = 1.0f / 3.0f; t.pan = 0; t.armed = false; }
     }
 
-    ~Rig() { engine.reset(); props.reset(); propsFile.deleteFile(); }
+    ~Rig() { engine.reset(); props.reset(); propsFile.deleteFile(); propsFile.getSiblingFile ("TF-4.deck").deleteFile(); }
 
     // A cable from output 1 back into input 1, as long as the interface's round trip.
     bool loopback = false;
@@ -267,9 +272,12 @@ int main()
         };
         auto character = [] (Rig& m)
         {
+            // A serviced machine and a used cassette: everything the tape does, switched on.
             auto& p = m.engine->tapeEngine.params;
-            p.hiss = 0.55f; p.wow = 0.3f; p.flutter = 0.25f; p.sat = 0.5f; p.hf = 0.2f; p.xtalk = 0.3f; p.drop = 0.1f; p.drift = 0.2f;
-            p.nrOn = true; p.nrType = 0;
+            p.sat = 0.5f; p.nrOn = true; p.nrType = 0;
+            m.engine->setMachine (AudioEngine::factoryMachine());
+            m.engine->tapeEngine.setHissForTests (true);
+            m.engine->getTape()->setCondition (tfmt::Condition::forGrade ("used"));
         };
         auto heavy = [&] (Rig& m)
         {
@@ -604,15 +612,103 @@ int main()
 
         // ...and the deck travels with the tape.
         auto& tape = *me.getTape();
-        tape.deckState = me.createDeckState();
-        tape.deckNeedsWriting = true;
+        tape.session = me.createDeckState();
+        tape.sessionNeedsWriting = true;
         auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("tf_deck_tape");
         dir.deleteRecursively();
         dir.createDirectory();
         tape.save (dir);
         auto loaded = Tape::load (dir);
-        check (loaded != nullptr && loaded->deckState != nullptr && loaded->deckState->isEquivalentTo (tape.deckState.get(), false),
-               "deck state is saved with the tape (deck.xml)", loaded != nullptr && loaded->deckState != nullptr, 1);
+        check (loaded != nullptr && loaded->session != nullptr && loaded->session->isEquivalentTo (tape.session.get(), false),
+               "session is saved beside the cassette (session.xml)", loaded != nullptr && loaded->session != nullptr, 1);
+        dir.deleteRecursively();
+    }
+
+    // ---- The machine, the cassette and the session are kept apart ----
+    {
+        auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("tf_split_test");
+        dir.deleteRecursively();
+        dir.createDirectory();
+
+        // Settings from before the deck format: the machine's character comes out of the old deck state, once.
+        auto settingsFile = dir.getChildFile ("TapeFour.settings");
+        {
+            juce::PropertiesFile old (settingsFile, juce::PropertiesFile::Options());
+            juce::XmlElement deck ("DECK");
+            auto* td = deck.createNewChildElement ("TAPE_DECK");
+            td->setAttribute ("wow", 0.6); td->setAttribute ("flutter", 0.5); td->setAttribute ("drift", 0.4);
+            td->setAttribute ("hf", 0.55); td->setAttribute ("xtalk", 0.5); td->setAttribute ("hiss", 0.75);
+            old.setValue ("deck", &deck);
+            old.saveIfNeeded();
+        }
+        {
+            juce::PropertiesFile settings (settingsFile, juce::PropertiesFile::Options());
+            AudioEngine eng (settings);
+            eng.deviceManager.removeAudioCallback (&eng);
+            auto mach = eng.getMachine();
+            check (std::abs (mach.transport.wowPct - 0.3) < 1e-6 && std::abs (mach.transport.flutterPct - 0.15) < 1e-6
+                       && std::abs (mach.transport.driftPct - 0.4) < 1e-6 && std::abs (mach.heads.cutoffHz - 9330.0) < 2.0
+                       && std::abs (mach.heads.crosstalkDb + 55.0) < 1e-6 && mach.id == tf4DeckId,
+                   "machine: old settings become the TF-4's own (wow, flutter, drift, heads, crosstalk)", mach.transport.wowPct, 0.3);
+            eng.saveSettings();
+            auto session = eng.createDeckState();
+            auto* td = session->getChildByName ("TAPE_DECK");
+            check (td != nullptr && ! td->hasAttribute ("wow") && ! td->hasAttribute ("hiss") && ! td->hasAttribute ("drop") && td->hasAttribute ("sat"),
+                   "session: holds the operator's controls, not the machine or the cassette", 1, 1);
+        }
+        tfmt::DeckDescription onDisk;
+        std::string err;
+        const bool readBack = tfmt::readDeck (tfmt::pathFromUtf8 (settingsFile.getSiblingFile ("TF-4.deck").getFullPathName().toStdString()), onDisk, err);
+        check (readBack && std::abs (onDisk.transport.wowPct - 0.3) < 1e-6,
+               "machine: saved as TF-4.deck beside the settings", onDisk.transport.wowPct, 0.3);
+        {
+            juce::PropertiesFile settings (settingsFile, juce::PropertiesFile::Options());
+            AudioEngine eng (settings);
+            eng.deviceManager.removeAudioCallback (&eng);
+            auto d = eng.getMachine();
+            d.applyCondition ("new");
+            eng.setMachine (d);
+            eng.saveSettings();
+        }
+        {
+            juce::PropertiesFile settings (settingsFile, juce::PropertiesFile::Options());
+            AudioEngine eng (settings);
+            eng.deviceManager.removeAudioCallback (&eng);
+            check (eng.getMachine().condition == "new" && std::abs (eng.tapeEngine.machine.wowPct.load() - 0.08f) < 1e-6f,
+                   "machine: comes back from TF-4.deck after a restart", eng.tapeEngine.machine.wowPct.load(), 0.08);
+        }
+
+        // A cassette goes out as a .cass and comes back as itself; its session stays on the shelf.
+        TapeShelf::setFolderForTests (dir.getChildFile ("shelf"));
+        auto tape = TapeShelf::createBlank (0, 2, "worn");
+        for (int64_t c = 0; c < 32000; ++c) tape->writeCell (1, c, 0.3f * (float) std::sin (0.05 * (double) c), true, 0, 1.0f, 1);
+        tape->name = "exported";
+        tape->protectA = true;
+        tape->session = std::make_unique<juce::XmlElement> ("DECK");
+        tape->sessionNeedsWriting = true;
+        TapeShelf::save (*tape);
+        auto cass = dir.getChildFile ("exported.cass");
+        juce::String error;
+        check (TapeShelf::exportCassette (tape->id, cass, error), "cass: exported from the shelf", 1, 1);
+        juce::ZipFile zip (cass);
+        check (zip.getIndexOfFileName (tfmt::CassFiles::manifest) >= 0 && zip.getIndexOfFileName ("session.xml") < 0 && zip.getIndexOfFileName ("track2.pcm") >= 0,
+               "cass: the file holds the cassette, not the session (and any zip tool reads it)", zip.getNumEntries(), 4);
+
+        TapeShelf::folderFor (tape->id).getChildFile (tfmt::CassFiles::manifest).deleteFile();   // spoil the shelf copy
+        juce::String importedId;
+        check (TapeShelf::importCassette (cass, importedId, error) && importedId == tape->id, "cass: imported onto the shelf", 1, 1);
+        auto back = TapeShelf::load (importedId);
+        bool same = back != nullptr;
+        for (int64_t c = 0; same && c < 32000; c += 11) same = std::abs (back->readCell (1, c) - tape->readCell (1, c)) < 1e-9f;
+        check (same && back->name == "exported" && back->getCondition().grade == "worn" && back->getModel() == 2
+                   && back->protectA.load() && back->isNrEncoded (1, 2) && back->recordedNrType (1, 2) == 0 && back->session != nullptr,
+               "cass: comes back as itself: recording, label, formulation, condition, tab, maps; the session kept", same ? 1 : 0, 1);
+
+        auto bytes = cass.loadFileAsString();
+        dir.getChildFile ("broken.cass").replaceWithText (bytes.substring (0, 200));
+        check (! TapeShelf::importCassette (dir.getChildFile ("broken.cass"), importedId, error) && TapeShelf::load (tape->id) != nullptr,
+               "cass: a damaged file is refused and the shelf left as it was", 1, 1);
+        TapeShelf::setFolderForTests ({});
         dir.deleteRecursively();
     }
 
@@ -629,7 +725,7 @@ int main()
         };
         auto putClick = [] (Tape& tape, int t, int64_t at)
         {
-            for (int c = 0; c < 16; ++c) tape.writeCell (t, at + c, 0.4f, false, 1.0f, 0);
+            for (int c = 0; c < 16; ++c) tape.writeCell (t, at + c, 0.4f, false, 0, 1.0f, 0);
         };
 
         // Bounce: straight off the tape, no correction.

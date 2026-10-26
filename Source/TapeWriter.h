@@ -23,7 +23,7 @@ public:
     void waitUntilIdle();
     bool isBusy() const;
 
-    /** Queues a save of everything about this tape that changed. Tape metadata and the deck are
+    /** Queues a save of everything about this tape that changed. The cassette's description and the session are
         snapshotted now (message thread); the audio is written in the background.
         whenDone(ok) runs on the message thread. Tapes taken out go through retire(), so the
         tape outlives the job. */

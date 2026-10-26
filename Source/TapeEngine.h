@@ -34,21 +34,35 @@ class TapeEngine
 public:
     enum class Command : int { none = 0, play, stop, rec, ff, rew, rtz };
 
+    /** The operator's controls on the deck (kept in the session). */
     struct Params
     {
         std::atomic<int>   speedSel { 1 };       // 1 = 1 7/8 ips, 2 = 3 3/4 ips
         std::atomic<float> pitch { 0.0f };      // varispeed, percent: -12..+12, continuous
         std::atomic<bool>  nrOn { true };
         std::atomic<int>   nrType { 0 };
-        // hiss: 0 = off, 0.5 = the tape as measured, +/-12 dB either side.
         // sat ("tape drive"): where 0 VU lands on the tape, -6..+6 dB around Dolby level.
-        std::atomic<float> hiss { 0.55f }, wow { 0.30f }, flutter { 0.25f }, sat { 0.50f },
-                           hf { 0.20f }, xtalk { 0.30f }, drop { 0.10f }, drift { 0.20f };
+        std::atomic<float> sat { 0.50f };
         std::atomic<int>   latencyOffsetMs { 0 };
         std::atomic<int>   tapeSwitch { 0 };     // 0 NORMAL, 1 CHROME, 2 METAL: record bias and EQ, playback EQ
     };
 
+    /** The machine itself: its mechanism and heads (kept in TF-4.deck, docs/formats/deck-v1.md). */
+    struct Machine
+    {
+        std::atomic<float> wowPct { 0.15f }, flutterPct { 0.075f }, driftPct { 0.2f }, speedErrorPct { 0.0f };
+        std::atomic<float> cutoffHz { 15157.17f };     // where the heads start losing treble (playback)
+        std::atomic<float> crosstalkDb { -65.0f };     // each neighbouring track, as the head picks it up; -120 = none
+        /** Off: every cassette plays as if new (its formulation counts; its condition, wear and age don't). */
+        std::atomic<bool>  honoursTapeCondition { true };
+    };
+
     Params params;
+    Machine machine;
+
+    /** Test hook: measurements that need silence between the notes turn the tape's own hiss off.
+        (No real cassette is without it, so the deck never does.) */
+    void setHissForTests (bool on) noexcept { hissOn = on; }
 
     void prepare (double sampleRate, int maxBlockSize);
     void setTape (Tape* t, bool newTape = true) noexcept;          // only call while the audio callback is locked out
@@ -78,12 +92,11 @@ private:
     void writeSpan (int t, double p, float v, bool nr, float spd, int switchPos) noexcept;
     void finishPunch (int t) noexcept;
     void configureCompanders (int type);
-    void configureModel (int model, int speedSel, int switchPos);
+    void configureModel (const TapeModel& model, int speedSel, int switchPos);
     void calibrateHiss();
 
 public:
     // Shared with the tests and the setup page.
-    static float hissOffsetDb (float hissParam) noexcept    { return (hissParam - 0.5f) * 24.0f; }
     static float driveDb (float satParam) noexcept          { return (satParam - 0.5f) * 12.0f; }
     static float tanhThirdHarmonicPoint();                  // input peak giving 3% H3 through tanh
     static float magnitudeAt (const Biquad& b, double f, double sampleRate);
@@ -97,6 +110,7 @@ public:
 private:
     double sr = 48000.0;
     int maxBlock = 0;
+    std::atomic<bool> hissOn { true };
     Tape* tape = nullptr;
 
     std::atomic<int> pendingCommand { 0 }, mode { 0 };
@@ -123,8 +137,13 @@ private:
     Biquad antiAlias[numTracks][2];
     float pink[numTracks][3] {};
     Noise hissNoise[numTracks] { Noise (11u), Noise (23u), Noise (37u), Noise (51u) };
-    float dropGain[numTracks] { 1, 1, 1, 1 }, dropTarget[numTracks] { 1, 1, 1, 1 };
-    int dropTimer[numTracks] {};
+    float dropGain[numTracks] { 1, 1, 1, 1 };
+    // The cassette's dropouts are fixed places on it: worked out from its id, per block of tape.
+    struct Dropout { int64_t block = -1; double start = 0, end = 0; float depth = 1.0f; };
+    Dropout dropHere[numTracks], dropBefore[numTracks];
+    static Dropout dropoutAt (uint64_t seed, int track, int64_t block, float perBlock) noexcept;
+    Biquad oxideLoss[numTracks];
+    float lastOxideLoss = -1.0f;
     std::vector<float> raw[numTracks];
 
     // writing
@@ -145,7 +164,8 @@ private:
     float lastHfCut = -1, lastAaCut = -1;
 
     // the tape model
-    int cfgModel = -1, cfgSpeed = -1, cfgPos = -1;
+    const TapeModel* cfgModel = nullptr;
+    int cfgSpeed = -1, cfgPos = -1;
     Biquad biasHi[numTracks];
     float biasMidGain = 1.0f, recModDepth = 0.0f, recModLp[numTracks] {};
     bool eraseBleed = false;

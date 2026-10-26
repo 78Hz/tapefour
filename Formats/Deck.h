@@ -38,7 +38,7 @@ struct DeckDescription
     // How well it does it
     struct Transport { double wowPct = 0.15, flutterPct = 0.075, driftPct = 0.2, speedErrorPct = 0.0; } transport;
     struct Heads { double cutoffHz = 15157.0, crosstalkDb = -65.0, azimuthErrorMinutes = 0.0; } heads;
-    std::string condition = "serviced";   // new, serviced, worn, neglected
+    std::string condition = "serviced";   // new, serviced, worn, neglected, or custom (set by hand)
     /** Off: every cassette plays as if new (its formulation still counts, its wear and age don't). */
     bool honoursTapeCondition = true;
 

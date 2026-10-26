@@ -5,6 +5,7 @@
 #include "MidiHub.h"
 #include "MidiMapper.h"
 #include "ChannelStrip.h"
+#include "Deck.h"
 
 namespace tf
 {
@@ -185,6 +186,17 @@ public:
     void applyDeckState (const juce::XmlElement& deck);
     std::function<void()> onDeckStateApplied;
 
+    // ---- the machine itself: TF-4.deck beside the settings (docs/formats/deck-v1.md) ----
+    /** The machine as it is now (the Setup sliders write straight to tapeEngine.machine). */
+    tfmt::DeckDescription getMachine() const;
+    /** Applies a whole machine description; it is saved with the settings. */
+    void setMachine (const tfmt::DeckDescription&);
+    /** The TF-4 as it leaves the factory, serviced. */
+    static tfmt::DeckDescription factoryMachine();
+    juce::File getMachineFile() const;
+    /** A name for the machine's state after the sliders moved: one of the presets, or "custom". */
+    void setMachineCondition (const juce::String& name) { machineBase.condition = name.toStdString(); }
+
     // ---- settings ----
     void saveSettings (bool freshPluginState = false);
 
@@ -208,6 +220,8 @@ private:
     void restoreAll();
     std::unique_ptr<juce::XmlElement> createHardwareState() const;
     void restoreHardware (const juce::XmlElement* hw, const juce::XmlElement* legacyDeck);
+    void restoreMachine (const juce::XmlElement* legacyDeck);
+    void saveMachine();
     void restoreTrackChain (int t, const juce::XmlElement& chainXml);
     void migrateOldTrack (int t, const juce::XmlElement& x);
     bool isMidiSlotInUse (int slot, bool output) const;
@@ -230,6 +244,8 @@ private:
     void command (MidiMapper::Control) override;
 
     juce::PropertiesFile& props;
+    tfmt::DeckDescription machineBase;   // what the atomics don't hold: identity, capabilities, condition name
+    std::string lastSavedMachine;
 
     juce::SpinLock tapeLock;
     std::unique_ptr<Tape> tape;

@@ -206,9 +206,8 @@ void TapeEngine::setEqMismatch (Biquad& b, double fs, double recUs, double playU
 
 /** Sets up everything that comes from the cassette itself (headroom, treble saturation, noise)
     and from the tape switch while recording (bias). */
-void TapeEngine::configureModel (int m, int speedSel, int switchPos)
+void TapeEngine::configureModel (const TapeModel& tm, int speedSel, int switchPos)
 {
-    const auto& tm = tapeModels[juce::jlimit (0, numTapeModels - 1, m)];
     const auto bias = biasEffect (tm.iecType, switchPos);
 
     // tanh(k x) / k reaches 3% third harmonic at the tape's MOL (400 Hz), moved by any bias mismatch.
@@ -260,9 +259,31 @@ void TapeEngine::configureModel (int m, int speedSel, int switchPos)
                       ? std::sqrt (std::max (0.0f, std::pow (10.0f, (tm.modNoise + bias.extraModNoise) / 10.0f) - std::pow (10.0f, tm.modNoise / 10.0f)))
                       : 0.0f;
     eraseBleed = bias.eraseBleed;
-    cfgModel = m;
+    cfgModel = &tm;
     cfgSpeed = speedSel;
     cfgPos = switchPos;
+}
+
+TapeEngine::Dropout TapeEngine::dropoutAt (uint64_t seed, int track, int64_t block, float perBlock) noexcept
+{
+    // splitmix64 of where it is on which cassette: the same answer every time.
+    auto h = seed ^ ((uint64_t) (track + 1) * uint64_t { 0x9e3779b97f4a7c15 }) ^ ((uint64_t) block * uint64_t { 0xbf58476d1ce4e5b9 });
+    auto next = [&h]
+    {
+        h += uint64_t { 0x9e3779b97f4a7c15 };
+        auto z = h;
+        z = (z ^ (z >> 30)) * uint64_t { 0xbf58476d1ce4e5b9 };
+        z = (z ^ (z >> 27)) * uint64_t { 0x94d049bb133111eb };
+        return (float) ((z ^ (z >> 31)) >> 40) / (float) (uint64_t { 1 } << 24);
+    };
+    Dropout d;
+    d.block = block;
+    if (block < 0 || next() >= perBlock) return d;
+    // A dip of 15 to 75 ms of tape (at 1 7/8), 8 to 38% deep in level.
+    d.start = ((double) block + next()) * blockCells;
+    d.end = d.start + (0.015 + 0.06 * next()) * cellRate;
+    d.depth = 0.08f + 0.3f * next();
+    return d;
 }
 
 void TapeEngine::prepare (double sampleRate, int maxBlockSize)
@@ -276,7 +297,8 @@ void TapeEngine::prepare (double sampleRate, int maxBlockSize)
 
     companderType = -1;
     lastHfCut = lastAaCut = -1;
-    cfgModel = cfgSpeed = cfgPos = -1;
+    cfgModel = nullptr;
+    cfgSpeed = cfgPos = -1;
     hissEqKey = -1;
     for (auto& k : sigEqKey) k = -1;
     calibrateHiss();
@@ -285,9 +307,11 @@ void TapeEngine::prepare (double sampleRate, int maxBlockSize)
     auto a = std::exp (-juce::MathConstants<double>::twoPi * 1000.0 / sr);
     modCoef = (float) a;
     modNorm = (float) (1.0 / std::sqrt ((1.0 - a) / (1.0 + a) / 3.0));
+    lastOxideLoss = -1.0f;
     for (int t = 0; t < numTracks; ++t)
     {
         hasPrev[t] = false;
+        dropHere[t] = dropBefore[t] = Dropout();
         for (auto& b : hfLoss[t]) b.reset();
         for (auto& b : antiAlias[t]) b.reset();
         for (auto& b : preAA[t]) b.reset();
@@ -299,6 +323,8 @@ void TapeEngine::setTape (Tape* t, bool newTape) noexcept
 {
     tape = t;
     pos = t != nullptr ? t->position.load() : 0.0;
+    for (int k = 0; k < numTracks; ++k) { dropHere[k] = dropBefore[k] = Dropout(); dropGain[k] = 1.0f; }
+    cfgModel = nullptr;   // another cassette: its formulation is set up afresh
     // A tape going in sets the switch to its own type; moving it after that is up to you.
     if (t != nullptr && newTape) params.tapeSwitch = t->naturalPosition();
     windVel = 0;
@@ -339,6 +365,7 @@ void TapeEngine::beginBlock (int n, const bool* armed) noexcept
         case Command::play: m = Mode::play; rtz = false; break;
         case Command::stop: m = Mode::stop; rtz = false; break;
         case Command::rec:
+            if (tape->protectA.load()) break;   // the tab is broken out: the record key won't go down
             if (anyArmed) { m = Mode::rec; rtz = false; }
             else noArmWarning = true;
             break;
@@ -359,8 +386,8 @@ void TapeEngine::beginBlock (int n, const bool* armed) noexcept
 
     auto spdSel = juce::jlimit (1, 2, params.speedSel.load());
     auto sw = juce::jlimit (0, 2, params.tapeSwitch.load());
-    if (tape->getModel() != cfgModel || spdSel != cfgSpeed || sw != cfgPos)
-        configureModel (tape->getModel(), spdSel, sw);
+    if (&tape->getModelInfo() != cfgModel || spdSel != cfgSpeed || sw != cfgPos)
+        configureModel (tape->getModelInfo(), spdSel, sw);
 
     // Entering record: start the encoders fresh, like a punch-in.
     if (m == Mode::rec && lastMode != (int) Mode::rec)
@@ -371,14 +398,16 @@ void TapeEngine::beginBlock (int n, const bool* armed) noexcept
     const double pitchTarget = 1.0 + juce::jlimit (-12.0, 12.0, (double) params.pitch.load()) * 0.01;
     const double pitchEase = 1.0 - std::exp (-1.0 / (0.06 * sr));
     nominalSpeed = (float) (speedSel * pitchTarget);
-    const double advUnit = speedSel * cellRate / sr;
+    const double advUnit = speedSel * cellRate / sr * (1.0 + juce::jlimit (-10.0, 10.0, (double) machine.speedErrorPct.load()) * 0.01);
     if (m != Mode::play && m != Mode::rec)
         pitchGlide = pitchTarget;   // stopped or winding: it's simply there when you press PLAY
     for (auto& w : wroteThisBlock) w = false;
 
-    auto wowD = params.wow.load() * 0.005;
-    auto flD  = params.flutter.load() * 0.003;
-    auto drD  = params.drift.load() * 0.01;
+    // The machine's transport, plus what a tired shell adds (unless the deck plays every tape as new).
+    const bool honours = machine.honoursTapeCondition.load();
+    auto wowD = machine.wowPct.load() * 0.01;
+    auto flD  = (machine.flutterPct.load() + (honours ? tape->getCharacter().shellFlutterPct.load() : 0.0f)) * 0.01;
+    auto drD  = machine.driftPct.load() * 0.01;
     auto windTarget = 24.0 * cellRate / sr;
     auto windSmooth = 1.0 - std::exp (-1.0 / (0.35 * sr));
     auto len = (double) tape->getLengthCells();
@@ -460,27 +489,39 @@ void TapeEngine::readAll (float* const* out, int n) noexcept
     // Character settings for this block
     auto speedSel = params.speedSel.load();
     const auto* tm = tape != nullptr ? &tape->getModelInfo() : &tapeModels[defaultTapeModel];
-    auto xt = params.xtalk.load();
-    auto xtGain = xt > 0.0f ? dbToGain (-80.0f + xt * 50.0f) : 0.0f;
+    // The heads pick up a little of each neighbouring track.
+    auto xtDb = machine.crosstalkDb.load();
+    auto xtGain = xtDb > -119.5f ? dbToGain (xtDb) : 0.0f;
 
-    // Hiss at the tape's measured A-weighted level below Dolby level, trimmed by the HISS control.
+    // The cassette's condition, as the deck hears it.
+    const bool honours = machine.honoursTapeCondition.load() && tape != nullptr;
+    const auto* ch = tape != nullptr ? &tape->getCharacter() : nullptr;
+    const float condHissDb  = honours ? ch->hissDb.load() : 0.0f;
+    const float condModDb   = honours ? ch->modNoiseDb.load() : 0.0f;
+    const float oxideLossDb = honours ? std::max (0.0f, ch->trebleLossDb.load()) : 0.0f;
+    const float dropPerBlock = honours ? std::max (0.0f, ch->dropoutsPerMinute.load()) * (float) blockCells / (60.0f * cellRate) : 0.0f;
+
+    // Hiss at the tape's measured A-weighted level below Dolby level, plus what its condition adds.
     // The faster speed spreads the same noise over a wider band: about 3 dB less in the audible range.
-    auto hissAmt = params.hiss.load();
     auto refRms = tapeRefPeak / std::sqrt (2.0f);
-    auto hissGain = hissAmt > 0.0f
-                        ? refRms * dbToGain (-tm->snr + hissOffsetDb (hissAmt) - (speedSel == 2 ? 3.0f : 0.0f))
-                              / hissCal[tm->eqMicroseconds == 70 ? 1 : 0]
-                        : 0.0f;
-    auto hfAmt = params.hf.load();
-    auto hfCut = 20000.0f * std::pow (0.25f, hfAmt) * (speedSel == 2 ? 1.6f : 1.0f);
+    auto hissGain = hissOn.load() ? refRms * dbToGain (-tm->snr + condHissDb - (speedSel == 2 ? 3.0f : 0.0f))
+                                        / hissCal[tm->eqMicroseconds == 70 ? 1 : 0]
+                                  : 0.0f;
+    // The heads' treble: worn or misaligned heads lose it; the faster speed's longer wavelengths keep more.
+    auto hfCut = machine.cutoffHz.load() * (speedSel == 2 ? 1.6f : 1.0f);
     hfCut = std::min (hfCut, (float) (sr * 0.45));
     if (std::abs (hfCut - lastHfCut) > 1.0f)
     {
         for (auto& tr : hfLoss) { tr[0].setLowPass (sr, hfCut, 0.54); tr[1].setLowPass (sr, hfCut, 1.31); }
         lastHfCut = hfCut;
     }
-    auto drop = params.drop.load();
-    auto dropProb = drop * drop * 2.0f / (float) sr;
+    // Worn oxide: a little less treble, whatever the deck.
+    if (std::abs (oxideLossDb - lastOxideLoss) > 0.01f)
+    {
+        for (auto& b : oxideLoss) b.setHighShelf (sr, 5000.0, -oxideLossDb, 0.7);
+        lastOxideLoss = oxideLossDb;
+    }
+    const auto modGain = modDepth * dbToGain (condModDb);
     auto nrOn = params.nrOn.load();
 
     // Playback EQ: the switch picks 120 or 70 us. Hiss follows the tape's own formulation,
@@ -518,7 +559,7 @@ void TapeEngine::readAll (float* const* out, int n) noexcept
 
             // modulation noise rides on the signal; sensitivity sets the tape's output level
             modLp[t] = modRng[t].next() * (1.0f - modCoef) + modLp[t] * modCoef;
-            v *= sensGain * (1.0f + modDepth * modNorm * modLp[t]);
+            v *= sensGain * (1.0f + modGain * modNorm * modLp[t]);
 
             // playback EQ against the EQ this stretch was recorded with
             if (tape != nullptr)
@@ -529,15 +570,21 @@ void TapeEngine::readAll (float* const* out, int n) noexcept
                 if (recUs != playUs) v = sigEq[t].process (v);
             }
 
-            // dropouts
-            if (dropProb > 0.0f && dropTimer[t] <= 0 && hissNoise[t].uniform01() < dropProb)
+            // dropouts: thin places in the oxide, at the same places on every play
+            float dropTarget = 1.0f;
+            if (dropPerBlock > 0.0f)
             {
-                dropTarget[t] = 0.08f + 0.3f * rng.uniform01();
-                dropTimer[t] = (int) ((0.015 + 0.06 * rng.uniform01()) * sr);
+                const auto p = posBuf[(size_t) i];
+                const auto blk = (int64_t) (p / blockCells);
+                if (blk != dropHere[t].block)
+                {
+                    dropBefore[t] = blk - 1 == dropHere[t].block ? dropHere[t] : dropoutAt (tape->getSeed(), t, blk - 1, dropPerBlock);
+                    dropHere[t] = dropoutAt (tape->getSeed(), t, blk, dropPerBlock);
+                }
+                for (auto* d : { &dropHere[t], &dropBefore[t] })
+                    if (p >= d->start && p < d->end) dropTarget = std::min (dropTarget, d->depth);
             }
-            if (dropTimer[t] > 0 && --dropTimer[t] == 0)
-                dropTarget[t] = 1.0f;
-            dropGain[t] += (dropTarget[t] - dropGain[t]) * 0.01f;
+            dropGain[t] += (dropTarget - dropGain[t]) * 0.01f;
             v *= dropGain[t];
 
             // hiss: half white, half pink
@@ -548,6 +595,8 @@ void TapeEngine::readAll (float* const* out, int n) noexcept
             }
 
             v = hfLoss[t][1].process (hfLoss[t][0].process (v));
+            if (oxideLossDb > 0.01f)
+                v = oxideLoss[t].process (v);
 
             if (nrOn)
                 v = decoder[t].process (v);
@@ -662,7 +711,7 @@ void TapeEngine::writeSpan (int t, double p, float v, bool nr, float spd, int sw
         replacedHead[t] = (replacedHead[t] + 1) % punchRing;
         replacedCount[t] = std::min (replacedCount[t] + 1, punchRing);
 
-        tape->writeCell (t, c, val, nr, spd, switchPos);
+        tape->writeCell (t, c, val, nr, companderType, spd, switchPos);
     }
     prevPos[t] = b;
     prevVal[t] = v;
@@ -683,7 +732,7 @@ void TapeEngine::finishPunch (int t) noexcept
         const auto& r = replaced[t][(replacedHead[t] - 1 - j + punchRing) % punchRing];
         const auto g = ((float) j + 0.5f) / (float) k;
         const auto now = tape->readCell (t, r.cell);
-        tape->writeCell (t, r.cell, r.old + (now - r.old) * g, runNr[t], runSpeed[t], runPos[t]);
+        tape->writeCell (t, r.cell, r.old + (now - r.old) * g, runNr[t], companderType, runSpeed[t], runPos[t]);
     }
     replacedCount[t] = 0;
 }
