@@ -1,5 +1,6 @@
 // Headless checks of the tape engine: record real signals, play them back, measure.
 #include "../Source/TapeEngine.h"
+#include "../Source/Wear.h"
 #include <cstdio>
 #include <complex>
 
@@ -144,8 +145,72 @@ std::vector<double> characterSignature (Rig& r)
     return sig;
 }
 
+// TAPEFOUR_WEAR_RENDER=<folder>: one take rendered through wear and age, for tuning Wear.h by ear.
+static void renderWear (const juce::File& folder)
+{
+    folder.createDirectory();
+    auto write = [&] (const juce::String& name, const std::vector<float>& v)
+    {
+        juce::WavAudioFormat wav;
+        auto out = folder.getChildFile (name + ".wav");
+        out.deleteFile();
+        std::unique_ptr<juce::OutputStream> stream (out.createOutputStream());
+        if (auto writer = wav.createWriterFor (stream, juce::AudioFormatWriterOptions().withSampleRate (sr).withNumChannels (1).withBitsPerSample (24)))
+        {
+            const float* ch[] { v.data() };
+            writer->writeFromFloatArrays (ch, 1, (int) v.size());
+        }
+        std::printf ("wrote %s\n", out.getFullPathName().toRawUTF8());
+    };
+    // A take: plucked notes with silence between (where print-through shows), then a chord.
+    auto take = [] (Rig& r)
+    {
+        const double notes[] { 220.0, 277.2, 329.6, 440.0 };
+        for (int k = 0; k < 4; ++k)
+            for (int64_t c = 0; c < cellRate; ++c)
+            {
+                auto t = (double) c / cellRate;
+                auto v = 0.5f * (float) (std::exp (-4.0 * t) * std::sin (juce::MathConstants<double>::twoPi * notes[k] * t));
+                r.tape.writeCell (0, (int64_t) (cellRate * (1.0 + 1.5 * k)) + c, v, true, 0, 1.0f, 0);
+            }
+        for (int64_t c = 0; c < cellRate * 3; ++c)
+        {
+            auto t = (double) c / cellRate;
+            float v = 0;
+            for (auto f : notes) v += 0.12f * (float) std::sin (juce::MathConstants<double>::twoPi * f * t);
+            r.tape.writeCell (0, (int64_t) (cellRate * 8.0) + c, v, true, 0, 1.0f, 0);
+        }
+    };
+    auto play = [] (Rig& r)
+    {
+        r.eng.setHissForTests (true);
+        r.eng.params.nrOn = true;
+        r.rewindTo (0);
+        return r.run (12.0, TapeEngine::Command::play, false, 0, 0);
+    };
+    for (uint16_t passes : { 0, 10, 100, 1000 })
+    {
+        Rig r;
+        take (r);
+        r.tape.setPassesForTests (passes);
+        write ("wear-" + juce::String (passes) + "-passes", play (r));
+    }
+    for (int years : { 1, 5, 20 })
+    {
+        Rig r;
+        take (r);
+        r.tape.setToday ((uint16_t) (r.tape.getToday() + years * 365));
+        write ("age-" + juce::String (years) + "-years", play (r));
+    }
+}
+
 int main()
 {
+    if (auto* dir = std::getenv ("TAPEFOUR_WEAR_RENDER"))
+    {
+        renderWear (juce::File (juce::String (dir)));
+        return 0;
+    }
     {   // 0. The split into cassette and machine changed nothing it shouldn't have. These numbers were
         //    recorded and played by the engine before the split, with its old defaults (hiss 0.55, wow 0.30,
         //    flutter 0.25, drive 0.5, HF loss 0.20, crosstalk 0.30, drift 0.20, NR on, no dropouts). The same
@@ -358,6 +423,75 @@ int main()
         r.tape.protectA = true;
         r.run (0.2, TapeEngine::Command::rec, true, 1000.0, tapeRefPeak);
         check (r.eng.getMode() != Mode::rec && ! r.tape.isRecorded (0, 0), "write-protect: a tape with its tab out can't be recorded on", (int) r.eng.getMode(), 0);
+    }
+
+    {   // 6c. Use: every second that passes the heads in play or record counts; winding doesn't.
+        Rig r;
+        r.run (2.5, TapeEngine::Command::play, false, 0, 0);
+        r.rewindTo (0);
+        r.run (1.5, TapeEngine::Command::rec, true, 1000.0, 0.1f);
+        r.run (0.5, TapeEngine::Command::ff, false, 0, 0);
+        check (r.tape.passesAt (0.5 * cellRate) == 2 && r.tape.passesAt (2.2 * cellRate) == 1 && r.tape.passesAt (40.0 * cellRate) == 0,
+               "wear: passes counted per second of tape (play and record, not winding)", r.tape.passesAt (0.5 * cellRate), 2);
+
+        // A read-only engine (exports) neither wears the tape nor moves it.
+        TapeEngine render;
+        render.prepare (sr, bs);
+        render.setReadOnly (true);
+        render.setTape (&r.tape, false);
+        const auto before = r.tape.position.load();
+        render.command (TapeEngine::Command::play);
+        bool armed[numTracks] {};
+        std::vector<float> o ((size_t) bs);
+        float* outs[numTracks] { o.data(), o.data(), o.data(), o.data() };
+        for (int b = 0; b < 200; ++b) { render.beginBlock (bs, armed); render.readAll (outs, bs); render.endBlock(); }
+        check (std::abs (r.tape.position.load() - before) < 1e-9 && r.tape.passesAt (0.5 * cellRate) == 2,
+               "wear: rendering for export leaves the tape as it was", r.tape.passesAt (0.5 * cellRate), 2);
+
+        auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("tf_wear_test");
+        dir.deleteRecursively();
+        r.tape.save (dir);
+        auto back = Tape::load (dir);
+        check (back != nullptr && back->passesAt (0.5 * cellRate) == 2 && dir.getChildFile (tfmt::CassFiles::wear).existsAsFile(),
+               "wear: kept with the cassette (wear.bin)", back != nullptr ? back->passesAt (0.5 * cellRate) : -1, 2);
+        dir.deleteRecursively();
+    }
+
+    {   // 6d. Wear is subtle: treble at 10 kHz after 100 and 1000 passes, and none when the deck plays it as new.
+        auto at10k = [] (uint16_t passes, bool asNew)
+        {
+            Rig r;
+            r.run (1.5, TapeEngine::Command::rec, true, 10000.0, tapeRefPeak * 0.1f);
+            r.tape.setPassesForTests (passes);
+            r.eng.machine.honoursTapeCondition = ! asNew;
+            r.rewindTo (0);
+            auto out = r.run (1.5, TapeEngine::Command::play, false, 0, 0);
+            return db (tone (out, 10000.0, 0.3, 1.2));
+        };
+        const auto fresh = at10k (0, false), hundred = at10k (100, false), thousand = at10k (1000, false), ignored = at10k (1000, true);
+        check (fresh - hundred > 0.05 && fresh - hundred < 0.4, "wear: 100 passes cost a fifth of a dB at 10 kHz", fresh - hundred, 0.2);
+        check (fresh - thousand > 0.4 && fresh - thousand < 1.0, "wear: 1000 passes cost under a dB at 10 kHz", fresh - thousand, 0.7);
+        check (std::abs (fresh - ignored) < 0.02, "wear: none when the deck plays every cassette as new", fresh - ignored, 0.0);
+    }
+
+    {   // 6e. Age: print-through grows from the day a stretch was recorded, onto the turns either side.
+        auto preEcho = [] (int daysLater)
+        {
+            Rig r;
+            for (int64_t c = (int64_t) cellRate * 10; c < (int64_t) cellRate * 11; ++c)
+                r.tape.writeCell (0, c, 0.25f * (float) std::sin (juce::MathConstants<double>::twoPi * 1000.0 * (double) c / cellRate), false, 0, 1.0f, 0);
+            r.tape.setToday ((uint16_t) (r.tape.getToday() + daysLater));
+            r.rewindTo (5.0 * cellRate);
+            auto out = r.run (6.5, TapeEngine::Command::play, false, 0, 0);
+            // The turn ahead of 10 s on a C-60: about 2.9 s of tape, so the copy sits at about 7.1 s (out at 2.1 s).
+            const auto turn = Wear::turnCells (10.0 / (30.0 * 60.0), r.tape.getTypeInfo().fullPackMm, cellRate) / cellRate;
+            auto copyAt = 10.0 - turn - 5.0;
+            return db (tone (out, 1000.0, copyAt + 0.15, copyAt + 0.85) / tone (out, 1000.0, 5.15, 5.85));
+        };
+        const auto sameDay = preEcho (0), aYear = preEcho (365), tenYears = preEcho (3652);
+        check (sameDay < -90.0, "age: a fresh recording has no print-through (dB re the recording)", sameDay, -100.0);
+        check (std::abs (aYear - (Wear::printThroughDb (1.0f) - 0.6)) < 1.5, "age: after a year, a pre-echo about 54 dB down", aYear, -54.9);
+        check (tenYears > aYear + 2.0 && tenYears < -48.0, "age: after ten years a little more, still faint", tenYears, -51.9);
     }
 
     {   // 7. end of tape stops the transport

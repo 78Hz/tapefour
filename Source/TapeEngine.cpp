@@ -1,4 +1,5 @@
 #include "TapeEngine.h"
+#include "Wear.h"
 
 #include <complex>
 
@@ -308,8 +309,10 @@ void TapeEngine::prepare (double sampleRate, int maxBlockSize)
     modCoef = (float) a;
     modNorm = (float) (1.0 / std::sqrt ((1.0 - a) / (1.0 + a) / 3.0));
     lastOxideLoss = -1.0f;
+    printCoef = (float) (1.0 - std::exp (-juce::MathConstants<double>::twoPi * 2500.0 / sr));
     for (int t = 0; t < numTracks; ++t)
     {
+        printLp[t] = 0.0f;
         hasPrev[t] = false;
         dropHere[t] = dropBefore[t] = Dropout();
         for (auto& b : hfLoss[t]) b.reset();
@@ -323,7 +326,8 @@ void TapeEngine::setTape (Tape* t, bool newTape) noexcept
 {
     tape = t;
     pos = t != nullptr ? t->position.load() : 0.0;
-    for (int k = 0; k < numTracks; ++k) { dropHere[k] = dropBefore[k] = Dropout(); dropGain[k] = 1.0f; }
+    for (int k = 0; k < numTracks; ++k) { dropHere[k] = dropBefore[k] = Dropout(); dropGain[k] = 1.0f; printLp[k] = 0.0f; }
+    lastPassSecond = -1;
     cfgModel = nullptr;   // another cassette: its formulation is set up afresh
     // A tape going in sets the switch to its own type; moving it after that is up to you.
     if (t != nullptr && newTape) params.tapeSwitch = t->naturalPosition();
@@ -473,6 +477,23 @@ void TapeEngine::beginBlock (int n, const bool* armed) noexcept
 
     if (m == Mode::stop) windVel = 0;
     mode = (int) m;
+
+    // Every second of tape that goes past the heads in play or record is a pass (fast winding lifts it clear).
+    if (! readOnly && (m == Mode::play || m == Mode::rec))
+    {
+        const auto sec = (int64_t) (pos / cellRate);
+        if (sec != lastPassSecond)
+        {
+            const bool onward = lastPassSecond >= 0 && sec > lastPassSecond && sec - lastPassSecond < 8;
+            for (auto s = onward ? lastPassSecond + 1 : sec; s <= sec; ++s)
+                tape->addPass (s);
+            lastPassSecond = sec;
+        }
+    }
+    else
+    {
+        lastPassSecond = -1;
+    }
 }
 
 void TapeEngine::readAll (float* const* out, int n) noexcept
@@ -498,8 +519,39 @@ void TapeEngine::readAll (float* const* out, int n) noexcept
     const auto* ch = tape != nullptr ? &tape->getCharacter() : nullptr;
     const float condHissDb  = honours ? ch->hissDb.load() : 0.0f;
     const float condModDb   = honours ? ch->modNoiseDb.load() : 0.0f;
-    const float oxideLossDb = honours ? std::max (0.0f, ch->trebleLossDb.load()) : 0.0f;
-    const float dropPerBlock = honours ? std::max (0.0f, ch->dropoutsPerMinute.load()) * (float) blockCells / (60.0f * cellRate) : 0.0f;
+    const float condTrebleDb = honours ? std::max (0.0f, ch->trebleLossDb.load()) : 0.0f;
+    float dropPerBlock = honours ? std::max (0.0f, ch->dropoutsPerMinute.load()) * (float) blockCells / (60.0f * cellRate) : 0.0f;
+
+    // Use and age (Wear.h): what the passes over the heads at this point of the tape, and the years, have added.
+    float wearTrebleDb = 0.0f, wearModDb = 0.0f;
+    float printBefore[numTracks] {}, printAfter[numTracks] {};
+    double turn = 0.0;
+    if (honours && blockHasPlayback)
+    {
+        const auto p0 = posBuf[0];
+        const auto passes = (float) tape->passesAt (p0);
+        wearTrebleDb = Wear::trebleLossDb (passes, tape->ageYears());
+        wearModDb = Wear::modNoiseDb (passes);
+        dropPerBlock *= Wear::dropoutFactor (passes);
+
+        // Print-through: each recording has slowly copied itself onto the turns either side of it.
+        // The turn ahead is heard as a faint pre-echo, the one behind as a post-echo.
+        const auto len = (double) tape->getLengthCells();
+        turn = Wear::turnCells (p0 / len, tape->getTypeInfo().fullPackMm, cellRate);
+        const auto today = tape->getToday();
+        for (int t = 0; t < numTracks; ++t)
+        {
+            auto copyFrom = [&] (double src)
+            {
+                if (src < 0 || src >= len) return 0.0f;
+                const auto day = tape->recordedDay (t, tape->blockAt (src));
+                if (day <= 0 || today <= day) return 0.0f;
+                return dbToGain (Wear::printThroughDb ((float) (today - day) / 365.25f));
+            };
+            printBefore[t] = copyFrom (p0 + turn);
+            printAfter[t]  = copyFrom (p0 - turn);
+        }
+    }
 
     // Hiss at the tape's measured A-weighted level below Dolby level, plus what its condition adds.
     // The faster speed spreads the same noise over a wider band: about 3 dB less in the audible range.
@@ -516,12 +568,13 @@ void TapeEngine::readAll (float* const* out, int n) noexcept
         lastHfCut = hfCut;
     }
     // Worn oxide: a little less treble, whatever the deck.
+    const float oxideLossDb = condTrebleDb + wearTrebleDb;
     if (std::abs (oxideLossDb - lastOxideLoss) > 0.01f)
     {
         for (auto& b : oxideLoss) b.setHighShelf (sr, 5000.0, -oxideLossDb, 0.7);
         lastOxideLoss = oxideLossDb;
     }
-    const auto modGain = modDepth * dbToGain (condModDb);
+    const auto modGain = modDepth * dbToGain (condModDb + wearModDb);
     auto nrOn = params.nrOn.load();
 
     // Playback EQ: the switch picks 120 or 70 us. Hiss follows the tape's own formulation,
@@ -554,6 +607,14 @@ void TapeEngine::readAll (float* const* out, int n) noexcept
             }
 
             auto v = r[i];
+            if (printBefore[t] > 0.0f || printAfter[t] > 0.0f)
+            {
+                // the printed copies are on the tape itself, mostly the longer wavelengths
+                const auto p = posBuf[(size_t) i];
+                auto copy = printBefore[t] * tape->readInterpolated (t, p + turn) + printAfter[t] * tape->readInterpolated (t, p - turn);
+                printLp[t] += (copy - printLp[t]) * printCoef;
+                v += printLp[t];
+            }
             if (xtGain > 0.0f)
                 v += xtGain * ((left != nullptr ? left[i] : 0.0f) + (right != nullptr ? right[i] : 0.0f));
 
@@ -744,7 +805,7 @@ void TapeEngine::endBlock() noexcept
         if (hasPrev[t] && ! wroteThisBlock[t])
             finishPunch (t);
 
-    if (tape != nullptr)
+    if (tape != nullptr && ! readOnly)
         tape->position.store (pos);
     lastMode = mode.load();
 }

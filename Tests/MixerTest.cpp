@@ -3,6 +3,7 @@
 #include "../Source/TapeWriter.h"
 #include "../Source/ClapFormat.h"
 #include "../Source/TapeShelf.h"
+#include "../Source/Exporter.h"
 #include <cstdio>
 #include <thread>
 
@@ -126,6 +127,8 @@ double tone (const std::vector<float>& v, double hz, double from, double to)
     }
     return 2.0 * std::sqrt (re * re + im * im) / (double) (b - a);
 }
+
+double db (double x) { return 20.0 * std::log10 (std::max (1.0e-9, x)); }
 
 double rms (const std::vector<float>& v, double from, double to)
 {
@@ -709,6 +712,61 @@ int main()
         check (! TapeShelf::importCassette (dir.getChildFile ("broken.cass"), importedId, error) && TapeShelf::load (tape->id) != nullptr,
                "cass: a damaged file is refused and the shelf left as it was", 1, 1);
         TapeShelf::setFolderForTests ({});
+        dir.deleteRecursively();
+    }
+
+    // ---- Exports: each recorded track as the deck plays it, in every format at once ----
+    {
+        auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("tf_export_test");
+        dir.deleteRecursively();
+        dir.createDirectory();
+        Tape tape (1, defaultTapeModel, tfmt::Condition());
+        for (int64_t c = 0; c < (int64_t) cellRate * 3; ++c)
+        {
+            auto ph = juce::MathConstants<double>::twoPi * (double) c / cellRate;
+            tape.writeCell (0, c, 0.2f * (float) std::sin (1000.0 * ph), false, 0, 1.0f, 0);
+            tape.writeCell (2, c, 0.2f * (float) std::sin (300.0 * ph), false, 0, 1.0f, 0);
+        }
+        tape.position = 12345.0;
+        TapeEngine::Params op;
+        op.nrOn = false;
+        TapeEngine::Machine perfect;
+        perfect.wowPct = 0; perfect.flutterPct = 0; perfect.driftPct = 0; perfect.cutoffHz = 20000.0f; perfect.crosstalkDb = -120.0f;
+        TrackExport job;
+        job.folder = dir;
+        job.baseName = "demo";
+        job.formats.wav = job.formats.flac = job.formats.mp3 = true;
+        job.sampleRate = 48000.0;
+        float lastProgress = 0;
+        const bool ok = job.run (tape, op, perfect, [&] (float p) { lastProgress = p; });
+        check (ok && job.written.size() == 6 && dir.getChildFile ("demo - track 1.wav").existsAsFile() && dir.getChildFile ("demo - track 3.mp3").existsAsFile()
+                   && ! dir.getChildFile ("demo - track 2.wav").existsAsFile(),
+               "export: one file per recorded track per format (WAV, FLAC, MP3)", job.written.size(), 6);
+        check (std::abs (tape.position.load() - 12345.0) < 1e-9 && tape.passesAt (cellRate * 1.5) == 0 && lastProgress > 0.5f,
+               "export: the tape in the deck isn't moved or worn", tape.passesAt (cellRate * 1.5), 0);
+
+        juce::AudioFormatManager fm;
+        fm.registerBasicFormats();
+        fm.registerFormat (new juce::MP3AudioFormat(), false);
+        auto readBack = [&] (const juce::String& name)
+        {
+            juce::AudioBuffer<float> b;
+            if (auto reader = std::unique_ptr<juce::AudioFormatReader> (fm.createReaderFor (dir.getChildFile (name))))
+            {
+                b.setSize (1, (int) reader->lengthInSamples);
+                reader->read (&b, 0, (int) reader->lengthInSamples, 0, true, false);
+            }
+            return std::vector<float> (b.getReadPointer (0), b.getReadPointer (0) + b.getNumSamples());
+        };
+        auto wav = readBack ("demo - track 1.wav"), flac = readBack ("demo - track 1.flac"), mp3 = readBack ("demo - track 1.mp3");
+        auto mp3Low = readBack ("demo - track 3.mp3");
+        double flacDiff = 0;
+        for (size_t i = 0; i < std::min (wav.size(), flac.size()); ++i) flacDiff = std::max (flacDiff, (double) std::abs (wav[i] - flac[i]));
+        check (std::abs ((double) wav.size() / 48000.0 - 3.5) < 0.1 && flac.size() == wav.size() && flacDiff < 1.0e-5,
+               "export: WAV and FLAC hold the same audio (the used tape plus half a second)", (double) wav.size() / 48000.0, 3.5);
+        const auto wavLevel = tone (wav, 1000.0, 0.5, 2.5), mp3Level = tone (mp3, 1000.0, 0.6, 2.6), mp3Bass = tone (mp3Low, 300.0, 0.6, 2.6);
+        check (wavLevel > 0.05 && std::abs (db (mp3Level / wavLevel)) < 0.5 && mp3Bass > 0.05 && std::abs ((double) mp3.size() / 48000.0 - 3.5) < 0.15,
+               "export: the MP3s decode to the same tones, at the right length", db (mp3Level / wavLevel), 0.0);
         dir.deleteRecursively();
     }
 

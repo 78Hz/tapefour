@@ -6,6 +6,7 @@
 #include "ChainEditor.h"
 #include "InlayCard.h"
 #include "TapeWriter.h"
+#include "Exporter.h"
 #include "PluginWindow.h"
 
 namespace tf
@@ -48,13 +49,18 @@ private:
         settings if fresh); while recording only the audio and track sheet are saved. */
     void saveTape (bool announce, bool withDeck = true, bool fresh = false);
     /** Saves the tape in the deck, then makes or loads the next one in the background and puts it in. */
-    void switchTape (std::function<std::unique_ptr<Tape>()> make, std::function<void (Tape&)> after, const juce::String& busyText);
+    void switchTape (std::function<std::unique_ptr<Tape>()> make, std::function<void (Tape&)> after, const juce::String& whatItsDoing);
     void insertBlank (int type, int model, const juce::String& grade = "new");
     void loadFromShelf (const juce::String& id);
     void showEjectMenu();
     void exportCassette();
     void chooseCassetteFile();
     void toggleWriteProtect();
+    void exportTracks();
+    /** The file formats exports and mixdowns write, as a menu of choices (shared, remembered). */
+    juce::PopupMenu formatsMenu();
+    void setExportFormats (const ExportFormats&);
+    ExportFormats exportFormats;
 
     // tracks
     void openChain (int track);
@@ -120,7 +126,8 @@ private:
     std::unique_ptr<juce::Component> learnLayer;
     juce::String learnShown;
     TapeWriter writer;
-    bool tapeBusy = false;      // a tape is being loaded or made
+    bool tapeBusy = false;      // a tape is being loaded, made or exported
+    juce::String busyText;      // what the deck is busy with
 
     juce::String message;
     double messageUntil = 0;

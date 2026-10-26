@@ -131,8 +131,10 @@ struct TrackMap
     std::vector<uint8_t> flags;
     std::vector<uint8_t> recorder;      // index into CassetteInfo::recorders + 1; 0 unknown
     std::vector<uint16_t> speedMilli;   // speed relative to the reference, x 1000 (incl. varispeed)
+    std::vector<uint16_t> day;          // the day it was recorded: days since 2000-01-01 (UTC); 0 unknown
 
-    void resize (size_t blocks) { flags.resize (blocks); recorder.resize (blocks); speedMilli.resize (blocks); }
+    static constexpr size_t bytesPerBlock = 6;
+    void resize (size_t blocks) { flags.resize (blocks); recorder.resize (blocks); speedMilli.resize (blocks); day.resize (blocks); }
 };
 
 Json toJson (const CassetteInfo&);
@@ -142,6 +144,10 @@ bool fromJson (const Json&, CassetteState&, std::string& error);
 
 /** The current time as ISO 8601 UTC. */
 std::string isoNow();
+/** Today, as the maps count days: since 2000-01-01, UTC. */
+uint16_t dayNumberToday();
+/** The day number of an ISO 8601 date ("2026-10-27..."), or 0 if it isn't one. */
+uint16_t dayNumberOf (const std::string& iso);
 /** A new random UUID. */
 std::string newUuid();
 

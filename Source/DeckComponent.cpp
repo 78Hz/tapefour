@@ -170,6 +170,7 @@ DeckComponent::DeckComponent (AudioEngine& e, juce::PropertiesFile& settings)
         if (learnLayer != nullptr) learnLayer->repaint();
     };
 
+    if (auto f = props.getXmlValue ("exportFormats")) exportFormats = ExportFormats::fromXml (f.get());
     loadStartupTape();
     if (engine.getStartupProblem().isNotEmpty())
         say (engine.getStartupProblem() + " - OPEN SETUP", 10.0);
@@ -356,7 +357,7 @@ void DeckComponent::transport (TapeEngine::Command c)
 {
     if (tapeBusy)
     {
-        say ("LOADING TAPE...");
+        say (busyText.isNotEmpty() ? busyText : juce::String ("LOADING TAPE..."));
         return;
     }
     if (engine.getTape() == nullptr)
@@ -397,6 +398,9 @@ void DeckComponent::transport (TapeEngine::Command c)
 void DeckComponent::timerCallback()
 {
     ++frame;
+    // The cassette's calendar: new recordings are stamped with today, old ones age from theirs.
+    if (frame % (30 * 60) == 1)
+        if (auto* t = engine.getTape()) t->setToday (tfmt::dayNumberToday());
     const bool blink = (frame / 8) % 2 == 0;
     auto* tape = engine.getTape();
     auto mode = engine.tapeEngine.getMode();
@@ -607,10 +611,11 @@ void DeckComponent::saveTape (bool announce, bool withDeck, bool fresh)
     });
 }
 
-void DeckComponent::switchTape (std::function<std::unique_ptr<Tape>()> make, std::function<void (Tape&)> after, const juce::String& busyText)
+void DeckComponent::switchTape (std::function<std::unique_ptr<Tape>()> make, std::function<void (Tape&)> after, const juce::String& whatItsDoing)
 {
     if (tapeBusy) return;
     tapeBusy = true;
+    busyText = whatItsDoing;
     say (busyText, 120.0);
     closeOverlay();
 
@@ -624,6 +629,7 @@ void DeckComponent::switchTape (std::function<std::unique_ptr<Tape>()> make, std
                         if (safe == nullptr) return;
                         auto& d = *safe;
                         d.tapeBusy = false;
+                        d.busyText = {};
                         d.say ({}, 0.0);
                         if (*made == nullptr)
                         {
@@ -728,6 +734,8 @@ void DeckComponent::showEjectMenu()
         m.addSeparator();
         m.addSectionHeader ("THIS CASSETTE");
         m.addItem ("Export as a .cass file...", [this] { exportCassette(); });
+        m.addItem ("Export its tracks (" + exportFormats.describe() + ")...", [this] { exportTracks(); });
+        m.addSubMenu ("File formats for exports and mixdowns", formatsMenu());
         m.addItem ("Write-protect it (break out the tab)", true, t->protectA.load(), [this] { toggleWriteProtect(); });
     }
 
@@ -748,6 +756,93 @@ void DeckComponent::showEjectMenu()
     }
 
     m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&eject).withMinimumWidth (360));
+}
+
+juce::PopupMenu DeckComponent::formatsMenu()
+{
+    juce::PopupMenu m;
+    auto f = exportFormats;
+    auto toggle = [this] (bool ExportFormats::* which)
+    {
+        auto g = exportFormats;
+        g.*which = ! (g.*which);
+        if (! g.any()) return;   // at least one
+        setExportFormats (g);
+    };
+    m.addItem ("WAV", true, f.wav, [toggle] { toggle (&ExportFormats::wav); });
+    m.addItem ("FLAC", true, f.flac, [toggle] { toggle (&ExportFormats::flac); });
+    m.addItem ("MP3", true, f.mp3, [toggle] { toggle (&ExportFormats::mp3); });
+    m.addItem ("All three", true, f.all(), [this] { auto g = exportFormats; g.wav = g.flac = g.mp3 = true; setExportFormats (g); });
+    m.addSeparator();
+    juce::PopupMenu wavBits, flacBits, mp3Rate;
+    for (int b : { 16, 24, 32 })
+        wavBits.addItem (b == 32 ? juce::String ("32-bit float") : juce::String (b) + "-bit", true, f.wavBits == b,
+                         [this, b] { auto g = exportFormats; g.wavBits = b; setExportFormats (g); });
+    for (int b : { 16, 24 })
+        flacBits.addItem (juce::String (b) + "-bit", true, f.flacBits == b, [this, b] { auto g = exportFormats; g.flacBits = b; setExportFormats (g); });
+    for (int k : { 192, 256, 320 })
+        mp3Rate.addItem (juce::String (k) + " kbps", true, f.mp3Kbps == k, [this, k] { auto g = exportFormats; g.mp3Kbps = k; setExportFormats (g); });
+    m.addSubMenu ("WAV: " + (f.wavBits == 32 ? juce::String ("32-bit float") : juce::String (f.wavBits) + "-bit"), wavBits);
+    m.addSubMenu ("FLAC: " + juce::String (f.flacBits) + "-bit", flacBits);
+    m.addSubMenu ("MP3: " + juce::String (f.mp3Kbps) + " kbps", mp3Rate);
+    return m;
+}
+
+void DeckComponent::setExportFormats (const ExportFormats& f)
+{
+    exportFormats = f;
+    props.setValue ("exportFormats", f.toXml().get());
+    props.saveIfNeeded();
+    say ("FILES: " + f.describe());
+}
+
+void DeckComponent::exportTracks()
+{
+    auto* t = engine.getTape();
+    if (t == nullptr) return;
+    if (t->tracksUsed() == 0) { say ("NOTHING RECORDED ON THIS TAPE YET"); return; }
+    chooser = std::make_unique<juce::FileChooser> ("Export the tracks into a folder",
+                                                   juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("TapeFour"));
+    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
+                          [safe = juce::Component::SafePointer<DeckComponent> (this)] (const juce::FileChooser& fc)
+    {
+        if (safe == nullptr || fc.getResult() == juce::File()) return;
+        auto& d = *safe;
+        auto* tape = d.engine.getTape();
+        if (tape == nullptr || d.tapeBusy) return;
+        if (d.engine.tapeEngine.getMode() != Mode::stop) { d.say ("STOP THE TAPE FIRST"); return; }
+
+        auto job = std::make_shared<TrackExport>();
+        job->folder = fc.getResult();
+        job->baseName = tape->name.isNotEmpty() ? tape->name : tape->productName();
+        job->formats = d.exportFormats;
+        auto* device = d.engine.deviceManager.getCurrentAudioDevice();
+        job->sampleRate = device != nullptr ? device->getCurrentSampleRate() : 48000.0;
+        d.tapeBusy = true;   // the transport waits: the tape is being read
+        d.busyText = "EXPORTING TRACKS...";
+        d.say (d.busyText, 600.0);
+        auto ok = std::make_shared<bool> (false);
+        auto* audio = &d.engine;
+        d.writer.enqueue ([job, ok, tape, audio, safe]
+                          {
+                              *ok = job->run (*tape, audio->tapeEngine.params, audio->tapeEngine.machine, [safe] (float p)
+                              {
+                                  juce::MessageManager::callAsync ([safe, p]
+                                  {
+                                      if (safe != nullptr && safe->tapeBusy)
+                                          safe->say ("EXPORTING TRACKS " + juce::String (juce::roundToInt (p * 100.0f)) + "%", 600.0);
+                                  });
+                              });
+                          },
+                          [safe, job, ok]
+                          {
+                              if (safe == nullptr) return;
+                              safe->tapeBusy = false;
+                              safe->busyText = {};
+                              safe->say (*ok ? "EXPORTED " + juce::String (job->written.size()) + " FILES TO " + job->folder.getFileName().toUpperCase()
+                                             : "COULD NOT EXPORT: " + job->error.toUpperCase().substring (0, 40), 6.0);
+                          });
+    });
 }
 
 void DeckComponent::toggleWriteProtect()

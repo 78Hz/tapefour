@@ -71,6 +71,11 @@ int main()
         check (Json::parse ("{\"x\":1}")->operator[] ("missing")["deeper"].number (7) > 6.9, "json: missing members read as their defaults");
     }
 
+    // ---- days, as the maps count them ----
+    check (dayNumberOf ("2000-01-02T00:00:00Z") == 1 && dayNumberOf ("2026-10-27") == 9796 && dayNumberOf ("not a date") == 0
+               && dayNumberToday() > 9700,
+           "days: counted from 2000-01-01");
+
     // ---- CRC and zip ----
     {
         check (crc32 ("123456789", 9) == 0xcbf43926u, "zip: CRC-32 check value");
@@ -136,10 +141,11 @@ int main()
         map.flags[3] = TrackMap::recorded | TrackMap::nrEncoded | (1 << 2);
         map.recorder[3] = 1;
         map.speedMilli[3] = 2000;
+        map.day[3] = dayNumberOf ("2026-10-27T10:00:00Z");
         check (writeMap (folder / CassFiles::map (0), map), "cassette: a track map is written");
         TrackMap map2;
         check (readMap (folder / CassFiles::map (0), (size_t) info.numBlocks(), map2) && map2.flags == map.flags
-                   && map2.speedMilli == map.speedMilli && map2.recorder == map.recorder,
+                   && map2.speedMilli == map.speedMilli && map2.recorder == map.recorder && map2.day == map.day,
                "cassette: a track map reads back");
         std::vector<uint16_t> wear ((size_t) info.numSeconds(), 0);
         wear[5] = 300;

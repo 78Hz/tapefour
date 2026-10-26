@@ -2,6 +2,7 @@
 #include "Zip.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <chrono>
 #include <fstream>
 #include <ctime>
@@ -81,6 +82,40 @@ std::string isoNow()
     char buf[32];
     std::strftime (buf, sizeof (buf), "%Y-%m-%dT%H:%M:%SZ", &u);
     return buf;
+}
+
+namespace
+{
+    // Days from 1970-01-01 to y-m-d (proleptic Gregorian): Howard Hinnant's days_from_civil.
+    int64_t daysFromCivil (int64_t y, unsigned m, unsigned d)
+    {
+        y -= m <= 2;
+        const auto era = (y >= 0 ? y : y - 399) / 400;
+        const auto yoe = (unsigned) (y - era * 400);
+        const auto doy = (153 * (m > 2 ? m - 3 : m + 9) + 2) / 5 + d - 1;
+        const auto doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+        return era * 146097 + (int64_t) doe - 719468;
+    }
+    const int64_t epoch2000 = daysFromCivil (2000, 1, 1);
+
+    uint16_t toDayNumber (int64_t daysSince1970)
+    {
+        auto d = daysSince1970 - epoch2000;
+        return (uint16_t) (d < 1 ? 1 : (d > 65535 ? 65535 : d));
+    }
+}
+
+uint16_t dayNumberToday()
+{
+    return toDayNumber ((int64_t) std::time (nullptr) / 86400);
+}
+
+uint16_t dayNumberOf (const std::string& iso)
+{
+    int y = 0, m = 0, d = 0;
+    if (iso.size() < 10 || std::sscanf (iso.c_str(), "%4d-%2d-%2d", &y, &m, &d) != 3 || m < 1 || m > 12 || d < 1 || d > 31)
+        return 0;
+    return toDayNumber (daysFromCivil (y, (unsigned) m, (unsigned) d));
 }
 
 std::string newUuid()
@@ -401,28 +436,35 @@ bool readMap (const fs::path& file, size_t blocks, TrackMap& map)
     map.resize (blocks);
     std::ifstream in (file, std::ios::binary);
     if (! in) return true;   // a track that was never recorded has no map
-    std::vector<uint8_t> rec (4);
+    constexpr auto n = TrackMap::bytesPerBlock;
+    uint8_t rec[n];
     for (size_t b = 0; b < blocks; ++b)
     {
-        in.read (reinterpret_cast<char*> (rec.data()), 4);
-        if (in.gcount() < 4) break;
+        in.read (reinterpret_cast<char*> (rec), (std::streamsize) n);
+        if ((size_t) in.gcount() < n) break;
         map.flags[b] = rec[0];
         map.recorder[b] = rec[1];
         map.speedMilli[b] = (uint16_t) (rec[2] | (rec[3] << 8));
+        map.day[b] = (uint16_t) (rec[4] | (rec[5] << 8));
     }
     return true;
 }
 
 bool writeMap (const fs::path& file, const TrackMap& map)
 {
-    std::vector<uint8_t> bytes (map.flags.size() * 4);
+    constexpr auto n = TrackMap::bytesPerBlock;
+    std::vector<uint8_t> bytes (map.flags.size() * n);
     for (size_t b = 0; b < map.flags.size(); ++b)
     {
-        bytes[b * 4]     = map.flags[b];
-        bytes[b * 4 + 1] = b < map.recorder.size() ? map.recorder[b] : 0;
+        auto* r = &bytes[b * n];
+        r[0] = map.flags[b];
+        r[1] = b < map.recorder.size() ? map.recorder[b] : 0;
         auto s = b < map.speedMilli.size() ? map.speedMilli[b] : (uint16_t) 0;
-        bytes[b * 4 + 2] = (uint8_t) (s & 0xff);
-        bytes[b * 4 + 3] = (uint8_t) (s >> 8);
+        r[2] = (uint8_t) (s & 0xff);
+        r[3] = (uint8_t) (s >> 8);
+        auto d = b < map.day.size() ? map.day[b] : (uint16_t) 0;
+        r[4] = (uint8_t) (d & 0xff);
+        r[5] = (uint8_t) (d >> 8);
     }
     return writeBinaryAtomically (file, bytes);
 }

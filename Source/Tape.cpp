@@ -76,6 +76,7 @@ Tape::Tape (int typeIndex, int modelIndex, const tfmt::Condition& c)
     recorders = { tf4DeckId };
     currentRecorder = 1;
     seed = fnv1a (id);
+    madeDay = tfmt::dayNumberOf (str (createdIso));
     setCondition (c);
 }
 
@@ -143,6 +144,7 @@ Tape::Tape (const tfmt::CassetteInfo& info)
     recorders = info.recorders;
     unknownManifest = info.unknown;
     seed = fnv1a (id);
+    madeDay = tfmt::dayNumberOf (info.created);
     setCondition (info.condition);
 }
 
@@ -164,11 +166,15 @@ void Tape::allocate()
         flags[t].reset (new std::atomic<uint8_t>[(size_t) numBlocks]);
         recorder[t].reset (new std::atomic<uint8_t>[(size_t) numBlocks]);
         speedMilli[t].reset (new std::atomic<uint16_t>[(size_t) numBlocks]);
+        day[t].reset (new std::atomic<uint16_t>[(size_t) numBlocks]);
         dirty[t].reset (new std::atomic<uint8_t>[(size_t) numSeconds]);
 
-        for (int b = 0; b < numBlocks; ++b) { flagsAt (t, b) = 0; recorderAt (t, b) = 0; speedMilliAt (t, b) = 0; }
+        for (int b = 0; b < numBlocks; ++b) { flagsAt (t, b) = 0; recorderAt (t, b) = 0; speedMilliAt (t, b) = 0; dayAt (t, b) = 0; }
         for (int s = 0; s < numSeconds; ++s) dirtyAt (t, s) = 0;
     }
+    passes.reset (new std::atomic<uint16_t>[(size_t) numSeconds]);
+    for (int s = 0; s < numSeconds; ++s) passesAt (s) = 0;
+    today = tfmt::dayNumberToday();
 }
 
 Tape::~Tape()
@@ -234,6 +240,7 @@ void Tape::writeCell (int track, int64_t c, float v, bool nrEncoded, int nrType,
                               std::memory_order_relaxed);
     recorderAt (track, b).store (currentRecorder.load (std::memory_order_relaxed), std::memory_order_relaxed);
     speedMilliAt (track, b).store ((uint16_t) juce::jlimit (0, 65535, juce::roundToInt (speed * 1000.0f)), std::memory_order_relaxed);
+    dayAt (track, b).store (today.load (std::memory_order_relaxed), std::memory_order_relaxed);
     // Release: a saver that sees the flag also sees the cell.
     dirtyAt (track, (int) (c / cellRate)).store (1, std::memory_order_release);
     dataDirty.store (true, std::memory_order_release);
@@ -259,7 +266,7 @@ int Tape::tracksUsed() const
 
 bool Tape::needsSaving() const noexcept
 {
-    return dataDirty.load() || metaDirty.load();
+    return dataDirty.load() || metaDirty.load() || wearDirty.load();
 }
 
 //==============================================================================
@@ -369,7 +376,13 @@ std::shared_ptr<Tape::Snapshot> Tape::snapshot() const
             m.flags[(size_t) b] = flagsAt (t, b).load (std::memory_order_relaxed);
             m.recorder[(size_t) b] = recorderAt (t, b).load (std::memory_order_relaxed);
             m.speedMilli[(size_t) b] = speedMilliAt (t, b).load (std::memory_order_relaxed);
+            m.day[(size_t) b] = dayAt (t, b).load (std::memory_order_relaxed);
         }
+    }
+    if (wearDirty.exchange (false))
+    {
+        s->wear.resize ((size_t) numSeconds);
+        for (int sec = 0; sec < numSeconds; ++sec) s->wear[(size_t) sec] = passesAt (sec).load (std::memory_order_relaxed);
     }
     return s;
 }
@@ -389,6 +402,8 @@ bool Tape::writeSnapshot (const Snapshot& s, const juce::File& folder)
         if (any || file.existsAsFile())   // a track never recorded on has no map
             ok = tfmt::writeMap (pathOf (file), m) && ok;
     }
+    if (! s.wear.empty())
+        ok = tfmt::writeWear (pathOf (folder.getChildFile (tfmt::CassFiles::wear)), s.wear) && ok;
     ok = tfmt::writeState (dir, s.state, err) && ok;
     ok = tfmt::writeManifest (dir, s.info, err) && ok;
     return ok;
@@ -465,6 +480,7 @@ std::unique_ptr<Tape> Tape::load (const juce::File& folder)
             tape->flagsAt (t, b) = m.flags[(size_t) b];
             tape->recorderAt (t, b) = m.recorder[(size_t) b];
             tape->speedMilliAt (t, b) = m.speedMilli[(size_t) b];
+            tape->dayAt (t, b) = m.day[(size_t) b];
         }
 
         auto file = folder.getChildFile (str (info.tracks[(size_t) t].pcm));
@@ -480,9 +496,14 @@ std::unique_ptr<Tape> Tape::load (const juce::File& folder)
         }
     }
 
+    std::vector<uint16_t> wear;
+    tfmt::readWear (pathOf (folder.getChildFile (tfmt::CassFiles::wear)), (size_t) tape->numSeconds, wear);
+    for (int sec = 0; sec < tape->numSeconds; ++sec) tape->passesAt (sec) = wear[(size_t) sec];
+
     readSession (*tape, folder);
     tape->dataDirty = false;
     tape->metaDirty = false;
+    tape->wearDirty = false;
     return tape;
 }
 
@@ -528,6 +549,7 @@ std::unique_ptr<Tape> Tape::loadLegacy (const juce::File& folder)
         for (int i = 0; i < 12; ++i) if (parts.size() == 3 && parts[1].equalsIgnoreCase (months[i])) m = i + 1;
         if (m > 0)
             tape->createdIso = parts[2] + "-" + juce::String (m).paddedLeft ('0', 2) + "-" + parts[0].paddedLeft ('0', 2) + "T00:00:00Z";
+        tape->madeDay = tfmt::dayNumberOf (str (tape->createdIso));
     }
 
     if (auto* sheet = xml->getChildByName ("TRACK_SHEET"))
@@ -566,7 +588,11 @@ std::unique_ptr<Tape> Tape::loadLegacy (const juce::File& folder)
         for (int b = 0; b < nb; ++b)
         {
             tape->flagsAt (t, b) = fp[b];
-            if ((fp[b] & 1) != 0) tape->recorderAt (t, b) = 1;   // this deck recorded everything on it
+            if ((fp[b] & 1) != 0)
+            {
+                tape->recorderAt (t, b) = 1;   // this deck recorded everything on it...
+                tape->dayAt (t, b) = (uint16_t) std::max (1, (int) tfmt::dayNumberOf (str (tape->createdIso)));   // ...some time after it was made
+            }
             if ((size_t) b * 2 + 1 < sb.getSize())
                 tape->speedMilliAt (t, b) = (uint16_t) (sp[b * 2] | (sp[b * 2 + 1] << 8));
         }

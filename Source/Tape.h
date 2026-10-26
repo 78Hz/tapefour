@@ -58,6 +58,27 @@ public:
     float readInterpolated (int track, double pos) const noexcept;
     void writeCell (int track, int64_t c, float v, bool nrEncoded, int nrType, float speed, int position) noexcept;
 
+    // ---- wear and age (docs/formats/cass-v1.md; amounts in Wear.h) ----
+    /** One more pass over the heads at this second of tape (audio thread). */
+    void addPass (int64_t second) noexcept
+    {
+        if (second < 0 || second >= numSeconds) return;
+        auto& p = passesAt ((int) second);
+        auto v = p.load (std::memory_order_relaxed);
+        if (v < 65535) p.store ((uint16_t) (v + 1), std::memory_order_relaxed);
+        wearDirty.store (true, std::memory_order_release);
+    }
+    int passesAt (double pos) const noexcept    { return passesAt (juce::jlimit (0, numSeconds - 1, (int) (pos / cellRate))).load (std::memory_order_relaxed); }
+    /** The day a stretch was recorded (days since 2000-01-01), or 0 if unknown or blank. */
+    int recordedDay (int track, int block) const noexcept { return dayAt (track, block).load (std::memory_order_relaxed); }
+    /** Today, as the cassette counts it: stamps new recordings, and ages old ones. The deck keeps it current. */
+    void setToday (uint16_t dayNumber) noexcept { today = dayNumber; }
+    int getToday() const noexcept               { return today.load (std::memory_order_relaxed); }
+    /** Years since the cassette was made. */
+    float ageYears() const noexcept             { return madeDay > 0 ? std::max (0.0f, (float) (getToday() - madeDay) / 365.25f) : 0.0f; }
+    /** Test hook: every second of the tape as if it had passed the heads this often. */
+    void setPassesForTests (uint16_t n) noexcept { for (int s = 0; s < numSeconds; ++s) passesAt (s) = n; }
+
     /** The cassette's condition as the deck hears it (its starting condition; wear and age add to it). */
     struct Character
     {
@@ -113,6 +134,7 @@ public:
         tfmt::CassetteInfo info;
         tfmt::CassetteState state;
         std::vector<tfmt::TrackMap> maps;
+        std::vector<uint16_t> wear;   // empty: unchanged since the last save
     };
     std::shared_ptr<Snapshot> snapshot() const;
     bool writeAudio (const juce::File& folder);
@@ -161,13 +183,19 @@ private:
     std::atomic<uint8_t>&  flagsAt (int t, int b) const noexcept      { return flags[t][(size_t) b]; }
     std::atomic<uint8_t>&  recorderAt (int t, int b) const noexcept   { return recorder[t][(size_t) b]; }
     std::atomic<uint16_t>& speedMilliAt (int t, int b) const noexcept { return speedMilli[t][(size_t) b]; }
+    std::atomic<uint16_t>& dayAt (int t, int b) const noexcept        { return day[t][(size_t) b]; }
+    std::atomic<uint16_t>& passesAt (int s) const noexcept            { return passes[(size_t) s]; }
     std::atomic<uint8_t>&  dirtyAt (int t, int s) const noexcept      { return dirty[t][(size_t) s]; }
 
     Cell* data[numTracks] {};
     std::unique_ptr<std::atomic<uint8_t>[]>  flags[numTracks], recorder[numTracks];
-    std::unique_ptr<std::atomic<uint16_t>[]> speedMilli[numTracks];
+    std::unique_ptr<std::atomic<uint16_t>[]> speedMilli[numTracks], day[numTracks];
+    std::unique_ptr<std::atomic<uint16_t>[]> passes;            // per second of tape
+    std::atomic<uint16_t> today { 0 };
+    int madeDay = 0;
     std::unique_ptr<std::atomic<uint8_t>[]>  dirty[numTracks];   // per second of tape
     std::atomic<bool> dataDirty { false }, metaDirty { true };
+    mutable std::atomic<bool> wearDirty { false };   // taken by snapshot(): the passes are copied out with it
 
     JUCE_DECLARE_NON_COPYABLE (Tape)
 };

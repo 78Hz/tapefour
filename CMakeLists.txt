@@ -35,6 +35,26 @@ FetchContent_Declare(clap
 FetchContent_MakeAvailable(clap)
 set(TAPEFOUR_CLAP_INCLUDE ${clap_SOURCE_DIR}/include)
 
+# LAME, for MP3 exports (LGPL, compatible with TAPE-FOUR's GPL): only its encoder library is built,
+# with the configuration in ThirdParty/lame/config.h. The mirror is pinned to an exact commit.
+FetchContent_Declare(lame
+    GIT_REPOSITORY https://github.com/rbrito/deprecated-lame-mirror.git
+    GIT_TAG af984672a95bb0eedc9f3193604e269c97cca162
+    SOURCE_SUBDIR no-cmake-here)   # it has no CMake build of its own: fetch only
+FetchContent_MakeAvailable(lame)
+set(lameSources VbrTag bitstream encoder fft gain_analysis id3tag lame newmdct presets psymodel
+                quantize quantize_pvt reservoir set_get tables takehiro util vbrquantize version mpglib_interface)
+list(TRANSFORM lameSources PREPEND ${lame_SOURCE_DIR}/libmp3lame/)
+list(TRANSFORM lameSources APPEND .c)
+add_library(mp3lame STATIC ${lameSources})
+target_include_directories(mp3lame PUBLIC ${lame_SOURCE_DIR}/include
+                                   PRIVATE ${lame_SOURCE_DIR}/libmp3lame ${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/lame)
+target_compile_definitions(mp3lame PRIVATE HAVE_CONFIG_H)
+set_target_properties(mp3lame PROPERTIES C_STANDARD 99 POSITION_INDEPENDENT_CODE ON)
+if(NOT MSVC)
+    target_compile_options(mp3lame PRIVATE -w)   # not our code: its warnings aren't ours to fix
+endif()
+
 # Sanitizer builds for CI: -DTAPEFOUR_SANITIZE=address or thread
 set(TAPEFOUR_SANITIZE "" CACHE STRING "address, thread, or empty")
 if(TAPEFOUR_SANITIZE STREQUAL "address")
@@ -102,7 +122,8 @@ set(TAPEFOUR_ENGINE_SOURCES
     Source/DeckState.cpp
     Source/TapeShelf.cpp
     Source/PluginScan.cpp
-    Source/ClapFormat.cpp)
+    Source/ClapFormat.cpp
+    Source/Exporter.cpp)
 
 target_sources(TapeFour PRIVATE
     Source/Main.cpp
@@ -131,6 +152,7 @@ target_link_libraries(TapeFour
     PRIVATE
         TapeFourFonts
         tapeformats
+        mp3lame
         juce::juce_audio_utils
         juce::juce_audio_processors
         juce::juce_dsp
@@ -160,7 +182,7 @@ if(TAPEFOUR_TESTS)
         target_compile_definitions(${name} PRIVATE ${TAPEFOUR_PLATFORM_DEFS} JUCE_MODAL_LOOPS_PERMITTED=1)
         target_compile_options(${name} PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
         target_include_directories(${name} PRIVATE ${TAPEFOUR_CLAP_INCLUDE})
-        target_link_libraries(${name} PRIVATE tapeformats juce::juce_audio_utils juce::juce_dsp
+        target_link_libraries(${name} PRIVATE tapeformats mp3lame juce::juce_audio_utils juce::juce_dsp
             PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
     endfunction()
 
@@ -213,5 +235,6 @@ if(TAPEFOUR_TESTS)
         target_link_libraries(TestClap PRIVATE m)
     endif()
     add_dependencies(MixerTest TestClap)
-    target_compile_definitions(MixerTest PRIVATE TAPEFOUR_TEST_CLAP="${CMAKE_BINARY_DIR}/testclap/TestClap.clap")
+    target_compile_definitions(MixerTest PRIVATE TAPEFOUR_TEST_CLAP="${CMAKE_BINARY_DIR}/testclap/TestClap.clap"
+                                                 JUCE_USE_MP3AUDIOFORMAT=1)   # to read back the MP3s it exports
 endif()

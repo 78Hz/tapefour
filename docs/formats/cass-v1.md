@@ -116,19 +116,38 @@ per cell, from the start of the tape. The file may stop short; the rest is blank
 This is not playable audio: it is NR-encoded where the map says so, has no playback EQ and
 no hiss, and is laid out by tape position, not time.
 
-**trackN.map**: per block of `blockCells` cells, four bytes:
+**trackN.map**: per block of `blockCells` cells, six bytes:
 
 | Byte | Meaning |
 | --- | --- |
 | 0 | Flags. Bit 0: recorded. Bit 1: NR-encoded. Bits 2–3: tape switch position it was recorded at + 1 (1 normal, 2 chrome, 3 metal; 0 unknown). Bits 4–6: NR system + 1 (1 2:1 compander, 2 sliding band B, 3 sliding band C; 0 unknown). Bit 7: reserved, 0. |
 | 1 | Recorder: index into `recorders`, from 1. 0: unknown. |
 | 2–3 | Speed it was recorded at, relative to the reference speed × 1000, little-endian (1000 = 1⅞ ips, 2000 = 3¾ ips, varispeed included). |
+| 4–5 | The day it was recorded: days since 2000-01-01 (UTC), little-endian. 0: unknown. Print-through grows from here. |
 
 ## wear.bin
 
 One unsigned 16-bit little-endian count per second of tape (at the reference speed): how
 many times that stretch has passed the heads in play or record. Fast winding doesn't count.
 The whole width of the tape passes together, so it is per position, not per track.
+
+## Wear and age (how a deck uses them)
+
+The cassette records what happened to it; each deck decides how that sounds. TAPE·FOUR's model
+(`Source/Wear.h`), kept gentle on purpose: cassettes are tougher than their reputation.
+
+- **Passes** (`wear.bin`), at the point being played: up to about 1 dB of treble at 10 kHz (a fifth
+  of a dB after 100 passes), up to 2 dB more modulation noise, and dropouts becoming more
+  frequent (twice as many after 400 passes). Dropouts are fixed places on a cassette, worked
+  out from its id, so they repeat on every play.
+- **Age** since the cassette was made (`created`): a little treble, at most 0.3 dB.
+- **Print-through**, from the day each stretch was recorded (byte 4–5 of the map): the
+  recording slowly copies itself onto the turns of tape either side of it as it sits wound,
+  heard as a faint pre-echo and post-echo one turn away (1.5 to 3 seconds, depending on
+  where on the tape). About −61 dB after a day, −54 dB after a year, −51 dB after ten.
+
+A deck that doesn't honour a cassette's condition (`honoursTapeCondition` false) ignores all of
+this, and the cassette's starting condition, and plays it as new.
 
 ## Versions
 

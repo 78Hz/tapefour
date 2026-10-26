@@ -64,6 +64,12 @@ public:
         (No real cassette is without it, so the deck never does.) */
     void setHissForTests (bool on) noexcept { hissOn = on; }
 
+    /** An engine that only plays a tape for rendering (exports): it doesn't move the tape in the deck
+        or wear it. Set before use. */
+    void setReadOnly (bool on) noexcept { readOnly = on; }
+    /** For a read-only engine: where on the tape to start playing. */
+    void seek (double cells) noexcept   { pos = cells; }
+
     void prepare (double sampleRate, int maxBlockSize);
     void setTape (Tape* t, bool newTape = true) noexcept;          // only call while the audio callback is locked out
 
@@ -111,6 +117,9 @@ private:
     double sr = 48000.0;
     int maxBlock = 0;
     std::atomic<bool> hissOn { true };
+    bool readOnly = false;
+    int64_t lastPassSecond = -1;
+    float printLp[numTracks] {}, printCoef = 0.3f;
     Tape* tape = nullptr;
 
     std::atomic<int> pendingCommand { 0 }, mode { 0 };
