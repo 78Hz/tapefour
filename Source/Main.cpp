@@ -1,4 +1,5 @@
 #include "DeckComponent.h"
+#include "CassetteComponent.h"
 #include "PluginScan.h"
 #include "CrashHandler.h"
 
@@ -83,6 +84,29 @@ public:
         return tf::PluginScan::isHelperCommandLine (getCommandLineParameters());
     }
 
+    static bool renderCassettes (const juce::File& folder)
+    {
+        folder.createDirectory();
+        bool ok = true;
+        for (int model = 0; model < tf::numTapeModels; ++model)
+            for (int side = 0; side < 2; ++side)
+            {
+                tf::Tape tape (1, model);
+                tape.name = "four track demos";
+                tf::CassetteComponent c;
+                c.setBounds (0, 0, 1004, 638);
+                c.setTape (&tape);
+                c.setSide (side);
+                c.update (&tape, (double) tape.getLengthCells() * 0.35);
+                auto image = c.createComponentSnapshot (c.getLocalBounds(), true, 1.0f);
+                auto file = folder.getChildFile (juce::String (tf::tapeModels[model].name) + (side == 0 ? "-A" : "-B") + ".png");
+                file.deleteFile();
+                juce::FileOutputStream out (file);
+                ok = out.openedOk() && juce::PNGImageFormat().writeImageToStream (image, out) && ok;
+            }
+        return ok;
+    }
+
     void initialise (const juce::String& commandLine) override
     {
         if (tf::PluginScan::isHelperCommandLine (commandLine))
@@ -96,6 +120,17 @@ public:
 
         lookAndFeel = std::make_unique<tf::DeckLookAndFeel>();
         juce::LookAndFeel::setDefaultLookAndFeel (lookAndFeel.get());
+
+        // A tool for making artwork: --render-cassettes <folder> draws each formulation's cassette, at full size, as a PNG.
+        if (commandLine.contains ("--render-cassettes"))
+        {
+            auto args = juce::StringArray::fromTokens (commandLine, true);
+            auto i = args.indexOf ("--render-cassettes");
+            auto folder = juce::File::getCurrentWorkingDirectory().getChildFile (args[i + 1].unquoted());
+            setApplicationReturnValue (renderCassettes (folder) ? 0 : 1);
+            quit();
+            return;
+        }
 
         juce::PropertiesFile::Options o;
         o.applicationName = "TapeFour";
