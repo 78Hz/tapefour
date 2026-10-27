@@ -165,12 +165,57 @@ target_link_libraries(TapeFour
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags)
 
+# TF-P1 Pocket: a player for .cass files (Player/), from the same tape engine and format library.
+option(TAPEFOUR_PLAYER "Build the pocket player too" ON)
+if(TAPEFOUR_PLAYER)
+    juce_add_gui_app(TapeFourPocket
+        PRODUCT_NAME "TF-P1 Pocket"
+        COMPANY_NAME "78Hz"
+        BUNDLE_ID "com.78hz.tapefour.pocket"
+        VERSION ${PROJECT_VERSION}
+        DOCUMENT_EXTENSIONS cass
+        STATUS_BAR_HIDDEN TRUE
+        REQUIRES_FULL_SCREEN TRUE
+        IPHONE_SCREEN_ORIENTATIONS UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+        IPAD_SCREEN_ORIENTATIONS UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+        BACKGROUND_AUDIO_ENABLED TRUE
+        FILE_SHARING_ENABLED TRUE
+        DOCUMENT_BROWSER_ENABLED TRUE)
+    target_sources(TapeFourPocket PRIVATE
+        Player/Main.cpp
+        Player/PlayerEngine.cpp
+        Player/PlayerComponent.cpp
+        Player/Library.cpp
+        Source/Tape.cpp
+        Source/TapeEngine.cpp
+        Source/LookView.cpp
+        Source/CassetteComponent.cpp
+        Source/DeckLookAndFeel.cpp)
+    target_compile_definitions(TapeFourPocket PRIVATE
+        JUCE_USE_CURL=0 JUCE_WEB_BROWSER=0 JUCE_DISPLAY_SPLASH_SCREEN=0
+        JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:TapeFourPocket,JUCE_PRODUCT_NAME>"
+        JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:TapeFourPocket,JUCE_VERSION>")
+    target_compile_options(TapeFourPocket PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    target_link_libraries(TapeFourPocket
+        PRIVATE
+            TapeFourFonts
+            tapeformats
+            juce::juce_audio_utils
+            juce::juce_audio_processors
+            juce::juce_dsp
+        PUBLIC
+            juce::juce_recommended_config_flags
+            juce::juce_recommended_lto_flags
+            juce::juce_recommended_warning_flags)
+endif()
+
 # TapeFour's own code builds without a single warning (JUCE's recommended set, GCC and Clang).
 # -DTAPEFOUR_WERROR=ON keeps it that way: any new warning in our sources stops the build.
 option(TAPEFOUR_WERROR "Treat warnings in TapeFour's own sources as errors (GCC/Clang)" OFF)
 if(TAPEFOUR_WERROR AND NOT MSVC)
     file(GLOB tapefourOwnSources CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/Source/*.cpp
                                                     ${CMAKE_CURRENT_SOURCE_DIR}/Formats/*.cpp
+                                                    ${CMAKE_CURRENT_SOURCE_DIR}/Player/*.cpp
                                                     ${CMAKE_CURRENT_SOURCE_DIR}/Tests/*.cpp
                                                     ${CMAKE_CURRENT_SOURCE_DIR}/Tests/fixtures/*.c)
     set_source_files_properties(${tapefourOwnSources} PROPERTIES COMPILE_OPTIONS "-Werror")
@@ -197,6 +242,11 @@ if(TAPEFOUR_TESTS)
     tapefour_test(EngineTest Tests/EngineTest.cpp Source/Tape.cpp Source/TapeEngine.cpp)
     tapefour_test(MixerTest Tests/MixerTest.cpp ${TAPEFOUR_ENGINE_SOURCES})
     tapefour_test(ScanTest Tests/ScanTest.cpp Source/PluginScan.cpp Source/ClapFormat.cpp)
+    if(TAPEFOUR_PLAYER)
+        tapefour_test(PlayerTest Tests/PlayerTest.cpp Player/PlayerEngine.cpp Player/Library.cpp
+                      Source/Tape.cpp Source/TapeEngine.cpp Source/LookView.cpp Source/CassetteComponent.cpp Source/DeckLookAndFeel.cpp)
+        target_link_libraries(PlayerTest PRIVATE TapeFourFonts)
+    endif()
 
     # A "VST3" that crashes as soon as it is loaded, laid out as each platform's bundle,
     # for ScanTest: TapeFour must survive scanning it.

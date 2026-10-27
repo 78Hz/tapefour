@@ -40,11 +40,15 @@ jobs:
       - name: Test that a crashing plug-in can't take the scan down
         run: build/ScanTest_artefacts/Release/ScanTest.exe build/crashplugin
 
+      - name: Test the pocket player
+        run: build/PlayerTest_artefacts/Release/PlayerTest.exe
+
       - name: Package
         shell: pwsh
         run: |
           New-Item -ItemType Directory dist | Out-Null
           Copy-Item build/TapeFour_artefacts/Release/TapeFour.exe dist/
+          Copy-Item "build/TapeFourPocket_artefacts/Release/TF-P1 Pocket.exe" dist/
           Copy-Item README.md, LICENSE, Manual/TapeFour-Manual.pdf dist/
           Copy-Item Resources/fonts/OFL.txt dist/FONTS-OFL.txt
 
@@ -96,10 +100,14 @@ jobs:
       - name: Test that a crashing plug-in can't take the scan down
         run: xvfb-run -a build/ScanTest_artefacts/Release/ScanTest build/crashplugin
 
+      - name: Test the pocket player
+        run: xvfb-run -a build/PlayerTest_artefacts/Release/PlayerTest
+
       - name: Package
         run: |
           mkdir -p dist/TapeFour
           cp build/TapeFour_artefacts/Release/TapeFour dist/TapeFour/
+          cp "build/TapeFourPocket_artefacts/Release/TF-P1 Pocket" dist/TapeFour/
           cp README.md LICENSE Manual/TapeFour-Manual.pdf dist/TapeFour/
           cp Resources/fonts/OFL.txt dist/TapeFour/FONTS-OFL.txt
           tar -C dist -czf TapeFour-linux-x64.tar.gz TapeFour
@@ -147,12 +155,17 @@ jobs:
       - name: Test that a crashing plug-in can't take the scan down
         run: build/ScanTest_artefacts/Release/ScanTest build/crashplugin/Release
 
+      - name: Test the pocket player
+        run: build/PlayerTest_artefacts/Release/PlayerTest
+
       - name: Package
         run: |
           mkdir -p dist/TapeFour
           cp -R build/TapeFour_artefacts/Release/TapeFour.app dist/TapeFour/
           # Not notarised: signed ad hoc so it runs; the first launch needs right-click > Open.
           codesign --force --deep --sign - dist/TapeFour/TapeFour.app
+          cp -R "build/TapeFourPocket_artefacts/Release/TF-P1 Pocket.app" dist/TapeFour/
+          codesign --force --deep --sign - "dist/TapeFour/TF-P1 Pocket.app"
           cp README.md LICENSE Manual/TapeFour-Manual.pdf dist/TapeFour/
           cp Resources/fonts/OFL.txt dist/TapeFour/FONTS-OFL.txt
           ditto -c -k --keepParent dist/TapeFour TapeFour-macos-universal.zip
@@ -195,7 +208,7 @@ jobs:
       - name: Build the tests
         run: |
           set -o pipefail
-          cmake --build build --parallel --target FormatTest EngineTest MixerTest 2>&1 | tee build.log || {
+          cmake --build build --parallel --target FormatTest EngineTest MixerTest PlayerTest 2>&1 | tee build.log || {
             # Compile errors as annotations, so they show on the run's page without the log.
             grep -E ": (fatal )?error:|^ld: |Undefined symbols|undefined reference|error LNK|: error [A-Z]+[0-9]+" build.log | sort -u | head -10 | sed 's/^/::error::/'
             exit 1; }
@@ -209,3 +222,4 @@ jobs:
           build/FormatTest_artefacts/RelWithDebInfo/FormatTest
           xvfb-run -a build/EngineTest_artefacts/RelWithDebInfo/EngineTest
           xvfb-run -a build/MixerTest_artefacts/RelWithDebInfo/MixerTest
+          xvfb-run -a build/PlayerTest_artefacts/RelWithDebInfo/PlayerTest
