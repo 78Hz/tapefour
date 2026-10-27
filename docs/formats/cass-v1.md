@@ -34,7 +34,8 @@ entries are *stored*, not compressed. The files are identical either way, byte f
 | `wear.bin` | no | Passes over the heads, per second of tape. Missing: never played. |
 | `trackN.pcm` | no | Track N's recording (N from 1). Missing or short: the rest is blank. |
 | `trackN.map` | no | Track N's map: what was recorded where. Missing: nothing recorded. |
-| `art/…` | no | Reserved for cover art and shell design. Readers that don't use it ignore it. |
+| `art/look.json` + images | no | How the cassette looks, so any player can draw it ([The look](#the-look)). Readers that don't draw cassettes ignore it. |
+| other `art/…` | no | Reserved for cover art. Readers that don't use it ignore it. |
 
 ## cassette.json
 
@@ -130,6 +131,67 @@ no hiss, and is laid out by tape position, not time.
 One unsigned 16-bit little-endian count per second of tape (at the reference speed): how
 many times that stretch has passed the heads in play or record. Fast winding doesn't count.
 The whole width of the tape passes together, so it is per position, not per track.
+
+## The look
+
+`art/look.json` and the images it names say how the cassette looks, so a player can draw it
+exactly as the deck that made it does, with its reels turning and its tape packs growing and
+shrinking. TAPE·FOUR writes one for every cassette it makes, and redraws it when the label is
+written on.
+
+A player draws five layers, back to front:
+
+| # | Layer | Drawn from |
+|---|---|---|
+| 1 | The shell behind the works | `layers.back`, an image |
+| 2 | The tape packs | drawn by the player, from `pack` and the position |
+| 3 | The tape, round the guides | drawn by the player, from `tape` and the packs |
+| 4 | The hubs | `layers.hub`, an image, at each of `reels`, turned as the tape moves |
+| 5 | Everything in front of the works, the label's writing included | `layers.front.A` or `.B`, an image, for the side facing up |
+
+```json
+{
+  "format": "cass-look", "version": 1,
+  "design": "tapefour.sd/1",
+  "labelText": "demo songs – oct",
+  "shell": { "width": 1004, "height": 638, "unit": "0.1mm" },
+  "scale": 2,
+  "layers": { "back": "art/back.png", "front": { "A": "art/front-a.png", "B": "art/front-b.png" },
+              "hub": { "image": "art/hub.png", "size": 224 } },
+  "reels": [ { "x": 292, "y": 300 }, { "x": 712, "y": 300 } ],
+  "pack": { "minDiameter": 216, "fullDiameter": 440, "inner": "#3a2618ff", "outer": "#160c06ff",
+            "rings": { "colour": "#ffffff0b", "width": 2, "spacing": 26, "inset": 10, "stop": 104 } },
+  "tape": { "colour": "#2c1a0eff", "width": 4,
+            "guides": [ { "x": 118, "y": 586 }, { "x": 886, "y": 586 } ], "wrapRadius": 30 },
+  "label": { "x": 68, "y": 398, "w": 868, "h": 80 }
+}
+```
+
+- **Units**: every length is in tenths of a millimetre on the shell, from its top left corner,
+  with the cassette side A up. A compact cassette's shell is 100.4 × 63.8 mm (1004 × 638).
+- **scale**: image pixels per unit. The back and front images cover the whole shell
+  (`width × scale` by `height × scale` pixels); the hub image is `size × scale` square and is
+  centred on each reel. Images are PNG with transparency.
+- **design**: who drew it, which design and which revision of the drawing (`tapefour.sd/1`).
+  Informative; a writer uses it to know when to redraw its own looks. **labelText**: the label's
+  writing as it appears on the front images.
+- **pack**: the tape wound on each hub is a disc centred on its reel. With a fraction `f` of the
+  tape on a hub (`1 − f` on the other; at the start of a side it is all on the left), its diameter
+  is `√(min² + (full² − min²) · f)`, so the tape's area is kept. It is filled with a radial
+  gradient from `inner` at the centre to `outer` at the edge. Rings of `rings.colour`,
+  `rings.width` wide, are drawn every `rings.spacing` from `inset` inside the edge down to `stop`.
+  Colours are `#rrggbbaa`.
+- **tape**: a line `width` wide in `colour`. It leaves each pack on the outside, on the line
+  that touches both the pack and the nearest guide (circles of radius `wrapRadius`), runs round
+  the underside of each guide, and straight between their bottoms.
+- **hubs** turn anticlockwise as the tape moves from left to right (playing), each by the
+  length of tape that passed divided by its own pack's radius (at 1⅞ ips, 47.6 mm a second).
+- **Side B** up: draw the same layers with `front.B`. (A cassette turned over shows its other
+  face; the shell's moulding is symmetrical, and its print and label are the ones on that face.)
+- A reader keeps members it doesn't know when it rewrites the file. Image names must lie
+  directly in `art/`.
+
+`Tools/cass_look.py` is a reference drawing of a cassette from its look, in Python.
 
 ## Wear and age (how a deck uses them)
 

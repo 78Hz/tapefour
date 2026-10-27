@@ -57,6 +57,8 @@ private:
     void chooseCassetteFile();
     void toggleWriteProtect();
     void turnTapeOver (bool sideBUp);
+    void ensureArt (const Tape&);
+    std::map<juce::String, juce::String> artWritten;   // tape id -> the look last written for it
     void exportTracks();
 
     // ---- the master deck and mixdowns (MasterDeckCard, MasterDeck) ----

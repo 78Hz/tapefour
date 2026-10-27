@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include "Cassette.h"
 #include "Deck.h"
+#include "Look.h"
 #include "Zip.h"
 
 #include <cstdio>
@@ -204,6 +205,46 @@ int main()
                "deck: reads back");
         spit (file, "{\"format\":\"deck\",\"version\":1,\"transport\":{\"wowPct\":900}}");
         check (readDeck (file, back, err) && back.transport.wowPct <= 5.0, "deck: impossible values are kept to what a machine can be");
+    }
+
+    {   // The look: how a cassette is drawn, so any player can draw it the same.
+        Look l;
+        l.design = "tapefour.sd/1";
+        l.labelText = "demo songs";
+        l.back = "art/back.png"; l.frontA = "art/front-a.png"; l.frontB = "art/front-b.png"; l.hub = "art/hub.png";
+        l.pack.fullDiameter = 440; l.pack.inner = "#3a2618ff"; l.pack.outer = "#160c06ff"; l.pack.ring = "#ffffff0b";
+        l.tape.colour = "#2c1a0eff";
+        auto j = toJson (l);
+        j.set ("glitter", true);   // something from a newer version
+        Look back;
+        std::string err;
+        auto text = j.dump();
+        auto parsed = Json::parse (text, &err);
+        check (parsed && fromJson (*parsed, back, err) && back.design == l.design && back.labelText == l.labelText
+                   && back.frontB == l.frontB && sameNumber (back.reels[1].x, 712) && sameNumber (back.tape.guides[0].y, 586)
+                   && back.pack.inner == l.pack.inner && sameNumber (back.pack.fullDiameter, 440),
+               "look: reads back");
+        check (toJson (back)["glitter"].boolean(), "look: keeps what it doesn't know");
+        check (std::abs (packDiameter (back, 0.0) - 216.0) < 1e-9 && std::abs (packDiameter (back, 1.0) - 440.0) < 1e-9
+                   && std::abs (packDiameter (back, 0.5) - std::sqrt (0.5 * (216.0 * 216.0 + 440.0 * 440.0))) < 1e-9,
+               "look: packs keep the tape's area");
+        auto bad = *parsed;
+        bad.set ("layers").set ("back", "../../escape.png");
+        check (! fromJson (bad, back, err), "look: images must lie in art/");
+
+        // It travels in a .cass: packed and unpacked with the cassette, and read back from the folder.
+        auto folder = root / "looked";
+        fs::create_directories (folder / "art");
+        auto info = CassetteInfo::make (sd(), 1, Layout::fourTrackOneWay, Condition::forGrade ("new"), "FormatTest");
+        check (writeManifest (folder, info, err), "look: a cassette to carry it");
+        spit (folder / "art" / "look.json", text);
+        for (auto* name : { "back.png", "front-a.png", "front-b.png", "hub.png" }) spit (folder / "art" / name, std::string ("png:") + name);
+        auto cass = root / "looked.cass";
+        auto unpacked = root / "looked-unpacked";
+        Look read;
+        check (packCassette (folder, cass, err) && unpackCassette (cass, unpacked, err) && readLook (unpacked, read, err)
+                   && read.labelText == "demo songs" && fs::exists (unpacked / "art" / "hub.png"),
+               "look: travels in a .cass");
     }
 
     std::error_code ec;

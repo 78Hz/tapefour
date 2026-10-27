@@ -2,6 +2,7 @@
 
 #include "Widgets.h"
 #include "Tape.h"
+#include "Look.h"
 
 namespace tf
 {
@@ -32,6 +33,28 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
 
+    /** A cassette's look as it is saved with it (art/look.json and its images): what any player
+        needs to draw this cassette exactly as the TF-4 does, reels turning. */
+    struct Art
+    {
+        tfmt::Look look;
+        juce::MemoryBlock back, frontA, frontB, hub;   // PNG
+    };
+    /** What a look is drawn from: copied from a Tape, so it can be drawn on another thread. */
+    struct ArtSpec
+    {
+        int model = defaultTapeModel, minutes = 30;
+        float fullPackMm = 44.0f;
+        juce::String label;
+        static ArtSpec of (const Tape&);
+        juce::String key() const;   // changes whenever the look would
+    };
+    static Art renderArt (const ArtSpec&);
+    /** The cassette's folder already holds its look as this version draws it, for its label as it is now. */
+    static bool artIsCurrent (const ArtSpec&, const juce::File& cassetteFolder);
+    /** Writes the look into the cassette's folder (art/), each file replaced whole. Any thread. */
+    static bool writeArt (const ArtSpec&, const juce::File& cassetteFolder);
+
 private:
     float fraction = 0.0f, fullPackUnits = 440.0f;
     double lastPos = -1.0;
@@ -46,5 +69,9 @@ private:
     void drawPack (juce::Graphics&, juce::Point<float> c, float d) const;
     void drawHub (juce::Graphics&, juce::Point<float> c, float angle) const;
     void drawPrint (juce::Graphics&) const;
+    // The layers, back to front (between them: the packs, the tape and the hubs, in paintWorks).
+    void paintBack (juce::Graphics&) const;
+    void paintWorks (juce::Graphics&) const;
+    void paintFront (juce::Graphics&, const juce::String& writtenLabel) const;
 };
 } // namespace tf

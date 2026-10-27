@@ -1,4 +1,5 @@
 #include "CassetteComponent.h"
+#include "Zip.h"
 
 namespace tf
 {
@@ -308,10 +309,8 @@ void CassetteComponent::drawPrint (juce::Graphics& g) const
 
 void CassetteComponent::paint (juce::Graphics& g)
 {
-    auto& lf = DeckLookAndFeel::get();
     g.addTransform (juce::AffineTransform::scale ((float) getWidth() / shellW, (float) getHeight() / shellH));
     auto shell = juce::Rectangle<float> (shellW, shellH);
-    auto st = styleFor (model);
 
     g.setColour (juce::Colours::black.withAlpha (0.55f));
     g.fillRoundedRectangle (shell.translated (6, 14), 26.0f);
@@ -319,9 +318,23 @@ void CassetteComponent::paint (juce::Graphics& g)
     if (! hasTape)
         return;
 
+    // The same layers a cassette's look is saved in (docs/formats/cass-v1.md, "The look").
+    paintBack (g);
+    paintWorks (g);
+    paintFront (g, {});   // the label's writing is the label component's, over this
+}
+
+void CassetteComponent::paintBack (juce::Graphics& g) const
+{
+    auto shell = juce::Rectangle<float> (shellW, shellH);
+    auto st = styleFor (model);
     g.setColour (st.shell);
     g.fillRoundedRectangle (shell, 24.0f);
+}
 
+void CassetteComponent::paintWorks (juce::Graphics& g) const
+{
+    auto st = styleFor (model);
     // tape packs and the tape path round the guides
     auto dL = packDiameter (1.0f - fraction), dR = packDiameter (fraction);
     drawPack (g, { lx, cy }, dL);
@@ -345,6 +358,14 @@ void CassetteComponent::paint (juce::Graphics& g)
 
     drawHub (g, { lx, cy }, angleL);
     drawHub (g, { rx, cy }, angleR);
+
+}
+
+void CassetteComponent::paintFront (juce::Graphics& g, const juce::String& writtenLabel) const
+{
+    auto& lf = DeckLookAndFeel::get();
+    auto shell = juce::Rectangle<float> (shellW, shellH);
+    auto st = styleFor (model);
 
     // the body over the works
     if (model == 0)
@@ -477,5 +498,148 @@ void CassetteComponent::paint (juce::Graphics& g)
     g.fillRoundedRectangle (shell, 24.0f);
     g.setColour (st.outline);
     g.drawRoundedRectangle (shell.reduced (1.5f), 23.0f, 3.0f);
+
+    // The label's writing, as the label component shows it (22 px at the deck's 255 px height).
+    if (writtenLabel.isNotEmpty())
+    {
+        g.setColour (st.ink);
+        g.setFont (lf.hand (22.0f * shellH / 255.0f));
+        g.drawText (writtenLabel, juce::Rectangle<float> (122.0f + 12.5f, 402.0f + 2.5f, 760.0f - 25.0f, 62.0f - 5.0f),
+                    juce::Justification::centredLeft, true);
+    }
+}
+
+//==============================================================================
+namespace
+{
+    // Which version of the TF-4's drawings a look was made by: a change to the drawings raises it,
+    // and cassettes get their looks redrawn the next time they're saved.
+    constexpr const char* artRevision = "1";
+    constexpr float artScale = 2.0f;   // image pixels per tenth of a mm
+
+    std::string hex (juce::Colour c)
+    {
+        return ("#" + juce::String::toHexString ((int) c.getRed()).paddedLeft ('0', 2) + juce::String::toHexString ((int) c.getGreen()).paddedLeft ('0', 2)
+                + juce::String::toHexString ((int) c.getBlue()).paddedLeft ('0', 2) + juce::String::toHexString ((int) c.getAlpha()).paddedLeft ('0', 2)).toStdString();
+    }
+
+    juce::MemoryBlock png (const juce::Image& image)
+    {
+        juce::MemoryOutputStream out;
+        juce::PNGImageFormat().writeImageToStream (image, out);
+        return out.getMemoryBlock();
+    }
+
+    std::string designOf (int model)
+    {
+        return "tapefour." + juce::String (tapeModels[juce::jlimit (0, numTapeModels - 1, model)].name).toLowerCase().toStdString()
+               + "/" + artRevision;
+    }
+}
+
+CassetteComponent::ArtSpec CassetteComponent::ArtSpec::of (const Tape& tape)
+{
+    return { tape.getModel(), tape.getTypeInfo().minutes, tape.getTypeInfo().fullPackMm, tape.name };
+}
+
+juce::String CassetteComponent::ArtSpec::key() const
+{
+    return juce::String (designOf (model)) + "|" + juce::String (minutes) + "|" + juce::String (fullPackMm) + "|" + label;
+}
+
+CassetteComponent::Art CassetteComponent::renderArt (const ArtSpec& spec)
+{
+    CassetteComponent c;
+    c.model = spec.model;
+    c.minutes = spec.minutes;
+    c.hasTape = true;
+    const auto st = styleFor (c.model);
+    const auto w = juce::roundToInt (shellW * artScale), h = juce::roundToInt (shellH * artScale);
+    auto layer = [&] (std::function<void (juce::Graphics&)> draw)
+    {
+        juce::Image image (juce::Image::ARGB, w, h, true);
+        juce::Graphics g (image);
+        g.addTransform (juce::AffineTransform::scale (artScale));
+        draw (g);
+        return png (image);
+    };
+
+    Art art;
+    art.back = layer ([&] (juce::Graphics& g) { c.paintBack (g); });
+    c.side = 0;
+    art.frontA = layer ([&] (juce::Graphics& g) { c.paintFront (g, spec.label); });
+    c.side = 1;
+    art.frontB = layer ([&] (juce::Graphics& g) { c.paintFront (g, spec.label); });
+
+    constexpr float hubBox = 224.0f;
+    {
+        const auto px = juce::roundToInt (hubBox * artScale);
+        juce::Image image (juce::Image::ARGB, px, px, true);
+        juce::Graphics g (image);
+        g.addTransform (juce::AffineTransform::scale (artScale));
+        c.drawHub (g, { hubBox * 0.5f, hubBox * 0.5f }, 0.0f);
+        art.hub = png (image);
+    }
+
+    auto& l = art.look;
+    l.design = designOf (c.model);
+    l.labelText = spec.label.toStdString();
+    l.width = shellW;
+    l.height = shellH;
+    l.scale = artScale;
+    l.back = "art/back.png";
+    l.frontA = "art/front-a.png";
+    l.frontB = "art/front-b.png";
+    l.hub = "art/hub.png";
+    l.hubSize = hubBox;
+    l.reels = { { { lx, cy }, { rx, cy } } };
+    l.pack.minDiameter = minPackD;
+    l.pack.fullDiameter = spec.fullPackMm * 10.0f;
+    l.pack.inner = hex (st.pack0);
+    l.pack.outer = hex (st.pack1);
+    l.pack.ring = hex (juce::Colours::white.withAlpha (0.045f));
+    l.pack.ringWidth = 2;
+    l.pack.ringSpacing = 26;
+    l.pack.ringInset = 10;
+    l.pack.ringStop = hubR;
+    l.tape.colour = hex (st.tape);
+    l.tape.width = 4;
+    l.tape.guides = { { { guideLX, guideY }, { guideRX, guideY } } };
+    l.tape.wrapRadius = wrapR;
+    l.label = { 68, 398, 868, 80 };
+    return art;
+}
+
+bool CassetteComponent::artIsCurrent (const ArtSpec& spec, const juce::File& folder)
+{
+    tfmt::Look look;
+    std::string err;
+    if (! tfmt::readLook (tfmt::pathFromUtf8 (folder.getFullPathName().toStdString()), look, err)) return false;
+    // Only the TF-4's own drawings are redrawn: a cassette that came with another look keeps it.
+    if (look.design.rfind ("tapefour.", 0) != 0) return true;
+    return look.design == designOf (spec.model) && look.labelText == spec.label.toStdString()
+           && tfmt::sameNumber (look.pack.fullDiameter, (double) (spec.fullPackMm * 10.0f))
+           && folder.getChildFile (look.back).existsAsFile() && folder.getChildFile (look.frontA).existsAsFile()
+           && folder.getChildFile (look.hub).existsAsFile();
+}
+
+bool CassetteComponent::writeArt (const ArtSpec& spec, const juce::File& folder)
+{
+    auto art = renderArt (spec);
+    auto dir = folder.getChildFile ("art");
+    if (! dir.createDirectory()) return false;
+    auto put = [&] (const std::string& name, const void* data, size_t size)
+    {
+        auto file = folder.getChildFile (juce::String (name));
+        auto tmp = file.getSiblingFile (file.getFileName() + ".tmp");
+        return tmp.replaceWithData (data, size) && tmp.moveFileTo (file);
+    };
+    // The images first, the description last: a reader never finds a look naming images that aren't there.
+    auto json = tfmt::toJson (art.look).dump() + "\n";
+    return put (art.look.back, art.back.getData(), art.back.getSize())
+           && put (art.look.frontA, art.frontA.getData(), art.frontA.getSize())
+           && put (art.look.frontB, art.frontB.getData(), art.frontB.getSize())
+           && put (art.look.hub, art.hub.getData(), art.hub.getSize())
+           && put (tfmt::lookFile, json.data(), json.size());
 }
 } // namespace tf

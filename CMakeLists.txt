@@ -95,7 +95,8 @@ add_library(tapeformats STATIC
     Formats/Json.cpp
     Formats/Zip.cpp
     Formats/Cassette.cpp
-    Formats/Deck.cpp)
+    Formats/Deck.cpp
+    Formats/Look.cpp)
 target_include_directories(tapeformats PUBLIC Formats)
 target_compile_features(tapeformats PUBLIC cxx_std_17)
 target_compile_options(tapeformats PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)

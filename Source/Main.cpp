@@ -103,6 +103,10 @@ public:
                 file.deleteFile();
                 juce::FileOutputStream out (file);
                 ok = out.openedOk() && juce::PNGImageFormat().writeImageToStream (image, out) && ok;
+                // ...and the look a .cass carries for it, to check that a player can draw it the same
+                if (side == 0)
+                    ok = tf::CassetteComponent::writeArt (tf::CassetteComponent::ArtSpec::of (tape),
+                                                         folder.getChildFile (juce::String (tf::tapeModels[model].name) + "-look")) && ok;
             }
         return ok;
     }

@@ -218,7 +218,7 @@ void DeckComponent::prepareToQuit()
                     && engine.deviceManager.getCurrentAudioDevice() != nullptr; ++i)
         juce::Thread::sleep (10);
     collectMixdown();
-    if (auto* m = engine.masterDeck.getTape()) writer.saveTape (*m);
+    if (auto* m = engine.masterDeck.getTape()) { writer.saveTape (*m); ensureArt (*m); }
     saveTape (false, true, true);
     writer.waitUntilIdle();     // everything on disk before we go
     if (auto* t = engine.getTape())
@@ -633,6 +633,7 @@ void DeckComponent::tapeChanged()
     auto* t = engine.getTape();
     cassette.setTape (t);
     cassette.setSide (t != nullptr && t->isTurnedOver() ? 1 : 0);
+    if (t != nullptr) ensureArt (*t);   // a cassette from before looks were saved gets one
     inlayThumb.tape = t;
     inlayThumb.repaint();
     if (t != nullptr)
@@ -661,6 +662,23 @@ void DeckComponent::saveTape (bool announce, bool withDeck, bool fresh)
         if (safe == nullptr) return;
         if (! ok)          safe->say ("COULD NOT SAVE TAPE", 5.0);
         else if (announce) safe->say ("SAVED");
+    });
+    ensureArt (*t);
+}
+
+void DeckComponent::ensureArt (const Tape& t)
+{
+    // The cassette's look goes with it (art/), drawn as the TF-4 draws it: redrawn only when
+    // something on it changes, on the writer's thread, after the cassette itself is on disk.
+    auto spec = CassetteComponent::ArtSpec::of (t);
+    auto key = spec.key();
+    if (artWritten[t.id] == key) return;
+    artWritten[t.id] = key;
+    auto folder = TapeShelf::folderFor (t.id);
+    writer.enqueue ([spec, folder]
+    {
+        if (folder.isDirectory() && ! CassetteComponent::artIsCurrent (spec, folder))
+            CassetteComponent::writeArt (spec, folder);
     });
 }
 
@@ -1016,7 +1034,7 @@ void DeckComponent::collectMixdown()
     MixTake take;
     juce::String problem;
     if (! md.collectFinished (take, problem)) return;
-    if (auto* m = md.getTape(); m != nullptr && take.side >= 0) writer.saveTape (*m);
+    if (auto* m = md.getTape(); m != nullptr && take.side >= 0) { writer.saveTape (*m); ensureArt (*m); }
     if (problem.isNotEmpty())
         say ("MIX " + juce::String (take.number) + ": " + problem.toUpperCase().substring (0, 44), 6.0);
     else
@@ -1107,6 +1125,7 @@ void DeckComponent::exportMasterCassette()
         if (tape == nullptr) return;
         auto target = fc.getResult().withFileExtension ("cass");
         d.writer.saveTape (*tape);
+        d.ensureArt (*tape);
         auto id = tape->id;
         auto error = std::make_shared<juce::String>();
         auto ok = std::make_shared<bool> (false);
