@@ -301,8 +301,14 @@ void DeckComponent::paint (juce::Graphics& g)
 
     // ---- cassette bay ----
     panelBackground (g, bayPanel, Pal::panel);
-    smallCaps (g, utf ("CASSETTE \xc2\xb7 SIDE A ONLY \xc2\xb7 4 TRACKS ONE DIRECTION"),
-               { bayPanel.getX() + 18, bayPanel.getY() + 12, 400, 20 });
+    {
+        const auto* t = engine.getTape();
+        const bool turned = t != nullptr && t->isTurnedOver();
+        smallCaps (g, turned ? utf ("CASSETTE \xc2\xb7 SIDE B UP \xc2\xb7 SIDE A PLAYS BACKWARDS")
+                             : utf ("CASSETTE \xc2\xb7 SIDE A UP \xc2\xb7 4 TRACKS ONE DIRECTION"),
+                   { bayPanel.getX() + 18, bayPanel.getY() + 12, 420, 20 }, juce::Justification::centredLeft,
+                   turned ? Pal::amber : Pal::muted);
+    }
     smallCaps (g, "INLAY", { bayPanel.getX() + 448, bayPanel.getY() + 12, 90, 20 });
     auto bay = juce::Rectangle<float> ((float) bayPanel.getX() + 18, (float) bayPanel.getY() + 36, 524, 286);
     g.setColour (Pal::bay);
@@ -389,7 +395,7 @@ void DeckComponent::transport (TapeEngine::Command c)
         return;
     }
 
-    if (c == TapeEngine::Command::rec && engine.getTape()->protectA.load())
+    if (c == TapeEngine::Command::rec && engine.getTape()->isWriteProtected())
     {
         say ("WRITE-PROTECTED: THE TAB IS BROKEN OUT", 4.0);
         return;
@@ -626,6 +632,7 @@ void DeckComponent::tapeChanged()
 {
     auto* t = engine.getTape();
     cassette.setTape (t);
+    cassette.setSide (t != nullptr && t->isTurnedOver() ? 1 : 0);
     inlayThumb.tape = t;
     inlayThumb.repaint();
     if (t != nullptr)
@@ -779,10 +786,14 @@ void DeckComponent::showEjectMenu()
     {
         m.addSeparator();
         m.addSectionHeader ("THIS CASSETTE");
+        const bool turned = t->isTurnedOver();
+        m.addItem (turned ? "Turn it back over (side A up)" : "Turn it over (side B up: everything plays backwards)",
+                   [this, turned] { turnTapeOver (! turned); });
         m.addItem ("Export as a .cass file...", [this] { exportCassette(); });
         m.addItem ("Export its tracks (" + exportFormats.describe() + ")...", [this] { exportTracks(); });
         m.addSubMenu ("File formats for exports and mixdowns", formatsMenu());
-        m.addItem ("Write-protect it (break out the tab)", true, t->protectA.load(), [this] { toggleWriteProtect(); });
+        m.addItem (juce::String ("Write-protect side ") + (turned ? "B" : "A") + " (break out its tab)", true, t->isWriteProtected(),
+                   [this] { toggleWriteProtect(); });
     }
 
     m.addSeparator();
@@ -848,6 +859,8 @@ void DeckComponent::exportTracks()
     auto* t = engine.getTape();
     if (t == nullptr) return;
     if (t->tracksUsed() == 0) { say ("NOTHING RECORDED ON THIS TAPE YET"); return; }
+    // The tracks go out as they lie on side A, forwards: what another program expects.
+    if (t->isTurnedOver()) { say ("TURN THE TAPE BACK TO SIDE A TO EXPORT ITS TRACKS", 4.0); return; }
     chooser = std::make_unique<juce::FileChooser> ("Export the tracks into a folder",
                                                    juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("TapeFour"));
     chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
@@ -1141,12 +1154,23 @@ void DeckComponent::toggleWriteProtect()
 {
     auto* t = engine.getTape();
     if (t == nullptr) return;
-    const bool on = ! t->protectA.load();
-    t->protectA = on;
-    if (t->getLayout() == tfmt::Layout::stereoTwoSides) t->protectB = on;
+    // The tab of the side facing up (a stereo cassette's both, as the TF-4 records both its sides at once).
+    const bool on = ! t->isWriteProtected();
+    if (t->getLayout() == tfmt::Layout::stereoTwoSides) { t->protectA = on; t->protectB = on; }
+    else if (t->isTurnedOver()) t->protectB = on;
+    else t->protectA = on;
     t->markMetaChanged();
     saveTape (false, false);
     say (on ? "TAB BROKEN OUT: THIS TAPE CAN'T BE RECORDED ON" : "TAB TAPED OVER: THIS TAPE CAN BE RECORDED ON", 4.0);
+}
+
+void DeckComponent::turnTapeOver (bool sideBUp)
+{
+    if (! engine.turnTapeOver (sideBUp)) { say ("STOP THE TAPE FIRST"); return; }
+    if (auto* t = engine.getTape()) cassette.setSide (t->isTurnedOver() ? 1 : 0);
+    saveTape (false, true);   // the session remembers which side is up
+    repaint();
+    say (sideBUp ? "SIDE B UP: TRACK 1 IS NOW ON TRACK 4" : "SIDE A UP: FORWARDS AGAIN", 5.0);
 }
 
 void DeckComponent::exportCassette()

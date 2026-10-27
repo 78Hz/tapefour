@@ -264,6 +264,18 @@ std::unique_ptr<Tape> AudioEngine::swapTape (std::unique_ptr<Tape> newTape)
     return old;
 }
 
+bool AudioEngine::turnTapeOver (bool sideBUp)
+{
+    const juce::SpinLock::ScopedLockType sl (tapeLock);
+    if (tape == nullptr || tapeEngine.getMode() != Mode::stop) return false;
+    if (tape->isTurnedOver() == sideBUp) return true;
+    const auto reading = tape->position.load() - tape->counterZero.load();
+    tape->turnOver (sideBUp);
+    tape->counterZero = tape->position.load() - reading;
+    tapeEngine.setTape (tape.get(), false);   // picks up the turned position; leaves the switch alone
+    return true;
+}
+
 void AudioEngine::setTrackInput (int t, int inputChannel, bool pair)
 {
     ++viewVersion;

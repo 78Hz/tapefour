@@ -119,6 +119,9 @@ public:
     // ---- tape (message thread) ----
     Tape* getTape() const noexcept { return tape.get(); }
     std::unique_ptr<Tape> swapTape (std::unique_ptr<Tape> newTape);
+    /** Turns the cassette in the deck over (side B up) or back. Only with the transport stopped:
+        false otherwise, or with no tape in. The counter keeps the number it showed, as on a real deck. */
+    bool turnTapeOver (bool sideBUp);
 
     // ---- a track's inputs (message thread) ----
     void setTrackInput (int t, int inputChannel, bool pair = false);   // -1: no audio in

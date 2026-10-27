@@ -63,7 +63,10 @@ std::unique_ptr<juce::XmlElement> AudioEngine::createDeckState (bool freshPlugin
     x->setAttribute ("nrType", tp.nrType.load());
     x->setAttribute ("sat", tp.sat.load());
     if (tape != nullptr)
+    {
         x->setAttribute ("counterZero", tape->counterZero.load());
+        if (tape->isTurnedOver()) x->setAttribute ("sideB", true);   // left in the deck side B up
+    }
     return deck;
 }
 
@@ -203,7 +206,7 @@ void AudioEngine::applyDeckState (const juce::XmlElement& deck)
         // Sessions before version 5 also held the machine's and the cassette's character; the machine
         // took its own from the settings once (restoreMachine), and each cassette from its old deck file.
         if (tape != nullptr && x->hasAttribute ("counterZero"))
-            tape->counterZero = juce::jlimit (0.0, (double) tape->getLengthCells(), x->getDoubleAttribute ("counterZero"));
+            tape->counterZero = juce::jlimit (-(double) tape->getLengthCells(), 2.0 * (double) tape->getLengthCells(), x->getDoubleAttribute ("counterZero"));
     }
 
     if (onDeckStateApplied) onDeckStateApplied();

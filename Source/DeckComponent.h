@@ -56,6 +56,7 @@ private:
     void exportCassette();
     void chooseCassetteFile();
     void toggleWriteProtect();
+    void turnTapeOver (bool sideBUp);
     void exportTracks();
 
     // ---- the master deck and mixdowns (MasterDeckCard, MasterDeck) ----

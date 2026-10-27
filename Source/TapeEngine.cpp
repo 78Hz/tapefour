@@ -279,6 +279,7 @@ TapeEngine::Dropout TapeEngine::dropoutAt (uint64_t seed, int track, int64_t blo
     };
     Dropout d;
     d.block = block;
+    d.track = track;
     if (block < 0 || next() >= perBlock) return d;
     // A dip of 15 to 75 ms of tape (at 1 7/8), 8 to 38% deep in level.
     d.start = ((double) block + next()) * blockCells;
@@ -369,7 +370,7 @@ void TapeEngine::beginBlock (int n, const bool* armed) noexcept
         case Command::play: m = Mode::play; rtz = false; break;
         case Command::stop: m = Mode::stop; rtz = false; break;
         case Command::rec:
-            if (tape->protectA.load()) break;   // the tab is broken out: the record key won't go down
+            if (tape->isWriteProtected()) break;   // the tab is broken out: the record key won't go down
             if (anyArmed) { m = Mode::rec; rtz = false; }
             else noArmWarning = true;
             break;
@@ -537,7 +538,7 @@ void TapeEngine::readAll (float* const* out, int n) noexcept
         // Print-through: each recording has slowly copied itself onto the turns either side of it.
         // The turn ahead is heard as a faint pre-echo, the one behind as a post-echo.
         const auto len = (double) tape->getLengthCells();
-        turn = Wear::turnCells (p0 / len, tape->getTypeInfo().fullPackMm, cellRate);
+        turn = Wear::turnCells (tape->physicalPos (p0) / len, tape->getTypeInfo().fullPackMm, cellRate);
         const auto today = tape->getToday();
         for (int t = 0; t < numTracks; ++t)
         {
@@ -635,12 +636,14 @@ void TapeEngine::readAll (float* const* out, int n) noexcept
             float dropTarget = 1.0f;
             if (dropPerBlock > 0.0f)
             {
-                const auto p = posBuf[(size_t) i];
+                // (places on the tape itself, so they stay put when the cassette is turned over)
+                const auto p = tape->physicalPos (posBuf[(size_t) i]);
+                const auto pt = tape->physicalTrack (t);
                 const auto blk = (int64_t) (p / blockCells);
-                if (blk != dropHere[t].block)
+                if (blk != dropHere[t].block || pt != dropHere[t].track)
                 {
-                    dropBefore[t] = blk - 1 == dropHere[t].block ? dropHere[t] : dropoutAt (tape->getSeed(), t, blk - 1, dropPerBlock);
-                    dropHere[t] = dropoutAt (tape->getSeed(), t, blk, dropPerBlock);
+                    dropBefore[t] = blk - 1 == dropHere[t].block && pt == dropHere[t].track ? dropHere[t] : dropoutAt (tape->getSeed(), pt, blk - 1, dropPerBlock);
+                    dropHere[t] = dropoutAt (tape->getSeed(), pt, blk, dropPerBlock);
                 }
                 for (auto* d : { &dropHere[t], &dropBefore[t] })
                     if (p >= d->start && p < d->end) dropTarget = std::min (dropTarget, d->depth);

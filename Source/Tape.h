@@ -48,10 +48,29 @@ public:
     uint64_t getSeed() const noexcept           { return seed; }
     tfmt::Layout getLayout() const noexcept     { return layout; }
 
+    // ---- turning the cassette over ----
+    /** Side B up: the deck sees the tape from the other side, as a real one does when you turn the
+        cassette over. Everything on it plays backwards, and the tracks come in mirrored: what was
+        recorded on track 1 is under the track 4 head, track 2 under track 3. Tracks, cells, blocks
+        and positions given to the Tape are the deck's; they're turned into places on the tape here.
+        Message thread, transport stopped; the deck's position is turned round with it. */
+    void turnOver (bool sideBUp) noexcept;
+    bool isTurnedOver() const noexcept          { return turnedOver.load (std::memory_order_relaxed); }
+    /** Where on the tape the deck's track and position are. */
+    int physicalTrack (int track) const noexcept { return isTurnedOver() ? numTracks - 1 - track : track; }
+    double physicalPos (double pos) const noexcept { return isTurnedOver() ? (double) lengthCells - pos : pos; }
+    /** The tab of the side facing up is broken out (a stereo cassette in the TF-4: either side's). */
+    bool isWriteProtected() const noexcept
+    {
+        if (layout == tfmt::Layout::stereoTwoSides) return protectA.load() || protectB.load();
+        return isTurnedOver() ? protectB.load() : protectA.load();
+    }
+
     // ---- audio thread ----
     inline float readCell (int track, int64_t c) const noexcept
     {
         if (c < 0 || c >= lengthCells) return 0.0f;
+        if (isTurnedOver()) { track = numTracks - 1 - track; c = lengthCells - 1 - c; }
         return (float) data[track][c].load (std::memory_order_relaxed) * readScale;
     }
 
@@ -63,7 +82,7 @@ public:
     void addPass (int64_t second) noexcept
     {
         if (second < 0 || second >= numSeconds) return;
-        if (sideB.load (std::memory_order_relaxed)) second = numSeconds - 1 - second;   // passes are counted along the tape itself
+        if (secondsReversed()) second = numSeconds - 1 - second;   // passes are counted along the tape itself
         auto& p = passesAt ((int) second);
         auto v = p.load (std::memory_order_relaxed);
         if (v < 65535) p.store ((uint16_t) (v + 1), std::memory_order_relaxed);
@@ -72,7 +91,7 @@ public:
     int passesAt (double pos) const noexcept
     {
         auto s = juce::jlimit (0, numSeconds - 1, (int) (pos / cellRate));
-        return passesAt (sideB.load (std::memory_order_relaxed) ? numSeconds - 1 - s : s).load (std::memory_order_relaxed);
+        return passesAt (secondsReversed() ? numSeconds - 1 - s : s).load (std::memory_order_relaxed);
     }
 
     // ---- two-sided cassettes ----
@@ -83,7 +102,7 @@ public:
     /** Which side is in front of the heads (for counting passes along the tape). */
     void setSideB (bool b) noexcept             { sideB = b; }
     /** The day a stretch was recorded (days since 2000-01-01), or 0 if unknown or blank. */
-    int recordedDay (int track, int block) const noexcept { return dayAt (track, block).load (std::memory_order_relaxed); }
+    int recordedDay (int track, int block) const noexcept { return dayAt (deckTrack (track), deckBlock (block)).load (std::memory_order_relaxed); }
     /** Today, as the cassette counts it: stamps new recordings, and ages old ones. The deck keeps it current. */
     void setToday (uint16_t dayNumber) noexcept { today = dayNumber; }
     int getToday() const noexcept               { return today.load (std::memory_order_relaxed); }
@@ -100,21 +119,22 @@ public:
     const Character& getCharacter() const noexcept { return character; }
 
     // ---- metadata (safe to read from any thread) ----
-    bool isRecorded (int track, int block) const noexcept   { return (flagsAt (track, block).load (std::memory_order_relaxed) & 1) != 0; }
-    bool isNrEncoded (int track, int block) const noexcept  { return (flagsAt (track, block).load (std::memory_order_relaxed) & 2) != 0; }
+    // (track and block as the deck sees them: see turnOver)
+    bool isRecorded (int track, int block) const noexcept   { return (flagsAt (deckTrack (track), deckBlock (block)).load (std::memory_order_relaxed) & 1) != 0; }
+    bool isNrEncoded (int track, int block) const noexcept  { return (flagsAt (deckTrack (track), deckBlock (block)).load (std::memory_order_relaxed) & 2) != 0; }
     /** The tape switch position this stretch was recorded at (0 normal, 1 chrome, 2 metal), or the tape's own if not known. */
     int recordedPosition (int track, int block) const noexcept
     {
-        auto f = (flagsAt (track, block).load (std::memory_order_relaxed) >> 2) & 3;
+        auto f = (flagsAt (deckTrack (track), deckBlock (block)).load (std::memory_order_relaxed) >> 2) & 3;
         return f == 0 ? naturalPosition() : f - 1;
     }
     /** The NR system this stretch was encoded with (0 2:1, 1 B, 2 C), or -1 if not known. */
     int recordedNrType (int track, int block) const noexcept
     {
-        return ((flagsAt (track, block).load (std::memory_order_relaxed) >> 4) & 7) - 1;
+        return ((flagsAt (deckTrack (track), deckBlock (block)).load (std::memory_order_relaxed) >> 4) & 7) - 1;
     }
     int naturalPosition() const noexcept        { return positionForIec (getModelInfo().iecType); }
-    float recordedSpeed (int track, int block) const noexcept { return speedMilliAt (track, block).load (std::memory_order_relaxed) / 1000.0f; }
+    float recordedSpeed (int track, int block) const noexcept { return speedMilliAt (deckTrack (track), deckBlock (block)).load (std::memory_order_relaxed) / 1000.0f; }
     double usedSeconds() const;
     int tracksUsed() const;
 
@@ -175,7 +195,12 @@ private:
     /** Track t is held the other way round from how it lies on the tape. */
     bool reversedInMemory (int t) const noexcept { return sidesInPlayingOrder && layout == tfmt::Layout::stereoTwoSides && t >= 2; }
     bool sidesInPlayingOrder = false;
-    std::atomic<bool> sideB { false };
+    std::atomic<bool> sideB { false }, turnedOver { false };
+    bool secondsReversed() const noexcept { return sideB.load (std::memory_order_relaxed) || isTurnedOver(); }
+    // The deck's track and block, as places on the tape (see turnOver). With a length in whole
+    // blocks (every standard cassette), block b turned over is exactly block numBlocks - 1 - b.
+    int deckTrack (int t) const noexcept { return physicalTrack (t); }
+    int deckBlock (int b) const noexcept { return isTurnedOver() ? numBlocks - 1 - b : b; }
 
     TapeTypeInfo typeInfo {};
     TapeModel modelInfo {};

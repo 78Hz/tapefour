@@ -150,7 +150,7 @@ private:
     Noise hissNoise[numTracks] { Noise (11u), Noise (23u), Noise (37u), Noise (51u) };
     float dropGain[numTracks] { 1, 1, 1, 1 };
     // The cassette's dropouts are fixed places on it: worked out from its id, per block of tape.
-    struct Dropout { int64_t block = -1; double start = 0, end = 0; float depth = 1.0f; };
+    struct Dropout { int64_t block = -1; int track = -1; double start = 0, end = 0; float depth = 1.0f; };
     Dropout dropHere[numTracks], dropBefore[numTracks];
     static Dropout dropoutAt (uint64_t seed, int track, int64_t block, float perBlock) noexcept;
     Biquad oxideLoss[numTracks];

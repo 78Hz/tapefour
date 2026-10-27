@@ -191,6 +191,7 @@ bool AudioFileSet::finish()
 //==============================================================================
 bool TrackExport::run (Tape& tape, const TapeEngine::Params& op, const TapeEngine::Machine& machine, std::function<void (float)> progress)
 {
+    if (tape.isTurnedOver()) { error = "turn the tape back to side A first"; return false; }   // tracks go out as on side A
     // A deck of its own, set up as the one on screen, that only plays.
     TapeEngine eng;
     constexpr int block = 4096;

@@ -231,6 +231,7 @@ void Tape::writeCell (int track, int64_t c, float v, bool nrEncoded, int nrType,
 {
     if (c < 0 || c >= lengthCells)
         return;
+    if (isTurnedOver()) { track = numTracks - 1 - track; c = lengthCells - 1 - c; }   // a place on the tape
 
     data[track][c].store ((int16_t) juce::roundToInt (juce::jlimit (-1.0f, 1.0f, v * fluxScale) * 32767.0f), std::memory_order_relaxed);
 
@@ -246,12 +247,21 @@ void Tape::writeCell (int track, int64_t c, float v, bool nrEncoded, int nrType,
     dataDirty.store (true, std::memory_order_release);
 }
 
+void Tape::turnOver (bool sideBUp) noexcept
+{
+    if (sideBUp == isTurnedOver()) return;
+    // The same place on the tape, seen from the other end.
+    position = (double) lengthCells - position.load();
+    turnedOver = sideBUp;
+    metaDirty = true;
+}
+
 double Tape::usedSeconds() const
 {
     int last = -1;
     for (int t = 0; t < numTracks; ++t)
         for (int b = numBlocks - 1; b > last; --b)
-            if (isRecorded (t, b)) { last = b; break; }
+            if ((flagsAt (t, b).load (std::memory_order_relaxed) & 1) != 0) { last = b; break; }   // along the tape itself
     return (last + 1) * (double) blockCells / cellRate;
 }
 
@@ -363,7 +373,7 @@ std::shared_ptr<Tape::Snapshot> Tape::snapshot() const
     auto& st = s->state;
     st.protectA = protectA.load();
     st.protectB = protectB.load();
-    st.position = position.load();
+    st.position = physicalPos (position.load());   // where it is along the tape, whichever side is up
     st.lastUsed = tfmt::isoNow();
     st.usedSeconds = usedSeconds();
     st.tracksUsed = tracksUsed();
@@ -443,7 +453,12 @@ static void readSession (Tape& tape, const juce::File& folder)
     if (auto x = juce::XmlDocument::parse (folder.getChildFile (sessionFile)); x != nullptr && x->hasTagName ("DECK"))
     {
         if (auto* td = x->getChildByName ("TAPE_DECK"))
-            tape.counterZero = juce::jlimit (0.0, (double) tape.getLengthCells(), td->getDoubleAttribute ("counterZero"));
+        {
+            // It was left in the deck side B up: turned before the counter, which counts as the deck does
+            // (and, kept reading the same number when the tape was turned, can lie off either end of it).
+            tape.turnOver (td->getBoolAttribute ("sideB", false));
+            tape.counterZero = juce::jlimit (-(double) tape.getLengthCells(), 2.0 * (double) tape.getLengthCells(), td->getDoubleAttribute ("counterZero"));
+        }
         tape.session = std::move (x);
     }
 }

@@ -150,9 +150,17 @@ Tapes also age, gently, as real ones do:
 
 The panel also shows the figures of the cassette in the deck. **Play every cassette as new** makes the deck ignore cassettes' condition and age (it still honours their formulation).
 
+### Turning the tape over (reverse recording)
+
+**EJECT → Turn it over** puts the cassette in side B up, as if you'd taken it out and turned it round. Like a real 4-track, the deck then sees the tape from the other end: everything on it plays backwards, and the tracks come in mirrored, so what you recorded on track 1 is now under the track 4 head (and 2 under 3). Record something on side B, turn the tape back, and it plays backwards on side A: reverse cymbals, backwards guitar solos, swelling reverb tails.
+
+- Side A's start is side B's end, so after turning over you'll usually rewind first. The counter keeps the number it showed, as on a real deck.
+- Noise reduction, the tape switch, dropouts and wear all stay with their places on the tape. Decoding NR on a recording played backwards breathes, as it does on a real deck.
+- The deck remembers which side is up with the tape. Track exports are always of side A, so turn the tape back before exporting.
+
 ### Write-protect tabs
 
-**EJECT → Write-protect it** breaks out the cassette's tab: the deck then refuses to record on it, as a real deck would. Click it again to tape over the hole.
+**EJECT → Write-protect side A** (or **B**) breaks out the tab of the side facing up: the deck then refuses to record on that side, as a real deck would. Click it again to tape over the hole.
 
 ### Cassette files (.cass)
 

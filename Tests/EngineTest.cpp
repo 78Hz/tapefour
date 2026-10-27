@@ -294,6 +294,73 @@ int main()
         dir.deleteRecursively();
     }
 
+    {   // 0d. Turning the cassette over: side A plays backwards, and its tracks come in mirrored.
+        Rig r;
+        const auto len = r.tape.getLengthCells();
+        // On side A, track 1: a 1 kHz note that swells from nothing to full over half a second, at 1.0 s.
+        for (int64_t c = 0; c < cellRate / 2; ++c)
+        {
+            const auto env = (float) c / (float) (cellRate / 2);
+            r.tape.writeCell (0, cellRate + c, 0.3f * env * (float) std::sin (juce::MathConstants<double>::twoPi * 1000.0 * (double) c / cellRate),
+                              true, 0, 1.0f, 0);
+        }
+        r.tape.protectB = true;
+        check (! r.tape.isWriteProtected(), "turning over: side A up, side A's tab counts", r.tape.isWriteProtected() ? 1 : 0, 0);
+
+        r.rewindTo (cellRate * 3);
+        r.tape.turnOver (true);
+        r.eng.setTape (&r.tape, false);
+        check (std::abs (r.tape.position.load() - (double) (len - cellRate * 3)) < 1e-6,
+               "turning over: the deck's place is the same place on the tape, from the other end", r.tape.position.load() / cellRate, (double) (len - cellRate * 3) / cellRate);
+        check (r.tape.isWriteProtected(), "turning over: side B up, side B's tab counts", r.tape.isWriteProtected() ? 1 : 0, 1);
+        check (r.tape.isNrEncoded (3, r.tape.blockAt ((double) len - 1.25 * cellRate)) && ! r.tape.isNrEncoded (0, r.tape.blockAt ((double) len - 1.25 * cellRate)),
+               "turning over: what was recorded on track 1 is under the track 4 head", 1, 1);
+
+        // Play 3 s of side B, ending where side A starts: the note comes back on track 4, fading away.
+        const auto t1 = r.run (3.0, TapeEngine::Command::play, false, 0, 0, 3);
+        const double early = rms (t1, 1.55, 1.75), late = rms (t1, 1.95, 2.15), before = rms (t1, 0.5, 1.4);
+        check (early > 4.0 * late && late > 0.001 && before < 0.001,
+               "turning over: side A's swell plays backwards, a fade (loud, then quiet)", early / std::max (1e-9, late), 4.0);
+
+        // Record on side B, track 1 (as the deck sees it), then turn back: it's on track 4, backwards.
+        r.tape.protectB = false;
+        r.rewindTo ((double) len - 6.0 * cellRate);   // side B, 6 s from its end: side A's 0..6 s
+        r.eng.params.nrOn = true;
+        r.run (1.0, TapeEngine::Command::rec, true, 440.0, 0.3f);
+        r.eng.params.nrOn = false;
+        r.rewindTo (0);
+        r.tape.turnOver (false);
+        r.eng.setTape (&r.tape, false);
+        const auto recordedAt = 5.5 * cellRate;   // side B's first second of recording, seen from side A
+        check (r.tape.isRecorded (3, r.tape.blockAt (recordedAt)) && r.tape.isNrEncoded (3, r.tape.blockAt (recordedAt))
+                   && ! r.tape.isRecorded (0, r.tape.blockAt (recordedAt)),
+               "turning back: what side B put on track 1 is on track 4, with its NR", 1, 1);
+        check (std::abs (r.tape.readCell (0, cellRate + cellRate / 2 - 1)) > 0.05f,
+               "turning back: side A's own recording is untouched", r.tape.readCell (0, cellRate + cellRate / 2 - 1), 0.3);
+
+        // Passes are counted along the tape: playing side B wore side A's first three seconds.
+        check (r.tape.passesAt (2.0 * cellRate) >= 1, "turning over: playing side B wears the same stretch of tape", r.tape.passesAt (2.0 * cellRate), 1);
+
+        // Saved side B up, it comes back side B up, at the same place.
+        auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("tf_turned_tape");
+        dir.deleteRecursively();
+        r.rewindTo (cellRate * 4);
+        r.tape.turnOver (true);
+        r.tape.session = std::make_unique<juce::XmlElement> ("DECK");
+        auto* td = r.tape.session->createNewChildElement ("TAPE_DECK");
+        td->setAttribute ("sideB", true);
+        td->setAttribute ("counterZero", -100.0);
+        r.tape.sessionNeedsWriting = true;
+        const auto deckPos = r.tape.position.load();
+        r.tape.save (dir);
+        auto back = Tape::load (dir);
+        check (back != nullptr && back->isTurnedOver() && std::abs (back->position.load() - deckPos) < 1.0 && std::abs (back->counterZero.load() + 100.0) < 1e-6,
+               "turning over: saved side B up, it loads side B up, where it was", back != nullptr ? back->position.load() / cellRate : -1, deckPos / cellRate);
+        check (back != nullptr && back->isRecorded (0, back->blockAt ((double) len - 5.5 * cellRate)),
+               "turning over: and plays side B's recording on track 1 again", 1, 1);
+        dir.deleteRecursively();
+    }
+
     {   // 0c. Dropouts are places on the cassette: the same on every play, and gone when the deck plays it as new.
         Rig r;
         tfmt::Condition c;

@@ -302,7 +302,7 @@ td:first-child { font-weight: 600; }
     <tr><td>C-90</td><td class="num">45 min</td><td class="num">45:00</td><td class="num">22:30</td><td>Largest packs</td></tr>
   </tbody>
 </table>
-<p>Like a real 4-track, TAPE·FOUR uses one side only, with all four tracks running the same way. When the tape reaches the end, the transport stops and the status display shows <span class="lcd">END OF TAPE</span>.</p>
+<p>Like a real 4-track, TAPE·FOUR records all four tracks across the full width of the tape, running the same way (you can turn the cassette over, below). When the tape reaches the end, the transport stops and the status display shows <span class="lcd">END OF TAPE</span>.</p>
 
 <h2>A blank tape's condition</h2>
 <p>A cassette's condition belongs to the cassette, as on a real one, so you choose it when you put in a blank. It is saved with the tape and travels with it.</p>
@@ -317,8 +317,17 @@ td:first-child { font-weight: 600; }
 </table>
 <p>Dropouts sit at fixed places on the tape, so a dropout comes back at the same moment every time you play that stretch. A tape also wears and ages slowly as you use it (chapter 12). Tapes made before this version are given the condition closest to their old settings.</p>
 
-<h2>Write-protect tab</h2>
-<p><span class="ctl">EJECT → Write-protect it (break out the tab)</span> stops the deck recording on the cassette, as on a real one: pressing <span class="ctl">REC</span> shows <span class="lcd">WRITE-PROTECTED</span> instead. Choose it again to tape over the hole.</p>
+<h2>Turning the tape over: reverse recording</h2>
+<p><span class="ctl">EJECT → Turn it over</span> puts the cassette in side B up, as if you had taken it out and turned it round. The header above the cassette turns amber and the label shows <b>B</b>. Like a real 4-track, the deck now sees the tape from the other end:</p>
+<ul>
+  <li>everything on it plays <strong>backwards</strong>;</li>
+  <li>the tracks come in <strong>mirrored</strong>: what you recorded on track 1 is under the track 4 head, and track 2 is under track 3.</li>
+</ul>
+<p>That is the classic way to get sounds that only exist backwards. Turn the tape over, record a cymbal, a guitar line or a reverb tail on a free track, and turn the tape back: it now plays in reverse, swelling into the beat.</p>
+<p>Side A's start is side B's end, so after turning over you will usually rewind first. The counter keeps the number it showed, as on a real deck. Noise reduction flags, the tape switch, dropouts and wear stay with their places on the tape; decoding NR on a recording that plays backwards breathes, as it does on a real deck. The deck remembers which side is up along with the tape. <span class="ctl">Export its tracks</span> always exports side A, so turn the tape back first.</p>
+
+<h2>Write-protect tabs</h2>
+<p><span class="ctl">EJECT → Write-protect side A</span> (or <b>B</b>, when side B is up) breaks out the tab of the side facing up and stops the deck recording on that side, as on a real cassette: pressing <span class="ctl">REC</span> shows <span class="lcd">WRITE-PROTECTED</span> instead. Choose it again to tape over the hole.</p>
 
 <h2>Cassette files (.cass)</h2>
 <p><span class="ctl">EJECT → Export as a .cass file</span> saves the cassette in the deck as a single file you can keep, send to someone or open on another computer. It holds the tape and nothing else: the four tracks (16-bit, uncompressed), what was recorded where and at what speed, the formulation, condition and wear, the label and the tabs. Your mixer settings and plug-ins stay behind. A C-60 is about 460 MB, a C-90 about 690 MB.</p>

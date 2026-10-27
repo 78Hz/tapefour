@@ -631,6 +631,40 @@ int main()
         dir.deleteRecursively();
     }
 
+    // ---- Turning the TF-4's cassette over ----
+    {
+        Rig rt;
+        auto& me = *rt.engine;
+        auto& tape = *me.getTape();
+        tape.position = 20.0 * cellRate;
+        tape.counterZero = 10.0 * cellRate;   // the counter reads 005 (it counts every two seconds)
+        me.tapeEngine.setTape (&tape, false);
+        const auto reading = tape.position.load() - tape.counterZero.load();
+        const bool turned = me.turnTapeOver (true) && tape.isTurnedOver();
+        check (turned, "turn over: the deck turns its cassette over when stopped", turned ? 1 : 0, 1);
+        check (std::abs ((tape.position.load() - tape.counterZero.load()) - reading) < 1e-6
+                   && std::abs (me.tapeEngine.getPosition() - ((double) tape.getLengthCells() - 20.0 * cellRate)) < 1e-6,
+               "turn over: the counter reads the same, the transport is at the same place on the tape", (tape.position.load() - tape.counterZero.load()) / cellRate, reading / cellRate);
+        auto deck = me.createDeckState();
+        auto* td = deck->getChildByName ("TAPE_DECK");
+        check (td != nullptr && td->getBoolAttribute ("sideB"), "turn over: the session remembers side B is up", td != nullptr && td->getBoolAttribute ("sideB"), 1);
+        rt.cmd (TapeEngine::Command::play);
+        rt.run (0.1);
+        check (! me.turnTapeOver (false) && tape.isTurnedOver(), "turn over: not while the tape is running", tape.isTurnedOver() ? 1 : 0, 1);
+        rt.cmd (TapeEngine::Command::stop);
+        rt.run (0.05);
+        const bool turnedBack = me.turnTapeOver (false) && ! tape.isTurnedOver() && ! me.createDeckState()->getChildByName ("TAPE_DECK")->hasAttribute ("sideB");
+        check (turnedBack, "turn over: and back again", turnedBack ? 1 : 0, 1);
+        juce::File exportDir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("tf_turned_export");
+        tape.writeCell (0, 100, 0.2f, false, 0, 1.0f, 0);
+        me.turnTapeOver (true);
+        TrackExport ex;
+        ex.folder = exportDir;
+        ex.baseName = "turned";
+        check (! ex.run (tape, me.tapeEngine.params, me.tapeEngine.machine, nullptr), "turn over: tracks export only side A up", 0, 0);
+        me.turnTapeOver (false);
+    }
+
     // ---- The machine, the cassette and the session are kept apart ----
     {
         auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("tf_split_test");
