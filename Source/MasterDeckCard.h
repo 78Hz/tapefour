@@ -2,6 +2,7 @@
 
 #include "AudioEngine.h"
 #include "Widgets.h"
+#include "CassetteComponent.h"
 
 namespace tf
 {
@@ -50,8 +51,10 @@ private:
     LedKey saveSide { "SAVE SIDE AS ONE FILE", {}, false }, showFolder { "SHOW FOLDER", {}, false },
            newTape { "NEW MASTER TAPE", {}, false }, exportCass { "EXPORT .CASS", {}, false },
            masterTapes { utf ("MASTER TAPES \xe2\x96\xbe"), {}, false };
+    CassetteComponent cassette;   // the same cassette as in the TF-4, side up
     std::unique_ptr<Takes> takes;
     juce::Rectangle<int> cassetteArea, mapArea, labelColumn;
     juce::String shown;
+    const Tape* shownCassette = nullptr;
 };
 } // namespace tf

@@ -24,6 +24,10 @@ public:
 
     std::function<void (const juce::String&)> onNameChanged;
     void setTape (const Tape* tape);
+    /** Which side faces up (0 A, 1 B): the letter printed on the label. */
+    void setSide (int side);
+    /** False: the label can't be written on here (it's shown, not edited). */
+    void setLabelEditable (bool);
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -34,7 +38,8 @@ private:
     const Tape* lastTape = nullptr;
     float angleL = 0.0f, angleR = 0.0f;
     bool hasTape = false;
-    int model = defaultTapeModel, minutes = 30;
+    int model = defaultTapeModel, minutes = 30, side = 0;
+    const char* sideLetter() const noexcept { return side == 0 ? "A" : "B"; }
     juce::Label nameLabel;
 
     float packDiameter (float f) const;

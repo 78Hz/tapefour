@@ -107,6 +107,21 @@ void CassetteComponent::resized()
     // The write-on label, in component pixels.
     auto sx = (float) getWidth() / shellW, sy = (float) getHeight() / shellH;
     nameLabel.setBounds (juce::Rectangle<float> (122.0f * sx, 402.0f * sy, 760.0f * sx, 62.0f * sy).toNearestInt());
+    nameLabel.setFont (DeckLookAndFeel::get().hand (22.0f * (float) getHeight() / 255.0f));   // 22 at the deck's size
+}
+
+void CassetteComponent::setSide (int s)
+{
+    if (s == side) return;
+    side = s;
+    repaint();
+}
+
+void CassetteComponent::setLabelEditable (bool editable)
+{
+    nameLabel.setEditable (false, editable, false);
+    nameLabel.setInterceptsMouseClicks (editable, false);
+    nameLabel.setTooltip (editable ? "Double-click to write on the label" : juce::String());
 }
 
 void CassetteComponent::setTape (const Tape* tape)
@@ -239,7 +254,7 @@ void CassetteComponent::drawPrint (juce::Graphics& g) const
             text (g, title, lf.brand (96.0f), juce::Colour (0xff1a1917), 56, 178);
             text (g, "NORMAL BIAS " + utf ("\xc2\xb7") + " TYPE I", lf.cond (28.0f, true), juce::Colour (0xff3a3833), 918, 134, juce::Justification::right, 0.07f);
             text (g, juce::String (minutes) + " MIN PER SIDE", lf.cond (26.0f), juce::Colour (0xff3a3833), 918, 168, juce::Justification::right, 0.07f);
-            text (g, "A", lf.cond (40.0f, true), juce::Colour (0xff1a1917), 60, 300);
+            text (g, sideLetter(), lf.cond (40.0f, true), juce::Colour (0xff1a1917), 60, 300);
             break;
         }
         case 2:
@@ -271,7 +286,7 @@ void CassetteComponent::drawPrint (juce::Graphics& g) const
                   lf.cond (26.0f), juce::Colour (0xffb9a48c), 352, 130, juce::Justification::left, 0.1f);
             text (g, "IEC IV / TYPE IV   METAL POSITION", lf.cond (28.0f, true), juce::Colour (0xffb9a48c), 352, 162, juce::Justification::left, 0.07f);
             brandWord (944, 156, 46, juce::Colour (0xffece4cf), juce::Colour (0xffc98a4b));
-            text (g, "A", lf.cond (34.0f, true), juce::Colour (0xffc98a4b), 60, 300);
+            text (g, sideLetter(), lf.cond (34.0f, true), juce::Colour (0xffc98a4b), 60, 300);
             break;
         }
         case 1: default:
@@ -392,7 +407,7 @@ void CassetteComponent::paint (juce::Graphics& g)
     g.fillRect (68.0f, 468.0f, 868.0f, 10.0f);
     g.setColour (st.ink.withAlpha (0.85f));
     g.setFont (lf.cond (40.0f, true));
-    g.drawText ("A", juce::Rectangle<float> (88, 400, 36, 66), juce::Justification::centredLeft);
+    g.drawText (sideLetter(), juce::Rectangle<float> (88, 400, 36, 66), juce::Justification::centredLeft);
 
     // lower section with the head openings
     juce::Path lower;

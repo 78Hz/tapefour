@@ -164,6 +164,8 @@ MasterDeckCard::MasterDeckCard (AudioEngine& e, ExportFormats f)
     });
     nextTape.topSize = 13.0f;
     addAndMakeVisible (nextTape);
+    cassette.setLabelEditable (false);
+    addChildComponent (cassette);
 
     recLevel.stacked = true;
     recLevel.knobSize = 44;
@@ -277,6 +279,20 @@ void MasterDeckCard::refresh()
     mp3Rate.setAlpha (formats.mp3 ? 1.0f : 0.45f);
 
     auto* tape = md.getTape();
+    {
+        // The cassette, the side being recorded facing up, its reels wound to where the next mix goes.
+        auto* shownTape = ms.direct() ? nullptr : tape;
+        cassette.setVisible (shownTape != nullptr);
+        if (shownTape != shownCassette) { cassette.setTape (shownTape); shownCassette = shownTape; }
+        cassette.setSide (ms.side);
+        if (shownTape != nullptr)
+        {
+            auto at = md.nextStart();
+            if (at < 0) at = (double) shownTape->getLengthCells();
+            if (taking) at = std::min ((double) shownTape->getLengthCells(), at + md.takeSeconds() * cellRate);
+            cassette.update (shownTape, at);
+        }
+    }
     if (ms.direct())
     {
         nextTape.top = "NO TAPE";
@@ -314,6 +330,7 @@ void MasterDeckCard::resized()
 
     // left: the cassette, its sides, the record level
     cassetteArea = { pad, 72, leftW, 158 };
+    cassette.setBounds (cassetteArea.withSizeKeepingCentre (236, 150));   // the shell's own proportions
     auto sides = juce::Rectangle<int> (pad, 242, leftW, 40);
     sideKeys[0]->setBounds (sides.removeFromLeft ((leftW - keyGap) / 2));
     sides.removeFromLeft (keyGap);
@@ -377,45 +394,8 @@ void MasterDeckCard::paint (juce::Graphics& g)
         auto bay = cassetteArea.toFloat();
         g.setColour (Pal::bay);
         g.fillRoundedRectangle (bay, 8.0f);
-        auto shell = bay.withSizeKeepingCentre (224.0f, 140.0f);
         if (ms.direct() || tape == nullptr)
-        {
             smallCaps (g, ms.direct() ? "DIRECT: NO TAPE" : "NO MASTER TAPE", cassetteArea, Pal::faint, juce::Justification::centred);
-        }
-        else
-        {
-            const auto& tm = tape->getModelInfo();
-            g.setGradientFill (juce::ColourGradient (juce::Colour (0xff3a3e46), shell.getX(), shell.getY(), juce::Colour (0xff2a2d33), shell.getX(), shell.getBottom(), false));
-            g.fillRoundedRectangle (shell, 8.0f);
-            auto top = shell.reduced (10.0f, 8.0f).removeFromTop (34.0f);
-            g.setColour (juce::Colour (0xff24272d));
-            g.fillRoundedRectangle (top, 3.0f);
-            g.setColour (juce::Colour (tm.accent));
-            g.setFont (lf.cond (22.0f, true).italicised());
-            g.drawText (tape->productName(), top.reduced (8.0f, 0).toNearestInt(), juce::Justification::centredLeft);
-            auto badge = top.removeFromRight (30.0f).reduced (5.0f);
-            g.setColour (Pal::orange);
-            g.fillRoundedRectangle (badge, 3.0f);
-            g.setColour (Pal::body);
-            g.setFont (lf.cond (16.0f, true));
-            g.drawText (ms.side == 0 ? "A" : "B", badge.toNearestInt(), juce::Justification::centred);
-            for (auto cx : { shell.getX() + 57.0f, shell.getRight() - 57.0f })
-            {
-                auto reel = juce::Rectangle<float> (46.0f, 46.0f).withCentre ({ cx, shell.getY() + 76.0f });
-                g.setColour (juce::Colour (0xfff4f2ee));
-                g.fillEllipse (reel);
-                g.setColour (juce::Colour (tm.accent));
-                g.drawEllipse (reel.reduced (6.0f), 2.0f);
-                g.setColour (juce::Colour (0xff9a9a9a));
-                g.fillEllipse (reel.withSizeKeepingCentre (16.0f, 16.0f));
-            }
-            auto label = juce::Rectangle<float> (shell.getX() + 10.0f, shell.getBottom() - 30.0f, shell.getWidth() - 20.0f, 20.0f);
-            g.setColour (Pal::paper);
-            g.fillRoundedRectangle (label, 2.0f);
-            g.setColour (Pal::ink);
-            g.setFont (lf.hand (17.0f));
-            g.drawText (tape->name.isNotEmpty() ? tape->name : juce::String ("master tape"), label.reduced (6.0f, 0).toNearestInt(), juce::Justification::centredLeft);
-        }
     }
     smallCaps (g, "CLICK A SIDE TO TURN IT OVER", { pad, 286, leftW, 20 }, Pal::faint, juce::Justification::centred);
 
