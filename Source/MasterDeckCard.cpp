@@ -139,7 +139,7 @@ MasterDeckCard::MasterDeckCard (AudioEngine& e, ExportFormats f)
     auto depthMenu = [this] (LcdButton& b, std::function<void (juce::PopupMenu&)> fill)
     {
         b.topSize = 14.0f;
-        b.onClick = [this, &b, fill]
+        b.onClick = [&b, fill]
         {
             juce::PopupMenu m;
             fill (m);

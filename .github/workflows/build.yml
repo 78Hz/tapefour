@@ -81,7 +81,7 @@ jobs:
           set -o pipefail
           cmake --build build --parallel 2>&1 | tee build.log || {
             # Compile errors as annotations, so they show on the run's page without the log.
-            grep -E "error[: ]|Error [0-9]|undefined (reference|symbol)" build.log | grep -v "^ninja: build stopped" | head -25 | sed 's/^/::error::/'
+            grep -E ": (fatal )?error:|^ld: |Undefined symbols|undefined reference|error LNK|: error [A-Z]+[0-9]+" build.log | sort -u | head -10 | sed 's/^/::error::/'
             exit 1; }
 
       - name: Test the cassette and deck formats
@@ -132,7 +132,7 @@ jobs:
           set -o pipefail
           cmake --build build --config Release --parallel 2>&1 | tee build.log || {
             # Compile errors as annotations, so they show on the run's page without the log.
-            grep -E "error[: ]|Error [0-9]|undefined (reference|symbol)" build.log | grep -v "^ninja: build stopped" | head -25 | sed 's/^/::error::/'
+            grep -E ": (fatal )?error:|^ld: |Undefined symbols|undefined reference|error LNK|: error [A-Z]+[0-9]+" build.log | sort -u | head -10 | sed 's/^/::error::/'
             exit 1; }
 
       - name: Test the cassette and deck formats
@@ -197,7 +197,7 @@ jobs:
           set -o pipefail
           cmake --build build --parallel --target FormatTest EngineTest MixerTest 2>&1 | tee build.log || {
             # Compile errors as annotations, so they show on the run's page without the log.
-            grep -E "error[: ]|Error [0-9]|undefined (reference|symbol)" build.log | grep -v "^ninja: build stopped" | head -25 | sed 's/^/::error::/'
+            grep -E ": (fatal )?error:|^ld: |Undefined symbols|undefined reference|error LNK|: error [A-Z]+[0-9]+" build.log | sort -u | head -10 | sed 's/^/::error::/'
             exit 1; }
 
       - name: Run them
