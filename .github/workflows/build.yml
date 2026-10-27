@@ -203,7 +203,8 @@ jobs:
 
       - name: Package
         run: |
-          app=$(find build-ios -name "TF-P1 Pocket.app" -path "*iphonesimulator*" | head -1)
+          app=$(find build-ios -type d -name "TF-P1 Pocket.app" -not -path "*/_deps/*" | head -1)
+          echo "the app: $app"
           ditto -c -k --keepParent "$app" TF-P1-Pocket-ios-simulator.zip
 
       - uses: actions/upload-artifact@v4
@@ -218,7 +219,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 17

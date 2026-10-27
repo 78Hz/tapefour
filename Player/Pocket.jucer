@@ -8,7 +8,7 @@
 -->
 <JUCERPROJECT id="tfp1pk" name="TF-P1 Pocket" projectType="guiapp" useAppConfig="0"
               addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" version="0.2.0"
-              companyName="78Hz" bundleIdentifier="com.78hz.tapefour.pocket"
+              companyName="78Hz" bundleIdentifier="com.hz78.tapefour.pocket"
               cppLanguageStandard="20" displaySplashScreen="0"
               defines="JUCE_APPLICATION_VERSION_STRING=&quot;0.2.0&quot;">
   <MAINGROUP id="pkMain" name="TF-P1 Pocket">
