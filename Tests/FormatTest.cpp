@@ -1,5 +1,6 @@
 // Tests for the cassette and deck format library (Formats/): no JUCE, as other products will use it.
 
+#include <cstdlib>
 #include "Cassette.h"
 #include "Deck.h"
 #include "Zip.h"
@@ -20,6 +21,8 @@ namespace
     {
         std::printf ("%s  %s\n", ok ? "PASS" : "FAIL", what);
         if (! ok) ++failures;
+        if (! ok && std::getenv ("GITHUB_ACTIONS") != nullptr)
+            std::printf ("::error::FormatTest: %s\n", what);   // shows on the run's page
     }
 
     std::string slurp (const fs::path& p)

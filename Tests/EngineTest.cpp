@@ -1,4 +1,5 @@
 // Headless checks of the tape engine: record real signals, play them back, measure.
+#include <cstdlib>
 #include "../Source/TapeEngine.h"
 #include "../Source/Wear.h"
 #include <cstdio>
@@ -16,6 +17,9 @@ void check (bool ok, const char* what, double got, double want)
 {
     std::printf ("%s  %-58s got %10.4f  want %10.4f\n", ok ? "PASS" : "FAIL", what, got, want);
     if (! ok) ++failures;
+    // On GitHub, a failure also shows on the run's page.
+    if (! ok && std::getenv ("GITHUB_ACTIONS") != nullptr)
+        std::printf ("::error::EngineTest: %s (got %.4f, want %.4f)\n", what, got, want);
 }
 
 struct Rig

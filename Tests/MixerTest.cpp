@@ -1,4 +1,5 @@
 // Drives the whole audio path (inputs -> strips -> tape -> mix) with a fake audio device.
+#include <cstdlib>
 #include "../Source/AudioEngine.h"
 #include "../Source/TapeWriter.h"
 #include "../Source/ClapFormat.h"
@@ -20,6 +21,9 @@ void check (bool ok, const char* what, double got, double want)
 {
     std::printf ("%s  %-60s got %10.4f  want %10.4f\n", ok ? "PASS" : "FAIL", what, got, want);
     if (! ok) ++failures;
+    // On GitHub, a failure also shows on the run's page.
+    if (! ok && std::getenv ("GITHUB_ACTIONS") != nullptr)
+        std::printf ("::error::MixerTest: %s (got %.4f, want %.4f)\n", what, got, want);
 }
 
 class FakeDevice : public juce::AudioIODevice
