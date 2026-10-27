@@ -32,6 +32,22 @@ namespace
 }
 
 //==============================================================================
+bool CassetteArtwork::isBlank() const
+{
+    // A 24 x 16 grid over each image: one pixel with any alpha is enough to show it was drawn.
+    auto drawn = [] (const juce::Image& im)
+    {
+        if (! im.isValid()) return false;
+        const juce::Image::BitmapData px (im, juce::Image::BitmapData::readOnly);
+        for (int y = 0; y < 16; ++y)
+            for (int x = 0; x < 24; ++x)
+                if (px.getPixelColour ((x * 2 + 1) * im.getWidth() / 48, (y * 2 + 1) * im.getHeight() / 32).getAlpha() > 0)
+                    return true;
+        return false;
+    };
+    return ! drawn (back) && ! drawn (frontA);
+}
+
 CassetteArtwork CassetteArtwork::fromParts (const tfmt::Look& look, const std::function<juce::MemoryBlock (const std::string&)>& readFile)
 {
     CassetteArtwork a;

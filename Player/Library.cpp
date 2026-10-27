@@ -89,7 +89,8 @@ CassetteArtwork Library::artworkOf (const juce::File& cassFile, const Tape* tape
     tfmt::PackedCassette p;
     p.file = tfmt::pathFromUtf8 (cassFile.getFullPathName().toStdString());
     auto art = CassetteArtwork::fromPacked (p);
-    if (art.isValid()) return art;
+    // (The TF-4 0.2 on Windows packed its own looks with empty images: those are drawn again here.)
+    if (art.isValid() && ! (art.look.design.rfind ("tapefour.", 0) == 0 && art.isBlank())) return art;
 
     // A cassette from before looks were saved, or from a writer that doesn't save one:
     // the built-in look of its kind, drawn as the TF-4 draws it.
@@ -149,7 +150,16 @@ OpenedCassette Library::open (const juce::File& cassFile) const
 }
 juce::File Library::cassettesFolder()
 {
+   #if JUCE_ANDROID
+    // The player's own storage: always there and writable, whatever the Android version
+    // (the phone's shared Documents folder needs permissions an app may not get).
+    auto folder = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory).getChildFile ("Cassettes");
+    folder.createDirectory();
+    return folder;
+   #else
+    // iOS: the player's Documents folder, which the Files app shows (On My iPhone > TF-P1 Pocket).
     return juce::File::getSpecialLocation (juce::File::userDocumentsDirectory);
+   #endif
 }
 
 juce::Array<juce::File> Library::takeInNewArrivals()

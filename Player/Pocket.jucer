@@ -50,7 +50,8 @@
   <JUCEOPTIONS JUCE_USE_CURL="0" JUCE_WEB_BROWSER="0" JUCE_STRICT_REFCOUNTEDPOINTER="1"/>
   <EXPORTFORMATS>
     <ANDROIDSTUDIO targetFolder="Builds/Android" androidMinimumSDK="24" androidTargetSDK="35"
-                   androidScreenOrientation="landscape" androidInternetNeeded="0"
+                   androidScreenOrientation="landscape" androidActivitySubClassName="com.hz78.tapefour.pocket.PocketActivity"
+                   androidAdditionalJavaFolders="Android/java" androidInternetNeeded="0"
                    androidReadMediaAudioPermission="0" androidReadMediaImagesPermission="0"
                    androidReadMediaVideoPermission="0" androidExternalWriteNeeded="0"
                    androidPushNotifications="0" androidVersionCode="1"
@@ -73,6 +74,7 @@
         <MODULEPATH id="juce_audio_processors_headless" path="../../juce/modules"/>
         <MODULEPATH id="juce_audio_utils" path="../../juce/modules"/>
         <MODULEPATH id="juce_dsp" path="../../juce/modules"/>
+        <MODULEPATH id="juce_opengl" path="../../juce/modules"/>
       </MODULEPATHS>
     </ANDROIDSTUDIO>
   </EXPORTFORMATS>
@@ -90,5 +92,6 @@
     <MODULE id="juce_audio_processors_headless" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
     <MODULE id="juce_audio_utils" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
     <MODULE id="juce_dsp" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_opengl" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
   </MODULES>
 </JUCERPROJECT>

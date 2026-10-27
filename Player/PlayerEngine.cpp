@@ -38,6 +38,21 @@ juce::String PlayerEngine::start()
     return error;
 }
 
+int PlayerEngine::encodedWith (const Tape& t)
+{
+    int count[3] {};
+    const auto blocks = (int) ((t.getLengthCells() + blockCells - 1) / blockCells);
+    for (int tr = 0; tr < numTracks; ++tr)
+        for (int b = 0; b < blocks; ++b)
+            if (t.isRecorded (tr, b) && t.isNrEncoded (tr, b))
+            {
+                const auto type = t.recordedNrType (tr, b);
+                ++count[type >= 0 && type <= 2 ? type : 1];
+            }
+    if (count[0] + count[1] + count[2] == 0) return -1;
+    return (int) (std::max_element (std::begin (count), std::end (count)) - std::begin (count));
+}
+
 std::unique_ptr<Tape> PlayerEngine::load (std::unique_ptr<Tape> t, int sideUp, double where)
 {
     engine.command (TapeEngine::Command::stop);
@@ -51,6 +66,9 @@ std::unique_ptr<Tape> PlayerEngine::load (std::unique_ptr<Tape> t, int sideUp, d
         tape->turnOver (side == 1);
         // Automatic tape select: the playback EQ the cassette's notches ask for.
         engine.params.tapeSwitch = tape->naturalPosition();
+        // And the noise reduction it was recorded with (a portable that knows every system).
+        const auto nr = encodedWith (*tape);
+        engine.params.nrType = nr >= 0 ? nr : 1;
     }
     engine.setTape (tape.get(), false);
     const auto at = tape != nullptr ? juce::jlimit (0.0, (double) tape->getLengthCells(), where) : 0.0;

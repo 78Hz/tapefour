@@ -44,7 +44,8 @@ public:
     /** Just its look, for showing it on the shelf. */
     static CassetteArtwork artworkOf (const juce::File& cassFile, const Tape* tapeIfOpen = nullptr);
 
-    /** Phones: where the player keeps its cassettes (its Documents folder, which the Files app shows).
+    /** Phones: where the player keeps its cassettes (iOS: its Documents folder, which the Files app shows;
+        Android: its own private storage).
         Files shared to the player arrive here, or in its Inbox inside it. */
     static juce::File cassettesFolder();
     /** Brings in .cass files that have arrived in the cassettes folder (and its Inbox), so they

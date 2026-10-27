@@ -4,6 +4,10 @@
 #include "Library.h"
 #include "../Source/DeckLookAndFeel.h"
 
+#if JUCE_ANDROID
+ #include <juce_opengl/juce_opengl.h>
+#endif
+
 namespace tf::pocket
 {
 /** A key on the player: rounded, with an icon and/or a word, and a lit state for the latched key. */
@@ -77,6 +81,10 @@ public:
     void filesDropped (const juce::StringArray&, int, int) override;
 
 private:
+#if JUCE_ANDROID
+    // Android draws in software by default: too slow for a full-screen cassette at 30 frames a second.
+    juce::OpenGLContext gl;
+#endif
     void timerCallback() override;
     void layoutTouch();
     void layoutBar();

@@ -13,6 +13,8 @@ struct CassetteArtwork
     juce::Image back, frontA, frontB, hub;
 
     bool isValid() const noexcept { return back.isValid() && frontA.isValid() && hub.isValid(); }
+    /** True if the shell's images are empty (fully transparent): the TF-4 0.2 on Windows packed looks like that. */
+    bool isBlank() const;
 
     /** The look a packed cassette carries; invalid if it carries none (or one that can't be read). */
     static CassetteArtwork fromPacked (const tfmt::PackedCassette&);

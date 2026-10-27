@@ -39,6 +39,11 @@ public:
 
     void setNoiseReduction (bool on) noexcept { engine.params.nrOn = on; }
     bool getNoiseReduction() const noexcept   { return engine.params.nrOn.load(); }
+    /** The noise reduction the cassette was recorded with, which the player decodes with:
+        0 the 2:1 compander, 1 B, 2 C (B if the cassette doesn't say). */
+    int getNoiseReductionType() const noexcept { return engine.params.nrType.load(); }
+    /** The system most of a tape's recordings were encoded with, or -1 if none was. */
+    static int encodedWith (const Tape&);
     /** 0..10, the volume wheel's numbers. */
     void setVolume (int v) noexcept;
     int getVolume() const noexcept            { return volume.load(); }

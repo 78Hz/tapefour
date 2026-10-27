@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include "../Player/PlayerEngine.h"
 #include "../Player/Library.h"
+#include "../Source/CassetteComponent.h"
 #include "../Source/DeckLookAndFeel.h"
 #include "Cassette.h"
 
@@ -125,6 +126,42 @@ int main()
            "opens a .cass where it lies", opened.tape != nullptr ? opened.tape->mappedTracks() : -1, 4);
     check (opened.art.isValid() && opened.art.look.design.rfind ("tapefour.", 0) == 0,
            "a cassette without a look gets the built-in look of its kind", opened.art.isValid() ? 1 : 0, 1);
+    check (! opened.art.isBlank(), "the built-in look is drawn (not empty images)", opened.art.isBlank() ? 1 : 0, 0);
+
+    {
+        // The noise reduction the cassette was recorded with is the one it's decoded with.
+        auto t = Tape::makeStereo (0, defaultTapeModel, tfmt::Condition());
+        const auto none = PlayerEngine::encodedWith (*t);
+        for (int64_t c = 0; c < cellRate * 2; ++c) t->writeCell (0, c, 0.1f, true, 0, 1.0f, 0);
+        for (int64_t c = 0; c < cellRate / 2; ++c) t->writeCell (1, c, 0.1f, true, 2, 1.0f, 0);
+        const auto found = PlayerEngine::encodedWith (*t);
+        check (none == -1 && found == 0, "plays a cassette with the noise reduction it was recorded with (2:1)", found, 0);
+    }
+    {
+        // The TF-4 0.2 on Windows packed its looks with empty images: the player draws those again.
+        auto t = Tape::makeStereo (0, defaultTapeModel, tfmt::Condition());
+        t->name = "blank look";
+        auto folder = dir.getChildFile ("blank");
+        auto blankCass = dir.getChildFile ("blank.cass");
+        std::string err;
+        bool ok = t->save (folder) && CassetteComponent::writeArt (CassetteComponent::ArtSpec::of (*t), folder);
+        juce::Image empty (juce::Image::ARGB, 64, 40, true, juce::SoftwareImageType());
+        for (auto name : { "art/back.png", "art/front-a.png", "art/front-b.png" })
+        {
+            auto f = folder.getChildFile (name);
+            f.deleteFile();
+            juce::FileOutputStream out (f);
+            ok = ok && juce::PNGImageFormat().writeImageToStream (empty, out);
+        }
+        ok = ok && tfmt::packCassette (tfmt::pathFromUtf8 (folder.getFullPathName().toStdString()),
+                                       tfmt::pathFromUtf8 (blankCass.getFullPathName().toStdString()), err);
+        tfmt::PackedCassette p;
+        p.file = tfmt::pathFromUtf8 (blankCass.getFullPathName().toStdString());
+        auto packed = CassetteArtwork::fromPacked (p);
+        auto shown = Library::artworkOf (blankCass);
+        check (ok && packed.isValid() && packed.isBlank() && shown.isValid() && ! shown.isBlank(),
+               "a TF-4 look packed with empty images is drawn again", shown.isBlank() ? 1 : 0, 0);
+    }
 
     PlayerEngine player;
     FakeDevice device;

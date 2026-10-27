@@ -330,10 +330,17 @@ PlayerComponent::PlayerComponent (PlayerEngine& e, Library& l, bool touchLayout)
 
     refreshKeys();
     startTimerHz (30);
+#if JUCE_ANDROID
+    gl.setComponentPaintingEnabled (true);
+    gl.attachTo (*this);
+#endif
 }
 
 PlayerComponent::~PlayerComponent()
 {
+#if JUCE_ANDROID
+    gl.detach();
+#endif
     rememberPosition();
 }
 
@@ -452,7 +459,8 @@ void PlayerComponent::refreshKeys()
     play.setOn (mode == Mode::play);
     ff.setOn (mode == Mode::ff);
     rew.setOn (mode == Mode::rew);
-    nr.setButtonText (engine.getNoiseReduction() ? "NR B" : "NR OFF");
+    static const char* systems[] { "NR 2:1", "NR B", "NR C" };
+    nr.setButtonText (engine.getNoiseReduction() ? systems[juce::jlimit (0, 2, engine.getNoiseReductionType())] : "NR OFF");
     nr.setOn (engine.getNoiseReduction());
 
     const bool keysVisible = haveCassette && (! touch || controlsShown);

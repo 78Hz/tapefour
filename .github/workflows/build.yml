@@ -245,12 +245,13 @@ jobs:
         working-directory: Player/Builds/Android
         run: |
           set -o pipefail
-          # The debug key Android Studio would make on first run (the project signs debug builds with it).
+          # The debug key Android Studio would make on first run (the project signs its builds with it):
+          # an optimised build anyone can install by hand, not one for the Play Store.
           mkdir -p ~/.android
           [ -f ~/.android/debug.keystore ] || keytool -genkeypair -v -keystore ~/.android/debug.keystore -storepass android \
             -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log || {
+          ./gradlew assembleRelease_Release --no-daemon --stacktrace 2>&1 | tee build.log || {
             # Each error line, and the source line under it, as annotations (the log isn't always reachable).
             grep -E "(fatal )?error:|What went wrong|undefined reference|ld: " -A1 build.log | grep -v '^\s*|\s*[~^ ]*$' | grep -v '^--$' | head -10 | sed 's/^/::error::/'
             grep -E "(fatal )?error:" -A3 build.log | head -60 | python3 -c "import sys; print('::error title=gradle::' + sys.stdin.read().replace('%','%25').replace('\\n','%0A'))"
@@ -259,12 +260,12 @@ jobs:
       - name: Package
         run: |
           apk=$(find Player/Builds/Android -name "*.apk" | head -1)
-          cp "$apk" TF-P1-Pocket-android-debug.apk
+          cp "$apk" TF-P1-Pocket-android.apk
 
       - uses: actions/upload-artifact@v4
         with:
           name: TF-P1-Pocket-android
-          path: TF-P1-Pocket-android-debug.apk
+          path: TF-P1-Pocket-android.apk
           if-no-files-found: error
 
   sanitizers:

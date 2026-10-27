@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TF-P1 Pocket Owner's Guide</title>
+<style>
+@font-face { font-family: "Barlow Condensed"; font-weight: 600; src: url("../Resources/fonts/BarlowCondensed-SemiBold.ttf"); }
+@font-face { font-family: "Barlow Condensed"; font-weight: 700; src: url("../Resources/fonts/BarlowCondensed-Bold.ttf"); }
+@font-face { font-family: "Barlow Condensed"; font-weight: 800; font-style: italic; src: url("../Resources/fonts/BarlowCondensed-ExtraBoldItalic.ttf"); }
+@font-face { font-family: "Share Tech Mono"; src: url("../Resources/fonts/ShareTechMono-Regular.ttf"); }
+@font-face { font-family: "Caveat"; src: url("../Resources/fonts/Caveat-Variable.ttf"); }
+
+@page { size: A4; margin: 18mm 17mm 20mm 17mm; }
+@page :first { margin: 0; }
+
+:root {
+  --ink: #1a1917;
+  --soft: #4d4a43;
+  --muted: #6b665c;
+  --rule: #d9d3c4;
+  --paper: #fbf9f4;
+  --orange: #c4561b;
+  --orange-bright: #e8702a;
+  --panel: #2e2d29;
+  --tint: #f3efe4;
+}
+* { box-sizing: border-box; }
+html { background: #ffffff; }
+body {
+  margin: 0;
+  font: 10pt/1.5 "Inter", sans-serif;
+  color: var(--ink);
+  background: #ffffff;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+
+/* ---------- cover ---------- */
+.cover {
+  width: 210mm; height: 297mm; page-break-after: always;
+  background: #1b1a17; color: #ece4cf;
+  display: flex; flex-direction: column; padding: 22mm 18mm 16mm;
+}
+.cover .brand { font: italic 800 64pt/1 "Barlow Condensed"; letter-spacing: 0.01em; }
+.cover .brand span { color: var(--orange-bright); }
+.cover .model { margin-top: 4mm; font: 600 12pt/1.2 "Barlow Condensed"; letter-spacing: 0.24em; color: #b3ad9e; }
+.cover .title { margin-top: 14mm; font: 700 30pt/1.05 "Barlow Condensed"; letter-spacing: 0.04em; text-transform: uppercase; }
+.cover .sub { margin-top: 3mm; font: 11pt/1.5 "Inter"; color: #c9c2b0; max-width: 140mm; }
+.cover img { margin-top: auto; width: 100%; border-radius: 3mm; box-shadow: 0 4mm 10mm rgba(0,0,0,0.6); }
+.cover .foot { margin-top: 8mm; display: flex; justify-content: space-between; font: 600 9pt/1 "Barlow Condensed"; letter-spacing: 0.2em; color: #8f897b; }
+
+/* ---------- type ---------- */
+h1 {
+  page-break-before: always; break-before: page;
+  margin: 0 0 6mm; padding-bottom: 3mm; border-bottom: 1.2pt solid var(--ink);
+  font: 700 26pt/1 "Barlow Condensed"; letter-spacing: 0.03em; text-transform: uppercase;
+  display: flex; align-items: baseline; gap: 4mm;
+}
+h1 .num { color: var(--orange); font-style: italic; font-weight: 800; }
+h2 {
+  margin: 7mm 0 2.5mm; font: 700 15pt/1.15 "Barlow Condensed"; letter-spacing: 0.04em; text-transform: uppercase;
+  break-after: avoid;
+}
+h3 { margin: 5mm 0 1.5mm; font: 700 11.5pt/1.2 "Barlow Condensed"; letter-spacing: 0.06em; text-transform: uppercase; color: var(--soft); break-after: avoid; }
+p { margin: 0 0 2.6mm; }
+ul, ol { margin: 0 0 3mm; padding-left: 5mm; }
+li { margin-bottom: 1.2mm; }
+strong { font-weight: 600; }
+.lede { font-size: 11pt; color: var(--soft); }
+.key, .lcd { font-family: "Share Tech Mono", monospace; font-size: 9pt; }
+.key { padding: 0.2mm 1.4mm; border: 0.6pt solid #b5ae9f; border-radius: 1mm; background: var(--tint); white-space: nowrap; }
+.ctl { font: 700 9.5pt "Barlow Condensed"; letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; }
+
+/* ---------- figures ---------- */
+figure { margin: 3mm 0 5mm; break-inside: avoid; }
+figure img { display: block; width: 100%; border-radius: 1.6mm; border: 0.6pt solid #2a2926; }
+figure.half { width: 62%; }
+figure.narrow { width: 56%; margin-left: auto; margin-right: auto; }
+figure.annot { width: 90%; margin-left: auto; margin-right: auto; }
+table.matrix { break-inside: avoid; }
+figcaption { margin-top: 1.8mm; font-size: 8.5pt; color: var(--muted); }
+figcaption b { color: var(--ink); font-weight: 600; }
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4mm; }
+.grid2 figure { margin: 0; }
+
+/* annotated deck */
+.annot { position: relative; }
+.annot .pin {
+  position: absolute; width: 6.2mm; height: 6.2mm; margin: -3.1mm 0 0 -3.1mm; border-radius: 50%;
+  background: var(--orange-bright); color: #1a1917; border: 0.8pt solid #1a1917;
+  font: 700 9pt/6mm "Barlow Condensed"; text-align: center; box-shadow: 0 0.6mm 1.4mm rgba(0,0,0,0.5);
+}
+.legend { columns: 2; column-gap: 7mm; font-size: 8.6pt; line-height: 1.4; }
+.legend div { break-inside: avoid; margin-bottom: 1.6mm; display: flex; gap: 2.4mm; }
+.legend .n { flex: none; width: 5.2mm; height: 5.2mm; border-radius: 50%; background: var(--orange-bright); font: 700 8.5pt/5.2mm "Barlow Condensed"; text-align: center; }
+
+/* ---------- tables ---------- */
+table { width: 100%; border-collapse: collapse; margin: 2mm 0 5mm; font-size: 8.8pt; break-inside: auto; }
+thead { display: table-header-group; }
+tr { break-inside: avoid; }
+th { text-align: left; font: 700 8.6pt/1.2 "Barlow Condensed"; letter-spacing: 0.1em; text-transform: uppercase; color: var(--soft); border-bottom: 1pt solid var(--ink); padding: 1.6mm 2mm 1.4mm 0; vertical-align: bottom; }
+td { border-bottom: 0.5pt solid var(--rule); padding: 1.6mm 2mm 1.6mm 0; vertical-align: top; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+td:first-child { font-weight: 600; }
+.matrix td { width: 25%; }
+.matrix td.ok { background: #eef3e7; }
+.matrix td.lo { background: #fbf0e1; }
+.matrix td.hi { background: #eaf0f7; }
+
+/* ---------- call-outs ---------- */
+.note { break-inside: avoid; margin: 3mm 0 4mm; padding: 3mm 4mm; background: var(--tint); border-radius: 1.6mm; font-size: 9.3pt; }
+.note .tag { display: block; font: 700 8.5pt/1 "Barlow Condensed"; letter-spacing: 0.18em; color: var(--orange); margin-bottom: 1.4mm; }
+.warn { background: #fbece6; }
+
+/* ---------- tape cards ---------- */
+.tape { display: grid; grid-template-columns: 62mm minmax(0, 1fr); gap: 5mm; break-inside: avoid; margin: 3mm 0 6mm; }
+.tape img { width: 100%; border-radius: 1.4mm; border: 0.6pt solid #2a2926; }
+.tape h3 { margin-top: 0; color: var(--ink); font-size: 14pt; }
+.tape .pos { font: 600 9pt/1.2 "Barlow Condensed"; letter-spacing: 0.16em; color: var(--muted); margin: -1mm 0 2mm; }
+.tape dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0.6mm 3mm; margin: 2mm 0 0; font-size: 8.8pt; }
+.tape dt { color: var(--muted); }
+.tape dd { margin: 0; }
+
+/* ---------- contents ---------- */
+.toc { columns: 2; column-gap: 8mm; margin-top: 4mm; }
+.toc div { break-inside: avoid; display: flex; gap: 3mm; padding: 1.4mm 0; border-bottom: 0.5pt solid var(--rule); font-size: 10pt; }
+.toc .n { color: var(--orange); font: italic 800 11pt/1.3 "Barlow Condensed"; width: 7mm; }
+.toc .t { font: 700 11pt/1.3 "Barlow Condensed"; letter-spacing: 0.06em; text-transform: uppercase; }
+.toc .d { display: block; font: 8.5pt/1.35 "Inter"; color: var(--muted); text-transform: none; letter-spacing: 0; font-weight: 400; }
+.small { font-size: 8.5pt; color: var(--muted); }
+.sources li { font-size: 8.5pt; }
+
+/* ---------- pocket ---------- */
+.cover .brand { font-size: 56pt; }
+.usp { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3mm 6mm; margin: 2mm 0 5mm; }
+.usp div { break-inside: avoid; padding: 3mm 3.6mm; background: var(--tint); border-radius: 1.6mm; font-size: 9.2pt; line-height: 1.45; border-left: 1.4mm solid var(--orange-bright); }
+.usp b { display: block; font: 700 11pt/1.2 "Barlow Condensed"; letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 1mm; }
+</style>
+</head>
+<body>
+
+<!-- ======================================================= COVER -->
+<section class="cover">
+  <div class="brand">TF-P1 <span>·</span> POCKET</div>
+  <div class="model">CASSETTE PLAYER FOR .CASS TAPES</div>
+  <div class="title">Owner's guide</div>
+  <div class="sub">Everything you need to play TAPE·FOUR cassettes on your phone or computer: what a cassette is, how to get one, where to keep it, and how to play it.</div>
+  <img src="images/pocket/cover.png" alt="TF-P1 Pocket playing a cassette">
+  <div class="foot"><span>IPHONE · ANDROID · WINDOWS · MACOS · LINUX</span><span>OCTOBER 2026</span></div>
+</section>
+
+<!-- ======================================================= CONTENTS -->
+<h1 style="page-break-before: auto; break-before: auto;">Contents</h1>
+<div class="toc">
+  <div><span class="n">1</span><span class="t">Welcome<span class="d">What the TF-P1 Pocket is, and what makes it different</span></span></div>
+  <div><span class="n">2</span><span class="t">How a cassette works<span class="d">Sides, length, tape types, hiss and noise reduction</span></span></div>
+  <div><span class="n">3</span><span class="t">Getting cassettes<span class="d">From TAPE·FOUR, and from friends</span></span></div>
+  <div><span class="n">4</span><span class="t">Putting a cassette in<span class="d">On an iPhone, on Android, on a computer</span></span></div>
+  <div><span class="n">5</span><span class="t">Keeping your cassettes<span class="d">The cassette shelf, and where the files live</span></span></div>
+  <div><span class="n">6</span><span class="t">Playing<span class="d">The keys, the counter, turning the tape over, volume</span></span></div>
+  <div><span class="n">7</span><span class="t">Questions and answers<span class="d">When something isn't right</span></span></div>
+  <div><span class="n">8</span><span class="t">Specifications<span class="d">The player, in numbers</span></span></div>
+</div>
+
+<!-- ======================================================= 1 WELCOME -->
+<h1><span class="num">1</span>Welcome</h1>
+<p class="lede">The TF-P1 Pocket is a personal cassette player, like the one you might have carried in the 1980s, except that it lives on your phone or computer. It plays <strong>.cass</strong> cassettes: tapes recorded on TAPE·FOUR, the four-track cassette recorder.</p>
+<p>A .cass file is not an ordinary music file. It is a complete cassette: the tape itself, with everything recorded on it, and what the cassette looks like. The Pocket shows you that cassette, with its shell and its handwritten label, and plays it the way a good portable cassette player would.</p>
+
+<h2>What makes it different</h2>
+<div class="usp">
+  <div><b>It plays the tape, not a recording of it.</b> Every cassette keeps its own character: its brand of tape, its hiss, the noise reduction it was recorded with, its age and how much it has been played. Two cassettes with the same song on them can sound different, as real ones do.</div>
+  <div><b>Two sides, like a real cassette.</b> Play side A to the end, then turn the cassette over and play side B. The Pocket remembers which side was up and where you stopped, for every cassette.</div>
+  <div><b>You can see the tape move.</b> The tape winds from the left spool to the right as it plays, so you can see at a glance how far through the side you are and how much is left.</div>
+  <div><b>Each cassette looks like itself.</b> The cassette's shell, its colours and the label written on it travel inside the file, so a tape looks the same on every phone and computer it is played on.</div>
+  <div><b>It never harms your tapes.</b> Real cassettes wear a little every time they are played. The Pocket only reads a cassette. It never records on it, wears it or changes the file.</div>
+  <div><b>One file holds the whole tape.</b> Copy it, back it up, or send it to a friend, and they get exactly the cassette you have.</div>
+</div>
+
+<figure><img src="images/pocket/desktop.png" alt="The Pocket on a computer"><figcaption><b>The Pocket on a computer.</b> The cassette fills the window; the keys sit in a row underneath.</figcaption></figure>
+
+<!-- ======================================================= 2 HOW A CASSETTE WORKS -->
+<h1><span class="num">2</span>How a cassette works</h1>
+<p class="lede">You don't need to know any of this to enjoy the Pocket. But a cassette behaves differently from a music file, and knowing why makes it more fun.</p>
+
+<h2>A ribbon of tape between two spools</h2>
+<p>Inside a cassette is a long, thin ribbon of tape wound between two spools. When you press <span class="ctl">PLAY</span>, the tape is pulled past the player's head from the left spool to the right one, slowly, at the same speed every cassette player in the world uses. The sound is stored along the tape, so to get to a song you wind the tape to it: fast forward or rewind, as on a real cassette player. There is no jumping straight to a track.</p>
+<p>On the Pocket you see this happen. At the start of a side, nearly all the tape is on the left spool. As it plays, the left spool shrinks and the right one grows.</p>
+
+<h2>Side A and side B</h2>
+<p>The tape is only half used by each side. Side A is recorded along one half of the tape's width, and side B along the other half, running the other way. When side A finishes, all the tape is on the right spool; turn the cassette over and that full spool is now on the left, ready to play side B. That's why the counter starts again at zero when you turn the cassette over, and why the Pocket shows <span class="lcd">A</span> or <span class="lcd">B</span> in front of it.</p>
+<figure class="half"><img src="images/pocket/side_b.png" alt="A cassette with side B up"><figcaption><b>Side B up.</b> The label shows B, and the tape now runs from what was the right spool.</figcaption></figure>
+
+<h2>Length</h2>
+<p>The number on a cassette is how many minutes of tape it holds, both sides together: a C-60 plays for 30 minutes a side, a C-90 for 45, a C-46 for 23. A side doesn't have to be full. The Pocket simply plays silence where nothing was recorded, as a real cassette would.</p>
+
+<h2>Tape types</h2>
+<p>Cassettes come in different kinds of tape, and each kind has its own sound. TAPE·FOUR makes four:</p>
+<table>
+  <thead><tr><th>Tape</th><th>Kind</th><th>What it sounds like</th></tr></thead>
+  <tbody>
+    <tr><td>BASIC</td><td>Normal (type I), the everyday tape</td><td>Warm, with the most hiss. Loud, bright sounds soften.</td></tr>
+    <tr><td>SD</td><td>Normal (type I), a better one</td><td>Clear and lively, with less hiss.</td></tr>
+    <tr><td>XR</td><td>Chrome (type II)</td><td>Crisp treble and low hiss.</td></tr>
+    <tr><td>MX</td><td>Metal (type IV)</td><td>The cleanest of the four: the least hiss and the most clarity.</td></tr>
+  </tbody>
+</table>
+<p>A real player needs to know which kind of tape is in it, so it can play it back with the right tone. Cassettes have small notches on top that tell the player, and the Pocket reads them too: it sets itself for each cassette automatically. There is nothing for you to set.</p>
+
+<h2>Hiss, and noise reduction</h2>
+<p>All tape has a faint background hiss, like a quiet "shhh" between songs. It's part of the sound of a cassette, and the Pocket keeps it. How much you hear depends on the tape type, and on the cassette's age and condition.</p>
+<p>To reduce the hiss, a recording can be made with <strong>noise reduction</strong> (NR). It works in two halves: when the cassette is recorded, the quiet parts are made a little louder and brighter; when it's played, the player turns them back down, and the hiss goes down with them. The two halves have to match. The Pocket knows every system TAPE·FOUR records with, and plays each cassette with the one it was recorded with. The key shows which: <span class="lcd">NR 2:1</span>, <span class="lcd">NR B</span> or <span class="lcd">NR C</span>.</p>
+<div class="note"><span class="tag">TRY IT</span>Press the NR key to switch noise reduction off (<span class="lcd">NR OFF</span>). A cassette recorded with noise reduction now sounds brighter and hissier, as it would on a player without it. Some people prefer it that way, which is fine. Press it again to switch it back on.</div>
+
+<h2>Age and wear</h2>
+<p>A cassette made in TAPE·FOUR can be new, or it can be given some history: a little more hiss, the odd dropout where the tape coating is thin, slightly dull treble. That history is part of the cassette and plays the same on every player. The Pocket's own mechanism adds a touch of the gentle wobble in pitch (called wow and flutter) that every portable player has. It's small, and it's what makes it sound like a cassette rather than a file.</p>
+
+<!-- ======================================================= 3 GETTING CASSETTES -->
+<h1><span class="num">3</span>Getting cassettes</h1>
+<p class="lede">Cassettes are made on TAPE·FOUR. You can make your own, or play ones other people send you.</p>
+
+<h2>From TAPE·FOUR</h2>
+<p>TAPE·FOUR saves any cassette as a .cass file:</p>
+<ul>
+  <li><strong>A finished mix.</strong> When you mix your songs down in TAPE·FOUR, they go onto a stereo <em>master tape</em>, which has two sides like any cassette. Open the master deck and press <span class="ctl">EXPORT .CASS</span>. This is usually the cassette you want on your phone.</li>
+  <li><strong>A four-track tape.</strong> With the cassette in the deck, press <span class="ctl">EJECT</span> and choose <span class="ctl">Export as a .cass file</span>. The Pocket plays a four-track tape as it is, with all four tracks at once, unmixed.</li>
+</ul>
+<p>TAPE·FOUR asks where to save the file, starting in <span class="lcd">Documents/TapeFour</span>.</p>
+
+<h2>From someone else</h2>
+<p>A .cass file can be shared like any other file: by email, in a messaging app, through a cloud drive (iCloud Drive, Google Drive, Dropbox, OneDrive), with AirDrop, or on a USB stick. Whoever receives it gets the same cassette, sound and looks included.</p>
+<div class="note"><span class="tag">CASSETTES ARE BIG</span>A cassette holds the whole tape, so the file is large: about 460 MB for a C-60 and about 690 MB for a C-90, and about 350 MB for a C-46. Most email services won't send files that size. Use a cloud drive or a file-sending service, and share the link instead. Downloading a cassette on a phone is best done on Wi-Fi.</div>
+
+<!-- ======================================================= 4 PUTTING A CASSETTE IN -->
+<h1><span class="num">4</span>Putting a cassette in</h1>
+
+<h2>On an iPhone or iPad</h2>
+<ol>
+  <li>Find the .cass file: in the Files app, an email, Messages, or wherever it was sent.</li>
+  <li>Tap it, then tap the share button and choose <strong>TF-P1 Pocket</strong>. (In the Files app you can also tap and hold the file and choose <strong>Share</strong>.)</li>
+  <li>The Pocket opens, copies the cassette into its own folder, and puts it in, ready to play.</li>
+</ol>
+<p>You can also copy cassettes straight into the Pocket's folder in the Files app, under <span class="lcd">On My iPhone › TF-P1 Pocket</span>, from a computer or a cloud drive. The next time you open the Pocket they appear on the cassette shelf, newest first.</p>
+
+<h2>On an Android phone or tablet</h2>
+<ol>
+  <li>Find the .cass file: in your Files or Downloads app, in an email, or in a messaging app.</li>
+  <li>Tap it and choose <strong>TF-P1 Pocket</strong> when Android asks which app to open it with.</li>
+  <li>The Pocket copies the cassette into its own storage and puts it in, ready to play.</li>
+</ol>
+<p>Or, in the Pocket, tap the cassette to show the keys, tap <span class="ctl">CASSETTES</span>, then <span class="ctl">OPEN</span>, and pick the file.</p>
+<div class="note"><span class="tag">WHILE IT COPIES</span>Copying a big cassette takes a few seconds, and the screen says <span class="lcd">COPYING THE CASSETTE...</span> meanwhile. If it says <span class="lcd">COULD NOT COPY THE CASSETTE</span>, check that the phone has enough free space (a cassette needs several hundred MB), or that the file finished downloading.</div>
+
+<h2>On a computer</h2>
+<p>Any of these puts a cassette in:</p>
+<ul>
+  <li>Drag a .cass file onto the Pocket's window.</li>
+  <li>Click <span class="ctl">CASSETTES</span>, then <span class="ctl">OPEN</span>, and choose the file.</li>
+  <li>On a Mac, double-click a .cass file. On Windows or Linux, right-click it and choose <strong>Open with</strong> and the Pocket; you can tell your computer to always open .cass files with it.</li>
+</ul>
+<p>On a computer the Pocket plays the cassette where it is: it doesn't make a copy.</p>
+
+<!-- ======================================================= 5 KEEPING CASSETTES -->
+<h1><span class="num">5</span>Keeping your cassettes</h1>
+
+<h2>The cassette shelf</h2>
+<p>Every cassette you play goes on the shelf. Tap <span class="ctl">CASSETTES</span> to see it: the most recently played first, each with its own shell and label. Tap one to put it in. It starts where you left it, on the side you left up.</p>
+<figure><img src="images/pocket/shelf.png" alt="The cassette shelf"><figcaption><b>The cassette shelf.</b> Your cassettes, the most recently played first. The one in the player is marked.</figcaption></figure>
+<p>The shelf holds your 24 most recently played cassettes. Playing an older one puts it back at the front. When the Pocket opens, it puts back in the cassette you were last listening to.</p>
+
+<h2>Where the files live</h2>
+<table>
+  <tbody>
+    <tr><td>iPhone, iPad</td><td>In the Pocket's own folder, which the Files app shows under <span class="lcd">On My iPhone › TF-P1 Pocket</span>. To remove a cassette, delete it there; to back it up, copy it from there.</td></tr>
+    <tr><td>Android</td><td>In the Pocket's own private storage. Other apps can't see it, and it doesn't fill your Documents or Downloads with big files. Uninstalling the Pocket removes these copies, so keep the originals somewhere (on a computer or in a cloud drive).</td></tr>
+    <tr><td>Computer</td><td>Wherever you keep them; the Pocket plays them from there. If you move or rename a cassette, it disappears from the shelf the next time you tap it there. Open it again from its new place and it goes back on.</td></tr>
+  </tbody>
+</table>
+<div class="note"><span class="tag">GOOD HABIT</span>Keep one folder for your cassettes on your computer or in a cloud drive, and treat it as your tape collection. Phones come and go; the folder stays.</div>
+
+<!-- ======================================================= 6 PLAYING -->
+<h1><span class="num">6</span>Playing</h1>
+
+<h2>On a phone: tap the cassette</h2>
+<p>Hold the phone sideways. The cassette fills the screen. <strong>Tap anywhere on the cassette to show the keys, and tap again to hide them</strong>, so you can watch the tape go round. When you first put a cassette in, the keys show so you can see where they are.</p>
+<figure><img src="images/pocket/phone_plain.png" alt="The Pocket on a phone, keys hidden"><figcaption><b>Playing, keys hidden.</b> Just the cassette.</figcaption></figure>
+<figure><img src="images/pocket/phone_keys.png" alt="The Pocket on a phone, keys showing"><figcaption><b>Keys showing.</b> Transport and counter along the bottom; turn over and cassettes on the left; volume and noise reduction on the right.</figcaption></figure>
+
+<h2>The keys</h2>
+<table>
+  <thead><tr><th>Key</th><th>What it does</th></tr></thead>
+  <tbody>
+    <tr><td><span class="ctl">◀◀</span> Rewind</td><td>Winds the tape back towards the start of the side. Press <span class="ctl">PLAY</span> or <span class="ctl">STOP</span> to end it.</td></tr>
+    <tr><td><span class="ctl">■</span> Stop</td><td>Stops the tape.</td></tr>
+    <tr><td><span class="ctl">▶</span> Play</td><td>Plays. The key lights orange while the tape is playing. At the end of a side the tape stops by itself.</td></tr>
+    <tr><td><span class="ctl">▶▶</span> Fast forward</td><td>Winds the tape on towards the end of the side.</td></tr>
+    <tr><td><span class="ctl">TURN OVER</span></td><td>Takes the cassette out, turns it over and puts it back in: side B if side A was up, and the other way round. The tape stops first. The place on the tape stays the same, seen from the other side.</td></tr>
+    <tr><td><span class="ctl">CASSETTES</span></td><td>Opens the cassette shelf (chapter 5).</td></tr>
+    <tr><td><span class="ctl">NR</span></td><td>Noise reduction on or off (chapter 2). When it's on, it shows the system the cassette was recorded with.</td></tr>
+    <tr><td><span class="ctl">+</span> / <span class="ctl">−</span>, <span class="ctl">VOL</span></td><td>The volume, 0 to 10.</td></tr>
+  </tbody>
+</table>
+
+<h2>The counter</h2>
+<p>The orange counter shows the side that's up and how far into it the tape is, in minutes and seconds: <span class="lcd">A 12:34</span> is twelve and a half minutes into side A. It counts down while you rewind and runs fast while you fast forward, so you can use it to find your place: write the counter number of each song on the cassette's inlay card in TAPE·FOUR and you can wind straight to it.</p>
+
+<h2>Volume</h2>
+<p>On a phone, the Pocket has just one volume, the phone's own media volume. The phone's side buttons and the Pocket's <span class="ctl">+</span> and <span class="ctl">−</span> keys change the same thing, and the number on screen always shows where it is. On a computer the Pocket has its own volume slider, separate from the computer's.</p>
+
+<h2>On a computer</h2>
+<p>The keys sit in a row under the cassette, with the volume slider and the counter. The keyboard works too:</p>
+<table>
+  <thead><tr><th>Key</th><th>Does</th></tr></thead>
+  <tbody>
+    <tr><td><span class="key">Space</span></td><td>Play / stop</td></tr>
+    <tr><td><span class="key">→</span></td><td>Fast forward</td></tr>
+    <tr><td><span class="key">←</span></td><td>Rewind</td></tr>
+    <tr><td><span class="key">↑</span> / <span class="key">↓</span></td><td>Volume up / down</td></tr>
+    <tr><td><span class="key">Esc</span></td><td>Close the cassette shelf</td></tr>
+  </tbody>
+</table>
+
+<h2>Leaving and coming back</h2>
+<p>Whenever you close the Pocket or switch to another app, it remembers the cassette, the side and the place. Next time, the same cassette is in, on the same side, where you left it.</p>
+
+<!-- ======================================================= 7 Q&A -->
+<h1><span class="num">7</span>Questions and answers</h1>
+<table>
+  <thead><tr><th>Question</th><th>Answer</th></tr></thead>
+  <tbody>
+    <tr><td>I press PLAY and hear nothing.</td><td>Check the volume (the number on screen) and the phone's silent switch or the computer's sound output. Then look at the counter: the tape may be on a part of the side where nothing was recorded. Rewind to <span class="lcd">00:00</span>, or turn the cassette over.</td></tr>
+    <tr><td>Side B is silent.</td><td>Not every cassette has something on side B. A four-track tape from TAPE·FOUR uses the whole width of the tape for its four tracks, so it has no separate side B: turned over, it plays its tracks backwards, as a real four-track tape does.</td></tr>
+    <tr><td>It says <span class="lcd">COULD NOT OPEN</span>.</td><td>The file isn't a complete cassette. It may not have finished downloading or copying, or it may not be a .cass file at all. Get a fresh copy and try again.</td></tr>
+    <tr><td>The cassette looks plain, or different from how it looked in TAPE·FOUR.</td><td>A cassette from an early version of TAPE·FOUR may not carry its look. The Pocket then draws the standard shell for its tape type, with its label. Exporting it again from a current TAPE·FOUR fixes it.</td></tr>
+    <tr><td>It sounds dull, or the hiss rises and falls.</td><td>Check the NR key. Normally leave it on: the Pocket then uses the system the cassette was recorded with. With NR off a cassette recorded with noise reduction sounds bright and hissy; that's expected.</td></tr>
+    <tr><td>The pitch wobbles slightly.</td><td>That's the Pocket's mechanism: a small amount of wow and flutter, as every portable cassette player has. An old or worn cassette can add a little more of its own.</td></tr>
+    <tr><td>A cassette has vanished from the shelf.</td><td>On a computer the file was moved, renamed or deleted; open it from its new place. On a phone, the shelf keeps the 24 most recently played; copy the cassette in again to bring an older one back.</td></tr>
+    <tr><td>Can I record with the Pocket?</td><td>No. It's a player: it never changes a cassette. Record on TAPE·FOUR.</td></tr>
+  </tbody>
+</table>
+
+<!-- ======================================================= 8 SPECS -->
+<h1><span class="num">8</span>Specifications</h1>
+<table>
+  <tbody>
+    <tr><td>Model</td><td>TF-P1 Pocket, stereo cassette player</td></tr>
+    <tr><td>Plays</td><td>.cass cassette files (version 1): TAPE·FOUR master tapes (stereo, two sides) and four-track tapes</td></tr>
+    <tr><td>Tape types</td><td>Normal (type I), chrome (type II) and metal (type IV); set automatically from the cassette</td></tr>
+    <tr><td>Tape speed</td><td>4.76 cm/s (1⅞ in/s), the standard cassette speed</td></tr>
+    <tr><td>Wow and flutter</td><td>0.18 % wow, 0.12 % flutter, like a good portable</td></tr>
+    <tr><td>Speed accuracy</td><td>+0.4 %, a portable's typical slight haste</td></tr>
+    <tr><td>Frequency response</td><td>Heads to about 14 kHz</td></tr>
+    <tr><td>Noise reduction</td><td>2:1 compander, sliding band B, sliding band C: the one each cassette was recorded with; switchable off</td></tr>
+    <tr><td>Volume</td><td>0 to 10. Phones: the phone's media volume (side buttons and on-screen keys). Computers: the player's own</td></tr>
+    <tr><td>Memory</td><td>The side and place of each of the last 24 cassettes played</td></tr>
+    <tr><td>Runs on</td><td>iPhone and iPad, Android phones and tablets (Android 7 or later), Windows, macOS, Linux</td></tr>
+  </tbody>
+</table>
+<p class="small">TAPE·FOUR and the TF-P1 Pocket are made by 78Hz. The .cass format is open and documented, so other programs can make cassettes the Pocket plays.</p>
+
+</body>
+</html>

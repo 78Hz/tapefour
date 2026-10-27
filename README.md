@@ -6,7 +6,7 @@ It works like the real thing: four mono tracks, one direction, a C-46, C-60 or C
 
 ## Manual
 
-The owner's manual is [`Manual/TapeFour-Manual.pdf`](Manual/TapeFour-Manual.pdf): every control, the four cassettes, the tape switch and its mismatches, noise reduction, MIDI, and what to expect from each setting. Its source is `Manual/manual.html`; `python Manual/build_pdf.py` rebuilds it (needs Playwright with Chromium).
+The owner's manual is [`Manual/TapeFour-Manual.pdf`](Manual/TapeFour-Manual.pdf): every control, the four cassettes, the tape switch and its mismatches, noise reduction, MIDI, and what to expect from each setting. The player has its own guide, for people who only listen: [`Manual/TF-P1-Pocket-Guide.pdf`](Manual/TF-P1-Pocket-Guide.pdf). Their sources are `Manual/manual.html` and `Manual/pocket.html`; `python Manual/build_pdf.py` rebuilds both (needs Playwright with Chromium).
 
 ## Getting it
 
@@ -186,12 +186,12 @@ Every master deck setting is remembered.
 TF-P1 Pocket plays `.cass` files: a cassette from the TF-4 (EJECT → Export as a .cass file, or a master tape from the master deck) on your computer or your phone, drawn exactly as the TF-4 draws it, reels turning as it plays. It is built from the same tape engine, so a cassette sounds the same, apart from the player's own machine: a good portable's transport and heads (a little more wow and flutter, treble to about 14 kHz).
 
 - **Open a cassette**: OPEN A .CASS FILE, drop a `.cass` on the player, or open one with it. On a phone, share a `.cass` to the player, or put it in the player's folder in the Files app.
-- **Keys**: REW, STOP, PLAY, F.FWD, TURN OVER (side B), NR (off or B, as on most portables), volume, CASSETTES (the ones you've played, as small cassettes, with where each was left). On a computer the space bar plays and stops, the arrow keys wind and set the volume.
+- **Keys**: REW, STOP, PLAY, F.FWD, TURN OVER (side B), NR (on, with the system the cassette was recorded with: 2:1, B or C; or off), volume, CASSETTES (the ones you've played, as small cassettes, with where each was left). On a computer the space bar plays and stops, the arrow keys wind and set the volume.
 - **On a phone** the cassette fills the screen; tap it to bring up the keys, tap again to hide them. The volume is the phone's own: the side buttons and the on-screen keys set the same one.
 - **One speed**, 1⅞ ips: a tape recorded at 3¾ plays an octave down. Tape type is automatic, from the cassette.
 - It never changes a `.cass` file. It plays the file where it lies (nothing is loaded into memory, so a C-90 costs a few MB) and remembers where you stopped each cassette in its own settings.
 
-Every build on GitHub makes the player for Windows, macOS and Linux (in the same download as the TF-4), an Android app (`TF-P1-Pocket-android`, a debug build to install directly) and an iOS build for the simulator. Putting it on your own iPhone needs an Apple developer account to sign it.
+Every build on GitHub makes the player for Windows, macOS and Linux (in the same download as the TF-4), an Android app (`TF-P1-Pocket-android`, an optimised build signed with a debug key, to install directly) and an iOS build for the simulator. Putting it on your own iPhone needs an Apple developer account to sign it.
 
 
 

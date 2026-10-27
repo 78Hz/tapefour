@@ -514,7 +514,7 @@ namespace
 {
     // Which version of the TF-4's drawings a look was made by: a change to the drawings raises it,
     // and cassettes get their looks redrawn the next time they're saved.
-    constexpr const char* artRevision = "1";
+    constexpr const char* artRevision = "2";   // 2: looks written blank on Windows by revision 1 are redrawn
     constexpr float artScale = 2.0f;   // image pixels per tenth of a mm
 
     std::string hex (juce::Colour c)
@@ -555,12 +555,16 @@ CassetteComponent::Art CassetteComponent::renderArt (const ArtSpec& spec)
     c.hasTape = true;
     const auto st = styleFor (c.model);
     const auto w = juce::roundToInt (shellW * artScale), h = juce::roundToInt (shellH * artScale);
+    // Drawn in memory, and the drawing finished (the Graphics gone) before the image is read:
+    // on Windows a native image is drawn by the graphics card, and isn't there until then.
     auto layer = [&] (std::function<void (juce::Graphics&)> draw)
     {
-        juce::Image image (juce::Image::ARGB, w, h, true);
-        juce::Graphics g (image);
-        g.addTransform (juce::AffineTransform::scale (artScale));
-        draw (g);
+        juce::Image image (juce::Image::ARGB, w, h, true, juce::SoftwareImageType());
+        {
+            juce::Graphics g (image);
+            g.addTransform (juce::AffineTransform::scale (artScale));
+            draw (g);
+        }
         return png (image);
     };
 
@@ -574,10 +578,12 @@ CassetteComponent::Art CassetteComponent::renderArt (const ArtSpec& spec)
     constexpr float hubBox = 224.0f;
     {
         const auto px = juce::roundToInt (hubBox * artScale);
-        juce::Image image (juce::Image::ARGB, px, px, true);
-        juce::Graphics g (image);
-        g.addTransform (juce::AffineTransform::scale (artScale));
-        c.drawHub (g, { hubBox * 0.5f, hubBox * 0.5f }, 0.0f);
+        juce::Image image (juce::Image::ARGB, px, px, true, juce::SoftwareImageType());
+        {
+            juce::Graphics g (image);
+            g.addTransform (juce::AffineTransform::scale (artScale));
+            c.drawHub (g, { hubBox * 0.5f, hubBox * 0.5f }, 0.0f);
+        }
         art.hub = png (image);
     }
 
