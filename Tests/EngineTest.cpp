@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include "../Source/TapeEngine.h"
 #include "../Source/Wear.h"
+#include "Cassette.h"
 #include <cstdio>
 #include <complex>
 
@@ -291,6 +292,65 @@ int main()
         for (int c = 0; same && c < cellRate; c += 13) same = std::abs (again->readCell (0, c) - t->readCell (0, c)) < 1e-9f;
         check (same && again->isNrEncoded (0, 3) && again->recordedPosition (0, 3) == 0,
                "legacy: the converted cassette loads again as itself", same ? 1 : 0, 1);
+        dir.deleteRecursively();
+    }
+
+    {   // 0e. A packed .cass, opened where it lies, as a player opens it.
+        auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("tf_packed");
+        dir.deleteRecursively();
+        auto folder = dir.getChildFile ("tape");
+        auto cass = dir.getChildFile ("tape.cass");
+        auto stereo = Tape::makeStereo (0, defaultTapeModel, tfmt::Condition());
+        auto ramp = [] (int64_t c) { return 0.25f * (float) std::sin (0.001 * (double) c); };
+        for (int64_t c = 0; c < cellRate * 2; ++c)
+        {
+            stereo->writeCell (0, c, ramp (c), false, 0, 1.0f, 0);          // side A left, as it plays
+            stereo->writeCell (2, c, -ramp (c), true, 0, 1.0f, 0);          // side B left, as it plays
+        }
+        stereo->position = 12.5 * cellRate;
+        const bool saved = stereo->save (folder);
+        std::string err;
+        const bool packed = saved && tfmt::packCassette (folder.getFullPathName().toStdString(), cass.getFullPathName().toStdString(), err);
+        juce::String why;
+        auto t = packed ? Tape::openPacked (cass, why) : nullptr;
+        check (t != nullptr && t->isReadOnly() && t->mappedTracks() == 4, "packed: a .cass opens where it lies, no track loaded", t != nullptr ? t->mappedTracks() : -1, 4);
+        bool sideA = t != nullptr;
+        for (int64_t c = 0; sideA && c < cellRate * 2; c += 97) sideA = std::abs (t->readCell (0, c) - ramp (c)) < 1e-3f;
+        check (sideA && t->getLayout() == tfmt::Layout::stereoTwoSides && std::abs (t->position.load() - 12.5 * cellRate) < 1.0,
+               "packed: side A plays as recorded, from where it was left", sideA ? 1 : 0, 1);
+        if (t != nullptr) t->turnOver (true);
+        bool sideB = t != nullptr;
+        for (int64_t c = 0; sideB && c < cellRate * 2; c += 97) sideB = std::abs (t->readCell (0, c) + ramp (c)) < 1e-3f;
+        check (sideB && t->isNrEncoded (0, t->blockAt (cellRate)) && ! t->isNrEncoded (1, t->blockAt (cellRate)),
+               "packed: turned over, side B plays its own left and right, forwards", sideB ? 1 : 0, 1);
+        if (t != nullptr) t->writeCell (0, 10, 0.9f, false, 0, 1.0f, 0);
+        check (t != nullptr && std::abs (t->readCell (0, 10) + ramp (10)) < 1e-3f, "packed: nothing can be recorded on it", 0, 0);
+
+        // and a deck plays it
+        if (t != nullptr)
+        {
+            t->turnOver (false);
+            t->position = 0.0;
+            TapeEngine eng;
+            eng.prepare (sr, bs);
+            eng.setReadOnly (true);
+            eng.params.nrOn = false;
+            eng.setHissForTests (false);
+            eng.setTape (t.get());
+            eng.command (TapeEngine::Command::play);
+            bool armed[numTracks] {};
+            std::vector<std::vector<float>> outs (numTracks, std::vector<float> ((size_t) bs));
+            float* ptrs[numTracks] { outs[0].data(), outs[1].data(), outs[2].data(), outs[3].data() };
+            double energy = 0;
+            for (int b = 0; b < (int) (sr / bs); ++b)
+            {
+                eng.beginBlock (bs, armed);
+                eng.readAll (ptrs, bs);
+                eng.endBlock();
+                for (auto v : outs[0]) energy += (double) v * v;
+            }
+            check (energy > 1.0 && std::abs (t->position.load()) < 1.0, "packed: a deck plays it, and leaves the file as it was", energy, 1.0);
+        }
         dir.deleteRecursively();
     }
 

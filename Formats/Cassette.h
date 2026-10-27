@@ -175,4 +175,23 @@ bool packCassette (const std::filesystem::path& folder, const std::filesystem::p
 bool readPackedManifest (const std::filesystem::path& cassFile, CassetteInfo&, std::string& error);
 /** Unpacks a .cass file into folder (created). Only the files the format defines are unpacked. */
 bool unpackCassette (const std::filesystem::path& cassFile, const std::filesystem::path& folder, std::string& error);
+
+/** A packed .cass, opened where it lies: its description, its maps and wear read out, and where
+    each track's samples are in the archive, so a player can map them instead of unpacking. */
+struct PackedCassette
+{
+    struct Span { uint64_t offset = 0, size = 0; };   // size 0: the track was never recorded
+    std::filesystem::path file;
+    CassetteInfo info;
+    CassetteState state;
+    std::vector<TrackMap> maps;     // one per track
+    std::vector<Span> pcm;          // one per track: its samples in the archive (s16le)
+    std::vector<uint16_t> wear;     // passes per second of tape
+    std::vector<std::string> art;   // the art/ entries it carries
+};
+bool openPacked (const std::filesystem::path& cassFile, PackedCassette&, std::string& error);
+/** One of a packed cassette's entries (an art/ image, say), read whole. */
+bool readPackedEntry (const PackedCassette&, const std::string& name, std::string& bytes, uint32_t maxSize = 64u << 20);
+void parseMap (const std::string& bytes, size_t blocks, TrackMap&);
+void parseWear (const std::string& bytes, size_t seconds, std::vector<uint16_t>&);
 } // namespace tfmt

@@ -430,23 +430,26 @@ bool writeState (const fs::path& folder, const CassetteState& state, std::string
     return true;
 }
 
-bool readMap (const fs::path& file, size_t blocks, TrackMap& map)
+void parseMap (const std::string& bytes, size_t blocks, TrackMap& map)
 {
     map = {};
     map.resize (blocks);
-    std::ifstream in (file, std::ios::binary);
-    if (! in) return true;   // a track that was never recorded has no map
     constexpr auto n = TrackMap::bytesPerBlock;
-    uint8_t rec[n];
-    for (size_t b = 0; b < blocks; ++b)
+    for (size_t b = 0; b < blocks && (b + 1) * n <= bytes.size(); ++b)
     {
-        in.read (reinterpret_cast<char*> (rec), (std::streamsize) n);
-        if ((size_t) in.gcount() < n) break;
+        auto* rec = reinterpret_cast<const uint8_t*> (bytes.data() + b * n);
         map.flags[b] = rec[0];
         map.recorder[b] = rec[1];
         map.speedMilli[b] = (uint16_t) (rec[2] | (rec[3] << 8));
         map.day[b] = (uint16_t) (rec[4] | (rec[5] << 8));
     }
+}
+
+bool readMap (const fs::path& file, size_t blocks, TrackMap& map)
+{
+    std::string bytes;
+    readText (file, bytes);   // a track that was never recorded has no map
+    parseMap (bytes, blocks, map);
     return true;
 }
 
@@ -469,18 +472,18 @@ bool writeMap (const fs::path& file, const TrackMap& map)
     return writeBinaryAtomically (file, bytes);
 }
 
-bool readWear (const fs::path& file, size_t seconds, std::vector<uint16_t>& passes)
+void parseWear (const std::string& bytes, size_t seconds, std::vector<uint16_t>& passes)
 {
     passes.assign (seconds, 0);
-    std::ifstream in (file, std::ios::binary);
-    if (! in) return true;   // never played
-    for (size_t s = 0; s < seconds; ++s)
-    {
-        uint8_t v[2];
-        in.read (reinterpret_cast<char*> (v), 2);
-        if (in.gcount() < 2) break;
-        passes[s] = (uint16_t) (v[0] | (v[1] << 8));
-    }
+    for (size_t sec = 0; sec < seconds && sec * 2 + 1 < bytes.size(); ++sec)
+        passes[sec] = (uint16_t) ((uint8_t) bytes[sec * 2] | ((uint8_t) bytes[sec * 2 + 1] << 8));
+}
+
+bool readWear (const fs::path& file, size_t seconds, std::vector<uint16_t>& passes)
+{
+    std::string bytes;
+    readText (file, bytes);   // never played: no file
+    parseWear (bytes, seconds, passes);
     return true;
 }
 
@@ -573,5 +576,49 @@ bool unpackCassette (const fs::path& cassFile, const fs::path& folder, std::stri
         if (! zip.extract (e.name, target)) { error = zip.error(); return false; }
     }
     return true;
+}
+
+//==============================================================================
+bool openPacked (const fs::path& cassFile, PackedCassette& p, std::string& error)
+{
+    p = {};
+    p.file = cassFile;
+    ZipReader zip (cassFile);
+    if (! zip.ok()) { error = zip.error(); return false; }
+    std::string text;
+    if (! zip.read (CassFiles::manifest, text)) { error = "not a cassette: " + zip.error(); return false; }
+    auto j = Json::parse (text, &error);
+    if (! j || ! fromJson (*j, p.info, error)) return false;
+
+    if (zip.find (CassFiles::state) != nullptr && zip.read (CassFiles::state, text))
+        if (auto js = Json::parse (text, &error)) fromJson (*js, p.state, error);
+    error.clear();
+
+    const auto blocks = (size_t) ((p.info.cellsPerTrack + p.info.blockCells - 1) / std::max<int64_t> (1, p.info.blockCells));
+    const auto seconds = (size_t) ((p.info.cellsPerTrack + p.info.cellRate - 1) / std::max (1, p.info.cellRate));
+    for (auto& t : p.info.tracks)
+    {
+        TrackMap m;
+        std::string bytes;
+        if (zip.find (t.map) != nullptr) zip.read (t.map, bytes, (uint32_t) (blocks * TrackMap::bytesPerBlock + 64));
+        parseMap (bytes, blocks, m);
+        p.maps.push_back (std::move (m));
+        PackedCassette::Span span;
+        if (auto* e = zip.find (t.pcm)) { span.offset = e->dataOffset; span.size = e->size; }
+        p.pcm.push_back (span);
+    }
+    std::string wear;
+    if (zip.find (CassFiles::wear) != nullptr) zip.read (CassFiles::wear, wear, (uint32_t) (seconds * 2 + 64));
+    parseWear (wear, seconds, p.wear);
+
+    for (auto& e : zip.getEntries())
+        if (e.name.rfind (CassFiles::artFolder, 0) == 0) p.art.push_back (e.name);
+    return true;
+}
+
+bool readPackedEntry (const PackedCassette& p, const std::string& name, std::string& bytes, uint32_t maxSize)
+{
+    ZipReader zip (p.file);
+    return zip.ok() && zip.read (name, bytes, maxSize);
 }
 } // namespace tfmt

@@ -38,6 +38,9 @@ public:
     /** Writes the directory and closes the file; without it the archive is incomplete. */
     bool finish();
 
+    /** Where each entry's data starts: a multiple of this many bytes into the archive. */
+    static constexpr uint64_t alignment = 64;
+
 private:
     struct Entry { std::string name; uint32_t crc = 0, size = 0, offset = 0; };
     bool begin (const std::string& name, uint32_t& headerOffset);

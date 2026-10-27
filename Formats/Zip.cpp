@@ -91,9 +91,20 @@ bool ZipWriter::begin (const std::string& name, uint32_t& headerOffset)
     put32 (h, 0);           // crc, sizes: filled in by end()
     put32 (h, 0);
     put32 (h, 0);
+    // Each entry's data starts on a 64-byte boundary (padding in the extra field, as Android's
+    // zipalign does), so a reader can map the tracks straight out of the file and read them in place.
+    const auto base = at + 30 + name.size();
+    auto pad = (size_t) ((alignment - base % alignment) % alignment);
+    if (pad != 0 && pad < 4) pad += alignment;
     put16 (h, (uint16_t) name.size());
-    put16 (h, 0);
+    put16 (h, (uint16_t) pad);
     h += name;
+    if (pad != 0)
+    {
+        put16 (h, 0xd935);                        // the padding's id (zipalign's)
+        put16 (h, (uint16_t) (pad - 4));
+        h.append (pad - 4, '\0');
+    }
     out.write (h.data(), (std::streamsize) h.size());
     if (! out) { fail ("write failed"); return false; }
     return true;

@@ -65,7 +65,7 @@ Tape::Tape (int typeIndex, int modelIndex, const tfmt::Condition& c)
     modelInfo = tapeModels[model];
     formulation = formulationOf (modelInfo);
     lengthCells = (int64_t) typeInfo.minutes * 60 * cellRate;
-    allocate();
+    allocate (true);
 
     id = juce::Uuid().toString();
     createdIso = str (tfmt::isoNow());
@@ -80,7 +80,9 @@ Tape::Tape (int typeIndex, int modelIndex, const tfmt::Condition& c)
     setCondition (c);
 }
 
-Tape::Tape (const tfmt::CassetteInfo& info)
+Tape::Tape (const tfmt::CassetteInfo& info) : Tape (info, true) {}
+
+Tape::Tape (const tfmt::CassetteInfo& info, bool withTracks)
 {
     // The length: one of the standard ones, or what it says.
     typeInfo = { nullptr, info.minutesPerSide, 0.0f };
@@ -130,7 +132,7 @@ Tape::Tape (const tfmt::CassetteInfo& info)
 
     lengthCells = info.cellsPerTrack;
     layout = info.layout;
-    allocate();
+    allocate (withTracks);
     if (! info.tracks.empty()) setFluxScale ((float) info.tracks.front().fluxScale);
 
     id = str (info.id);
@@ -148,19 +150,24 @@ Tape::Tape (const tfmt::CassetteInfo& info)
     setCondition (info.condition);
 }
 
-void Tape::allocate()
+void Tape::allocate (bool withTracks)
 {
     numBlocks  = (int) ((lengthCells + blockCells - 1) / blockCells);
     numSeconds = (int) ((lengthCells + cellRate - 1) / cellRate);
 
     for (int t = 0; t < numTracks; ++t)
     {
+        readable[t] = lengthCells;
         // calloc'd zeroes are valid int16 atomics, and pages stay untouched until recorded on.
-        data[t] = static_cast<Cell*> (std::calloc ((size_t) lengthCells, sizeof (Cell)));
-        if (data[t] == nullptr)
+        // (A cassette opened where it lies points its tracks into the file instead: openPacked.)
+        if (withTracks)
         {
-            for (auto*& d : data) { std::free (d); d = nullptr; }
-            throw std::bad_alloc();
+            data[t] = static_cast<Cell*> (std::calloc ((size_t) lengthCells, sizeof (Cell)));
+            if (data[t] == nullptr)
+            {
+                for (int k = 0; k < numTracks; ++k) if (ownsTrack[k]) { std::free (data[k]); data[k] = nullptr; }
+                throw std::bad_alloc();
+            }
         }
 
         flags[t].reset (new std::atomic<uint8_t>[(size_t) numBlocks]);
@@ -179,8 +186,76 @@ void Tape::allocate()
 
 Tape::~Tape()
 {
-    for (auto* d : data)
-        std::free (d);
+    for (int t = 0; t < numTracks; ++t)
+        if (ownsTrack[t]) std::free (data[t]);
+}
+
+std::unique_ptr<Tape> Tape::openPacked (const juce::File& cassFile, juce::String& error)
+{
+    tfmt::PackedCassette p;
+    std::string err;
+    if (! tfmt::openPacked (pathOf (cassFile), p, err)) { error = str (err); return {}; }
+    const auto& info = p.info;
+    if (info.cellRate != cellRate || info.blockCells != blockCells || info.tracks.size() != (size_t) numTracks
+        || info.cellsPerTrack <= 0 || info.cellsPerTrack > (int64_t) cellRate * 60 * 120)
+    {
+        error = "a cassette this player can't hold";
+        return {};
+    }
+
+    std::unique_ptr<Tape> tape;
+    try { tape.reset (new Tape (info, false)); }
+    catch (...) { error = "not enough memory"; return {}; }
+    tape->readOnly = true;
+
+    tape->mapped = std::make_unique<juce::MemoryMappedFile> (cassFile, juce::MemoryMappedFile::readOnly);
+    auto* base = static_cast<const char*> (tape->mapped->getData());
+    const auto mappedSize = (uint64_t) tape->mapped->getSize();
+
+    for (int t = 0; t < numTracks; ++t)
+    {
+        const auto span = p.pcm[(size_t) t];
+        const auto cells = std::min<int64_t> ((int64_t) (span.size / sizeof (int16_t)), tape->lengthCells);
+        const bool inFile = base != nullptr && span.size > 0 && span.offset + span.size <= mappedSize;
+        if (span.size == 0)
+        {
+            // Never recorded: silence, with nothing behind it.
+            tape->data[t] = nullptr;
+            tape->ownsTrack[t] = false;
+            tape->readable[t] = 0;
+        }
+        else if (inFile && span.offset % alignof (Cell) == 0)
+        {
+            // The samples are read where they lie in the file: nothing is loaded, nothing is copied.
+            tape->data[t] = reinterpret_cast<Cell*> (const_cast<char*> (base + span.offset));
+            tape->ownsTrack[t] = false;
+            tape->readable[t] = cells;
+        }
+        else
+        {
+            // From a writer that doesn't align its entries, not on a sample boundary: a copy.
+            tape->data[t] = static_cast<Cell*> (std::calloc ((size_t) tape->lengthCells, sizeof (Cell)));
+            if (tape->data[t] == nullptr) { error = "not enough memory"; return {}; }
+            if (inFile) std::memcpy (static_cast<void*> (tape->data[t]), base + span.offset, (size_t) cells * sizeof (int16_t));
+        }
+
+        const auto& m = p.maps[(size_t) t];
+        for (int b = 0; b < tape->numBlocks; ++b)
+        {
+            tape->flagsAt (t, b) = m.flags[(size_t) b];
+            tape->recorderAt (t, b) = m.recorder[(size_t) b];
+            tape->speedMilliAt (t, b) = m.speedMilli[(size_t) b];
+            tape->dayAt (t, b) = m.day[(size_t) b];
+        }
+    }
+    for (int sec = 0; sec < tape->numSeconds; ++sec) tape->passesAt (sec) = p.wear[(size_t) sec];
+    tape->position = juce::jlimit (0.0, (double) tape->lengthCells, p.state.position);
+    tape->protectA = p.state.protectA;
+    tape->protectB = p.state.protectB;
+    tape->dataDirty = false;
+    tape->metaDirty = false;
+    tape->wearDirty = false;
+    return tape;
 }
 
 juce::String Tape::created() const
@@ -229,9 +304,9 @@ float Tape::readInterpolated (int track, double pos) const noexcept
 
 void Tape::writeCell (int track, int64_t c, float v, bool nrEncoded, int nrType, float speed, int pos) noexcept
 {
-    if (c < 0 || c >= lengthCells)
+    if (c < 0 || c >= lengthCells || readOnly)
         return;
-    if (isTurnedOver()) { track = numTracks - 1 - track; c = lengthCells - 1 - c; }   // a place on the tape
+    if (isTurnedOver()) { track = physicalTrack (track); c = lengthCells - 1 - c; }   // a place on the tape
 
     data[track][c].store ((int16_t) juce::roundToInt (juce::jlimit (-1.0f, 1.0f, v * fluxScale) * 32767.0f), std::memory_order_relaxed);
 
@@ -285,7 +360,7 @@ static juce::File mapFile (const juce::File& folder, int t)  { return folder.get
 
 bool Tape::writeAudio (const juce::File& folder)
 {
-    if (! folder.createDirectory())
+    if (readOnly || ! folder.createDirectory())   // a packed cassette opened in place is never written
         return false;
     if (! dataDirty.exchange (false, std::memory_order_acq_rel))
         return true;

@@ -56,8 +56,14 @@ public:
         Message thread, transport stopped; the deck's position is turned round with it. */
     void turnOver (bool sideBUp) noexcept;
     bool isTurnedOver() const noexcept          { return turnedOver.load (std::memory_order_relaxed); }
-    /** Where on the tape the deck's track and position are. */
-    int physicalTrack (int track) const noexcept { return isTurnedOver() ? numTracks - 1 - track : track; }
+    /** Where on the tape the deck's track and position are. A 4-track tape turned over comes in
+        mirrored (track 1 under the track 4 head), as it lies; a stereo cassette's side B is its
+        tracks 3 and 4, left and right (cass-v1.md, layout). */
+    int physicalTrack (int track) const noexcept
+    {
+        if (! isTurnedOver()) return track;
+        return layout == tfmt::Layout::stereoTwoSides ? (track + 2) % numTracks : numTracks - 1 - track;
+    }
     double physicalPos (double pos) const noexcept { return isTurnedOver() ? (double) lengthCells - pos : pos; }
     /** The tab of the side facing up is broken out (a stereo cassette in the TF-4: either side's). */
     bool isWriteProtected() const noexcept
@@ -70,7 +76,8 @@ public:
     inline float readCell (int track, int64_t c) const noexcept
     {
         if (c < 0 || c >= lengthCells) return 0.0f;
-        if (isTurnedOver()) { track = numTracks - 1 - track; c = lengthCells - 1 - c; }
+        if (isTurnedOver()) { track = physicalTrack (track); c = lengthCells - 1 - c; }
+        if (c >= readable[track]) return 0.0f;   // past the end of what a packed cassette holds
         return (float) data[track][c].load (std::memory_order_relaxed) * readScale;
     }
 
@@ -181,6 +188,12 @@ public:
     static std::unique_ptr<Tape> load (const juce::File& folder);
     /** A stereo cassette for a stereo deck: side B held in playing order (see holdsSidesInPlayingOrder). */
     static std::unique_ptr<Tape> loadForStereoDeck (const juce::File& folder);
+    /** A packed .cass, opened read-only where it lies: its tracks are read from the file, not
+        loaded, so a C-90 costs a few MB. For players; nothing can be recorded on it or saved. */
+    static std::unique_ptr<Tape> openPacked (const juce::File& cassFile, juce::String& error);
+    bool isReadOnly() const noexcept            { return readOnly; }
+    /** How many tracks need no memory of their own: read straight from a packed cassette's file, or never recorded. */
+    int mappedTracks() const noexcept           { int n = 0; for (auto o : ownsTrack) n += o ? 0 : 1; return n; }
     /** A new blank stereo cassette for a stereo deck. */
     static std::unique_ptr<Tape> makeStereo (int typeIndex, int modelIndex, const tfmt::Condition& condition);
     bool needsSaving() const noexcept;
@@ -189,7 +202,8 @@ public:
     void markMetaSaved() noexcept   { metaDirty = false; }
 
 private:
-    void allocate();
+    Tape (const tfmt::CassetteInfo&, bool withTracks);
+    void allocate (bool withTracks);
     static std::unique_ptr<Tape> loadLegacy (const juce::File& folder);
     static std::unique_ptr<Tape> loadCassette (const juce::File& folder, bool sidesInPlayingOrder);
     /** Track t is held the other way round from how it lies on the tape. */
@@ -235,6 +249,10 @@ private:
     std::atomic<uint8_t>&  dirtyAt (int t, int s) const noexcept      { return dirty[t][(size_t) s]; }
 
     Cell* data[numTracks] {};
+    bool ownsTrack[numTracks] { true, true, true, true };
+    int64_t readable[numTracks] {};                       // cells there are to read on each track
+    std::unique_ptr<juce::MemoryMappedFile> mapped;       // a packed cassette's file, its tracks read in place
+    bool readOnly = false;
     std::unique_ptr<std::atomic<uint8_t>[]>  flags[numTracks], recorder[numTracks];
     std::unique_ptr<std::atomic<uint16_t>[]> speedMilli[numTracks], day[numTracks];
     std::unique_ptr<std::atomic<uint16_t>[]> passes;            // per second of tape

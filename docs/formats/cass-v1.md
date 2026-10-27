@@ -26,6 +26,11 @@ entries are *stored*, not compressed. The files are identical either way, byte f
 - Version 1 has no zip64: each entry and the archive are under 4 GiB (a C-90 is about 690 MB).
 - Readers must refuse compressed or encrypted entries, verify CRC-32s, and ignore entries
   they don't know.
+- Writers should start each entry's data on a 64-byte boundary in the archive, padding the
+  local header's extra field (id `0xd935`, as Android's `zipalign`). A player can then map the
+  tracks straight out of the file and play them in place, without unpacking. Readers must not
+  rely on it: an entry that isn't aligned is read the ordinary way. (A player that plays in place
+  checks CRC-32s when it has the time to, not before the first note.)
 
 | File | Required | What it is |
 | --- | --- | --- |
