@@ -77,7 +77,12 @@ jobs:
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DTAPEFOUR_TESTS=ON -DTAPEFOUR_WERROR=ON -DTAPEFOUR_BUILD_NUMBER=${{ env.BUILD_NUMBER }}
 
       - name: Build
-        run: cmake --build build --parallel
+        run: |
+          set -o pipefail
+          cmake --build build --parallel 2>&1 | tee build.log || {
+            # Compile errors as annotations, so they show on the run's page without the log.
+            grep -E "error[: ]|Error [0-9]|undefined (reference|symbol)" build.log | grep -v "^ninja: build stopped" | head -25 | sed 's/^/::error::/'
+            exit 1; }
 
       - name: Test the cassette and deck formats
         run: build/FormatTest_artefacts/Release/FormatTest
@@ -123,7 +128,12 @@ jobs:
           "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
 
       - name: Build
-        run: cmake --build build --config Release --parallel
+        run: |
+          set -o pipefail
+          cmake --build build --config Release --parallel 2>&1 | tee build.log || {
+            # Compile errors as annotations, so they show on the run's page without the log.
+            grep -E "error[: ]|Error [0-9]|undefined (reference|symbol)" build.log | grep -v "^ninja: build stopped" | head -25 | sed 's/^/::error::/'
+            exit 1; }
 
       - name: Test the cassette and deck formats
         run: build/FormatTest_artefacts/Release/FormatTest
@@ -183,7 +193,12 @@ jobs:
           -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DTAPEFOUR_SANITIZE=${{ matrix.sanitizer }}
 
       - name: Build the tests
-        run: cmake --build build --parallel --target FormatTest EngineTest MixerTest
+        run: |
+          set -o pipefail
+          cmake --build build --parallel --target FormatTest EngineTest MixerTest 2>&1 | tee build.log || {
+            # Compile errors as annotations, so they show on the run's page without the log.
+            grep -E "error[: ]|Error [0-9]|undefined (reference|symbol)" build.log | grep -v "^ninja: build stopped" | head -25 | sed 's/^/::error::/'
+            exit 1; }
 
       - name: Run them
         env:
