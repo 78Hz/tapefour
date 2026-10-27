@@ -221,6 +221,7 @@ if(TAPEFOUR_PLAYER)
         Player/PlayerComponent.cpp
         Player/Library.cpp
         Player/SystemVolume.cpp
+        Player/Launch.cpp
         $<$<STREQUAL:${CMAKE_SYSTEM_NAME},iOS>:Player/SystemVolume_ios.mm>
         Source/Tape.cpp
         Source/TapeEngine.cpp

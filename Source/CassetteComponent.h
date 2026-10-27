@@ -2,7 +2,7 @@
 
 #include "Widgets.h"
 #include "Tape.h"
-#include "Look.h"
+#include "../Formats/Look.h"
 
 namespace tf
 {

@@ -1,5 +1,10 @@
 #include "PlayerComponent.h"
 #include "SystemVolume.h"
+#include "Launch.h"
+
+#ifndef JUCE_APPLICATION_VERSION_STRING
+ #define JUCE_APPLICATION_VERSION_STRING "0.2"   // (a Projucer build: Android)
+#endif
 #include "../Source/CassetteComponent.h"
 
 namespace tf::pocket
@@ -81,6 +86,12 @@ public:
         }
        #if JUCE_IOS || JUCE_ANDROID
         library->takeInNewArrivals();
+        // Opened with the player from another app (Android hands it over as the launch Intent).
+        if (auto url = tf::pocket::documentOpenedWith(); ! url.isEmpty())
+        {
+            window->player->importAndOpen (url);
+            return;
+        }
        #endif
 
         // The cassette it was playing last, or one it was asked to open.

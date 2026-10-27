@@ -1,8 +1,8 @@
 #pragma once
 
 #include "Common.h"
-#include "Look.h"
-#include "Cassette.h"
+#include "../Formats/Look.h"
+#include "../Formats/Cassette.h"
 
 namespace tf
 {

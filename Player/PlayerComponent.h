@@ -63,6 +63,9 @@ public:
     void rememberPosition();
     void showShelf (bool show);
     void chooseFile();
+    /** A cassette from another app (a content:// address on Android, a file elsewhere): copied into
+        the player's own folder, then put in. */
+    void importAndOpen (const juce::URL&);
 
     void paint (juce::Graphics&) override;
     void paintOverChildren (juce::Graphics&) override;

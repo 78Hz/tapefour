@@ -181,7 +181,19 @@ The mix goes to a second, stereo cassette deck: the master deck. Click the displ
 
 Every master deck setting is remembered.
 
-## Where things are kept
+## TF-P1 Pocket: the cassette player
+
+TF-P1 Pocket plays `.cass` files: a cassette from the TF-4 (EJECT → Export as a .cass file, or a master tape from the master deck) on your computer or your phone, drawn exactly as the TF-4 draws it, reels turning as it plays. It is built from the same tape engine, so a cassette sounds the same, apart from the player's own machine: a good portable's transport and heads (a little more wow and flutter, treble to about 14 kHz).
+
+- **Open a cassette**: OPEN A .CASS FILE, drop a `.cass` on the player, or open one with it. On a phone, share a `.cass` to the player, or put it in the player's folder in the Files app.
+- **Keys**: REW, STOP, PLAY, F.FWD, TURN OVER (side B), NR (off or B, as on most portables), volume, CASSETTES (the ones you've played, as small cassettes, with where each was left). On a computer the space bar plays and stops, the arrow keys wind and set the volume.
+- **On a phone** the cassette fills the screen; tap it to bring up the keys, tap again to hide them. The volume is the phone's own: the side buttons and the on-screen keys set the same one.
+- **One speed**, 1⅞ ips: a tape recorded at 3¾ plays an octave down. Tape type is automatic, from the cassette.
+- It never changes a `.cass` file. It plays the file where it lies (nothing is loaded into memory, so a C-90 costs a few MB) and remembers where you stopped each cassette in its own settings.
+
+Every build on GitHub makes the player for Windows, macOS and Linux (in the same download as the TF-4), an Android app (`TF-P1-Pocket-android`, a debug build to install directly) and an iOS build for the simulator. Putting it on your own iPhone needs an Apple developer account to sign it.
+
+
 
 - **Tapes**: `Documents/TapeFour/Tape Shelf/`, one folder per tape: the cassette (`cassette.json`, `state.json`, the tracks and their maps, the same files as in a `.cass`) and `session.xml`, the mixer and plug-ins that go with it. Tapes from earlier versions are converted the first time they're loaded; the old files are kept with `.bak` on the end. Tapes are saved in the background: every five seconds while recording, so a crash costs seconds rather than a take; whenever the transport has been stopped for a second; and on eject and on quit.
 - **Mixdowns**: `Documents/TapeFour/Mixdowns/`, one folder per tape.
@@ -207,6 +219,7 @@ Add `-DTAPEFOUR_TESTS=ON` to also build the headless test programs, which every 
 - `EngineTest`: each cassette's MOL, SOL, hiss, modulation noise and sensitivity; pitch and level; noise reduction, tape speed, the tape switch, clean punch-ins and punch-outs, the condition and wear of a cassette, write-protect tabs, and converting tapes from earlier versions.
 - `MixerTest`: the whole audio path: monitoring and arming crossfades, EQ, bounce, the built-in synth via MIDI and MPE, per-track controllers, signal chains (MIDI effects, layering, MIX and bypass), CLAP hosting (scanning, an effect with parameters and saved state, an instrument fed CLAP note events, using two test plug-ins built from `Tests/fixtures/TestClap.c`), when plug-in state is saved, mute and solo, MIDI learn (pickup, encoders, toggles, MMC, plug-in parameters), hardware synth routing, recordings lining up on an interface with latency, saving while recording, plug-in load races, MIDI device slots, deck recall, settings surviving a restart, `.cass` export and import, track exports in each format, and mixdowns (direct and on tape, both sides, a full side, listening).
 - `ScanTest build/crashplugin`: scans a plug-in made to crash, to show the scan survives it.
+- `PlayerTest`: the pocket player plays a packed cassette where it lies, both sides, at the right speed and volume, remembers where each cassette was left, and never changes the file.
 
 To check real plug-ins on your machine, run `MixerTest` with `TAPEFOUR_SMOKE_DIR` set to a plug-in folder (for LV2, the folder holding the `.lv2` bundles): every format scans it, and each instrument found is loaded and played. `TAPEFOUR_CLAP_LOG=1` makes the app print what CLAP plug-ins ask of it.
 
@@ -216,6 +229,7 @@ To check real plug-ins on your machine, run `MixerTest` with `TAPEFOUR_SMOKE_DIR
 
 - **Warnings are errors** in CI on Linux, macOS and the sanitizer builds: `-DTAPEFOUR_WERROR=ON` turns every warning in TapeFour's own files (not JUCE's) into an error with GCC or Clang, under JUCE's recommended warning set (`-Wshadow`, `-Wsign-conversion`, `-Wfloat-equal`, `-Wswitch-enum` and the rest). Use it locally to catch them before pushing.
 - **Performance**: `TAPEFOUR_BENCH=1 MixerTest` times the audio callback for a stopped deck, playback with all the tape character on, recording through heavy chains, and unarmed chains (which rest), and prints each as a share of the real-time budget.
+- **The pocket player** is in `Player/`, built by CMake for computers and iOS (`TapeFourPocket`; `-DTAPEFOUR_PLAYER=OFF` leaves it out) and by `Player/Pocket.jucer` for Android, since JUCE's CMake doesn't build Android apps: `Projucer --resave Player/Pocket.jucer` writes an Android Studio project into `Player/Builds/Android` (it expects JUCE 8.0.11 in a folder called `juce` beside this one). For iOS: `cmake -S . -B build-ios -G Xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0`, then open it in Xcode 16.
 - **Layout**: `Source/` holds the engine (`AudioEngine`, `TapeEngine`, `Tape`, `ChannelStrip`, `Blocks`, `MidiHub`, `MidiMapper`, `ClapFormat`, `PluginScan`) and the interface (`DeckComponent` with `DeckLearn` for MIDI learn, `StripComponent`, `ChainEditor` with `BlockPicker`, `SetupWindow`, `CassetteComponent`, `InlayCard`, `PluginWindow`, `Widgets.h`). No engine file includes an interface file, so the engine can be tested headless (as `MixerTest` does).
 - **Known limitation**: plug-ins run inside TapeFour's own process. Scanning is isolated (a plug-in that crashes while being scanned is set aside), but a plug-in that crashes while playing takes TapeFour with it. The tape is saved every five seconds while recording, so a take loses at most that.
 

@@ -3,3 +3,4 @@ out/
 .vs/
 *.user
 .DS_Store
+Player/Builds/

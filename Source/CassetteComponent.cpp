@@ -1,5 +1,5 @@
 #include "CassetteComponent.h"
-#include "Zip.h"
+#include "../Formats/Zip.h"
 
 namespace tf
 {

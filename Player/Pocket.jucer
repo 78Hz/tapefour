@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!--
+  TF-P1 Pocket for Android. JUCE's CMake build doesn't make Android apps, so this Projucer project
+  does: `Projucer --resave Player/Pocket.jucer` writes an Android Studio (Gradle) project into
+  Player/Builds/Android. It expects JUCE 8.0.11 at ../juce beside this repository's folder
+  (the CI job puts it there). The same sources as the CMake build (CMakeLists.txt, TapeFourPocket).
+-->
+<JUCERPROJECT id="tfp1pk" name="TF-P1 Pocket" projectType="guiapp" useAppConfig="0"
+              addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" version="0.2.0"
+              companyName="78Hz" bundleIdentifier="com.78hz.tapefour.pocket"
+              cppLanguageStandard="20" displaySplashScreen="0"
+              defines="JUCE_APPLICATION_VERSION_STRING=&quot;0.2.0&quot;">
+  <MAINGROUP id="pkMain" name="TF-P1 Pocket">
+    <GROUP id="pkPlay" name="Player">
+      <FILE id="pkf001" name="Main.cpp" compile="1" resource="0" file="Main.cpp"/>
+      <FILE id="pkf002" name="PlayerEngine.cpp" compile="1" resource="0" file="PlayerEngine.cpp"/>
+      <FILE id="pkf003" name="PlayerEngine.h" compile="0" resource="0" file="PlayerEngine.h"/>
+      <FILE id="pkf004" name="PlayerComponent.cpp" compile="1" resource="0" file="PlayerComponent.cpp"/>
+      <FILE id="pkf005" name="PlayerComponent.h" compile="0" resource="0" file="PlayerComponent.h"/>
+      <FILE id="pkf006" name="Library.cpp" compile="1" resource="0" file="Library.cpp"/>
+      <FILE id="pkf007" name="Library.h" compile="0" resource="0" file="Library.h"/>
+      <FILE id="pkf008" name="SystemVolume.cpp" compile="1" resource="0" file="SystemVolume.cpp"/>
+      <FILE id="pkf009" name="SystemVolume.h" compile="0" resource="0" file="SystemVolume.h"/>
+      <FILE id="pkf010" name="Launch.cpp" compile="1" resource="0" file="Launch.cpp"/>
+      <FILE id="pkf011" name="Launch.h" compile="0" resource="0" file="Launch.h"/>
+    </GROUP>
+    <GROUP id="pkEng" name="Engine">
+      <FILE id="pkf020" name="Tape.cpp" compile="1" resource="0" file="../Source/Tape.cpp"/>
+      <FILE id="pkf021" name="TapeEngine.cpp" compile="1" resource="0" file="../Source/TapeEngine.cpp"/>
+      <FILE id="pkf022" name="LookView.cpp" compile="1" resource="0" file="../Source/LookView.cpp"/>
+      <FILE id="pkf023" name="CassetteComponent.cpp" compile="1" resource="0" file="../Source/CassetteComponent.cpp"/>
+      <FILE id="pkf024" name="DeckLookAndFeel.cpp" compile="1" resource="0" file="../Source/DeckLookAndFeel.cpp"/>
+    </GROUP>
+    <GROUP id="pkFmt" name="Formats">
+      <FILE id="pkf030" name="Json.cpp" compile="1" resource="0" file="../Formats/Json.cpp"/>
+      <FILE id="pkf031" name="Zip.cpp" compile="1" resource="0" file="../Formats/Zip.cpp"/>
+      <FILE id="pkf032" name="Cassette.cpp" compile="1" resource="0" file="../Formats/Cassette.cpp"/>
+      <FILE id="pkf033" name="Deck.cpp" compile="1" resource="0" file="../Formats/Deck.cpp"/>
+      <FILE id="pkf034" name="Look.cpp" compile="1" resource="0" file="../Formats/Look.cpp"/>
+    </GROUP>
+    <GROUP id="pkFnt" name="Fonts">
+      <FILE id="pkf040" name="BarlowCondensed-SemiBold.ttf" compile="0" resource="1" file="../Resources/fonts/BarlowCondensed-SemiBold.ttf"/>
+      <FILE id="pkf041" name="BarlowCondensed-Bold.ttf" compile="0" resource="1" file="../Resources/fonts/BarlowCondensed-Bold.ttf"/>
+      <FILE id="pkf042" name="BarlowCondensed-ExtraBoldItalic.ttf" compile="0" resource="1" file="../Resources/fonts/BarlowCondensed-ExtraBoldItalic.ttf"/>
+      <FILE id="pkf043" name="ShareTechMono-Regular.ttf" compile="0" resource="1" file="../Resources/fonts/ShareTechMono-Regular.ttf"/>
+      <FILE id="pkf044" name="Caveat-Variable.ttf" compile="0" resource="1" file="../Resources/fonts/Caveat-Variable.ttf"/>
+    </GROUP>
+  </MAINGROUP>
+  <JUCEOPTIONS JUCE_USE_CURL="0" JUCE_WEB_BROWSER="0" JUCE_STRICT_REFCOUNTEDPOINTER="1"/>
+  <EXPORTFORMATS>
+    <ANDROIDSTUDIO targetFolder="Builds/Android" androidMinimumSDK="24" androidTargetSDK="35"
+                   androidScreenOrientation="landscape" androidInternetNeeded="0"
+                   androidReadMediaAudioPermission="0" androidReadMediaImagesPermission="0"
+                   androidReadMediaVideoPermission="0" androidExternalWriteNeeded="0"
+                   androidPushNotifications="0" androidVersionCode="1"
+                   androidManifestCustomXmlElements="&lt;manifest&gt;&#10;  &lt;application&gt;&#10;    &lt;activity android:launchMode=&quot;singleTask&quot;&gt;&#10;      &lt;intent-filter/&gt;&#10;      &lt;intent-filter&gt;&#10;        &lt;action android:name=&quot;android.intent.action.VIEW&quot;/&gt;&#10;        &lt;category android:name=&quot;android.intent.category.DEFAULT&quot;/&gt;&#10;        &lt;category android:name=&quot;android.intent.category.BROWSABLE&quot;/&gt;&#10;        &lt;data android:scheme=&quot;content&quot;/&gt;&#10;        &lt;data android:scheme=&quot;file&quot;/&gt;&#10;        &lt;data android:mimeType=&quot;application/octet-stream&quot;/&gt;&#10;        &lt;data android:mimeType=&quot;application/zip&quot;/&gt;&#10;        &lt;data android:mimeType=&quot;application/x-cass&quot;/&gt;&#10;      &lt;/intent-filter&gt;&#10;    &lt;/activity&gt;&#10;  &lt;/application&gt;&#10;&lt;/manifest&gt;">
+      <CONFIGURATIONS>
+        <CONFIGURATION isDebug="1" name="Debug" optimisation="1"/>
+        <CONFIGURATION isDebug="0" name="Release" optimisation="3"/>
+      </CONFIGURATIONS>
+      <MODULEPATHS>
+        <MODULEPATH id="juce_core" path="../../juce/modules"/>
+        <MODULEPATH id="juce_events" path="../../juce/modules"/>
+        <MODULEPATH id="juce_data_structures" path="../../juce/modules"/>
+        <MODULEPATH id="juce_graphics" path="../../juce/modules"/>
+        <MODULEPATH id="juce_gui_basics" path="../../juce/modules"/>
+        <MODULEPATH id="juce_gui_extra" path="../../juce/modules"/>
+        <MODULEPATH id="juce_audio_basics" path="../../juce/modules"/>
+        <MODULEPATH id="juce_audio_devices" path="../../juce/modules"/>
+        <MODULEPATH id="juce_audio_formats" path="../../juce/modules"/>
+        <MODULEPATH id="juce_audio_processors" path="../../juce/modules"/>
+        <MODULEPATH id="juce_audio_processors_headless" path="../../juce/modules"/>
+        <MODULEPATH id="juce_audio_utils" path="../../juce/modules"/>
+        <MODULEPATH id="juce_dsp" path="../../juce/modules"/>
+      </MODULEPATHS>
+    </ANDROIDSTUDIO>
+  </EXPORTFORMATS>
+  <MODULES>
+    <MODULE id="juce_core" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_events" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_data_structures" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_graphics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_gui_basics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_gui_extra" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_audio_basics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_audio_devices" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_audio_formats" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_audio_processors" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_audio_processors_headless" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_audio_utils" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_dsp" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+  </MODULES>
+</JUCERPROJECT>

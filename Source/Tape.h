@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Common.h"
-#include "Cassette.h"
+#include "../Formats/Cassette.h"
 
 namespace tf
 {

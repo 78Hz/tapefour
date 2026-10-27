@@ -354,29 +354,36 @@ void PlayerComponent::chooseFile()
             safe->openCassette (local);
             return;
         }
-        // A phone: the cassette is copied into the player's own folder first (another app's file
-        // may only be readable for a moment), then played from there.
-        auto target = Library::cassettesFolder().getNonexistentChildFile (
-            juce::File::createLegalFileName (url.getFileName().upToLastOccurrenceOf (".", false, false)), ".cass", false);
-        if (local.isAChildOf (Library::cassettesFolder())) { safe->openCassette (local); return; }
-        safe->say ("COPYING THE CASSETTE...", 60.0);
-        juce::Thread::launch ([safe, url, target]
+        safe->importAndOpen (url);
+    });
+}
+
+void PlayerComponent::importAndOpen (const juce::URL& url)
+{
+    auto local = url.isLocalFile() ? url.getLocalFile() : juce::File();
+    if (local.isAChildOf (Library::cassettesFolder())) { openCassette (local); return; }
+    // A phone: the cassette is copied into the player's own folder first (another app's file
+    // may only be readable for a moment), then played from there.
+    auto name = juce::URL::removeEscapeChars (url.getFileName()).upToLastOccurrenceOf (".", false, false);
+    auto target = Library::cassettesFolder().getNonexistentChildFile (
+        juce::File::createLegalFileName (name.isNotEmpty() ? name : juce::String ("cassette")), ".cass", false);
+    say ("COPYING THE CASSETTE...", 60.0);
+    juce::Thread::launch ([safe = juce::Component::SafePointer<PlayerComponent> (this), url, target]
+    {
+        bool ok = false;
+        if (auto in = url.createInputStream (juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inAddress)))
         {
-            bool ok = false;
-            if (auto in = url.createInputStream (juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inAddress)))
-            {
-                juce::FileOutputStream out (target);
-                ok = out.openedOk() && out.writeFromInputStream (*in, -1) > 0;
-                out.flush();
-                ok = ok && out.getStatus().wasOk();
-            }
-            if (! ok) target.deleteFile();
-            juce::MessageManager::callAsync ([safe, target, ok]
-            {
-                if (safe == nullptr) return;
-                if (ok) safe->openCassette (target);
-                else    safe->say ("COULD NOT COPY THE CASSETTE");
-            });
+            juce::FileOutputStream out (target);
+            ok = out.openedOk() && out.writeFromInputStream (*in, -1) > 0;
+            out.flush();
+            ok = ok && out.getStatus().wasOk();
+        }
+        if (! ok) target.deleteFile();
+        juce::MessageManager::callAsync ([safe, target, ok]
+        {
+            if (safe == nullptr) return;
+            if (ok) safe->openCassette (target);
+            else    safe->say ("COULD NOT COPY THE CASSETTE");
         });
     });
 }
