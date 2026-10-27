@@ -347,9 +347,17 @@ MasterStrip::MasterStrip (AudioEngine& e)
     phones.slider.setDoubleClickReturnValue (true, 0.6);
     phones.slider.onValueChange = [this] { engine.phones = (float) phones.slider.getValue(); phones.repaint(); };
     fader.slider.onValueChange = [this] { engine.masterFader = (float) fader.slider.getValue(); };
-    addAndMakeVisible (phones);
-    addAndMakeVisible (meter);
-    addAndMakeVisible (fader);
+    display.topSize = 13.0f;
+    display.onClick = [this] { if (onMasterDeck) onMasterDeck(); };
+    display.setTooltip ("The master deck: the stereo cassette (or none: DIRECT) a mixdown goes to, and the files it writes");
+    side.textSize = 11.0f;
+    side.onClick = [this] { if (onSide) onSide(); };
+    side.setTooltip ("Turn the master cassette over");
+    mixdown.textSize = 11.0f;
+    mixdown.onClick = [this] { if (onMixdown) onMixdown(); };
+    mixdown.setTooltip ("Arm a mixdown: PLAY starts a take, STOP ends it. Each take is a new file.");
+    for (auto* c : std::initializer_list<juce::Component*> { &phones, &display, &meter, &fader, &side, &mixdown })
+        addAndMakeVisible (c);
     syncFromEngine();
 }
 
@@ -359,11 +367,47 @@ void MasterStrip::syncFromEngine()
     fader.slider.setValue (engine.masterFader.load(), juce::dontSendNotification);
 }
 
-void MasterStrip::refresh()
+void MasterStrip::refresh (const juce::String& formats, bool blink)
 {
     meter.setLevels (engine.meterL.exchange (0.0f), engine.meterR.exchange (0.0f));
     follow (fader.slider, engine.masterFader.load());
     follow (phones.slider, engine.phones.load());
+
+    auto& md = engine.masterDeck;
+    const auto& ms = md.settings;
+    const auto sideName = ms.side == 0 ? "A" : "B";
+    if (ms.direct())
+    {
+        display.top = "MASTER: DIRECT";
+        display.sub = formats + utf (" \xe2\x80\xba");
+    }
+    else
+    {
+        display.top = "MASTER: " + md.describeTape().replace (utf (" \xc2\xb7 "), " ");
+        display.sub = juce::String (sideName) + " " + formatTime (md.sideUsedSeconds (ms.side)) + " " + formats + utf (" \xe2\x80\xba");
+    }
+    display.repaintIfChanged();
+
+    side.setButtonText (juce::String ("SIDE ") + sideName);
+    side.setLed (! ms.direct(), Pal::orange);
+    side.setEnabled (! ms.direct());
+    const auto st = md.getState();
+    const bool taking = st == MasterDeck::State::recording || st == MasterDeck::State::tailing || st == MasterDeck::State::finishing;
+    mixdown.setLed (st == MasterDeck::State::armed || (taking && blink) || (md.isArmedByUser() && st == MasterDeck::State::done));
+
+    auto peakDb = [] (float v) { return v < 0.0001f ? juce::String ("-INF") : juce::String (juce::Decibels::gainToDecibels (v), 1); };
+    auto text = peakDb (engine.peakHoldL.load()) + "  " + peakDb (engine.peakHoldR.load());
+    if (text != peakText) { peakText = text; repaint (peakArea); }
+}
+
+void MasterStrip::mouseDown (const juce::MouseEvent& e)
+{
+    // A click on the peak readout clears it.
+    if (peakArea.contains (e.getEventRelativeTo (this).getPosition()))
+    {
+        engine.peakHoldL = 0.0f;
+        engine.peakHoldR = 0.0f;
+    }
 }
 
 void MasterStrip::forEachLearnTarget (const std::function<void (juce::Component&, MidiMapper::Control)>& fn)
@@ -377,8 +421,16 @@ void MasterStrip::resized()
     auto r = getLocalBounds().reduced (12);
     r.removeFromTop (52);
     phones.setBounds (r.removeFromTop (44));
-    r.removeFromTop (16);
-    r.removeFromBottom (24 + 12);
+    r.removeFromTop (8);
+    display.setBounds (r.removeFromTop (42));
+    r.removeFromTop (4);
+    peakArea = r.removeFromTop (18);
+    r.removeFromTop (6);
+    // The master's keys sit at the foot, level with the tracks' ARM row.
+    mixdown.setBounds (r.removeFromBottom (36));
+    r.removeFromBottom (12);
+    side.setBounds (r.removeFromBottom (32));
+    r.removeFromBottom (26);   // L · R
     auto area = r.withSizeKeepingCentre (32 + 8 + 86, r.getHeight());
     meter.setBounds (area.removeFromLeft (32));
     area.removeFromLeft (8);
@@ -403,7 +455,18 @@ void MasterStrip::paint (juce::Graphics& g)
     g.drawText ("STEREO OUT", head, juce::Justification::centredLeft);
 
     g.setFont (lf.cond (14.0f).withExtraKerningFactor (0.2f));
-    g.drawText (utf ("L \xc2\xb7 R"), juce::Rectangle<int> (meter.getX() - 6, getHeight() - 36, meter.getWidth() + 12, 24),
+    g.drawText (utf ("L \xc2\xb7 R"), juce::Rectangle<int> (meter.getX() - 6, meter.getBottom() + 2, meter.getWidth() + 12, 22),
                 juce::Justification::centred);
+
+    // The peaks since the last click: what a mixdown would print.
+    auto p = peakArea;
+    g.setColour (Pal::lcd);
+    g.fillRoundedRectangle (p.removeFromLeft (88).toFloat(), 3.0f);
+    g.setColour (Pal::lcdText);
+    g.setFont (lf.mono (11.0f));
+    g.drawText (peakText, peakArea.withWidth (88), juce::Justification::centred);
+    g.setColour (Pal::lcdText.withAlpha (0.85f));
+    g.setFont (lf.cond (11.0f).withExtraKerningFactor (0.15f));
+    g.drawText ("PEAK", p.withTrimmedLeft (6), juce::Justification::centredLeft);
 }
 } // namespace tf

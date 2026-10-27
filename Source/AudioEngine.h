@@ -6,6 +6,7 @@
 #include "MidiMapper.h"
 #include "ChannelStrip.h"
 #include "Deck.h"
+#include "MasterDeck.h"
 
 namespace tf
 {
@@ -108,6 +109,12 @@ public:
     std::atomic<juce::uint32> viewVersion { 1 };
     /** A transport command from a controller (MMC or a mapped button), for the deck to carry out. */
     std::atomic<int>   remoteCommand { 0 };
+
+    // ---- the master deck: the stereo cassette the mix goes to (MasterDeck.h) ----
+    MasterDeck masterDeck;
+    juce::File getMasterMachineFile() const;
+    /** Peak of the master bus since the last reset, per side: for the master strip's readout. */
+    std::atomic<float> peakHoldL { 0 }, peakHoldR { 0 };
 
     // ---- tape (message thread) ----
     Tape* getTape() const noexcept { return tape.get(); }
@@ -257,7 +264,7 @@ private:
     double sampleRate = 0.0;
     int bufferSize = 0, maxBlock = 8192, inputLatency = 0, outputLatency = 0;
 
-    std::vector<float> tapeOut[numTracks], src[numTracks], chan[numTracks], mixL, mixR, bounceSum;
+    std::vector<float> tapeOut[numTracks], src[numTracks], chan[numTracks], mixL, mixR, bounceSum, masterL, masterR;
     float* tapeOutPtr[numTracks] {};
     juce::AudioBuffer<float> acc, scratch, dry;
     juce::MidiBuffer trackMidi, midiWork;

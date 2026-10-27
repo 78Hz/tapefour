@@ -123,7 +123,8 @@ set(TAPEFOUR_ENGINE_SOURCES
     Source/TapeShelf.cpp
     Source/PluginScan.cpp
     Source/ClapFormat.cpp
-    Source/Exporter.cpp)
+    Source/Exporter.cpp
+    Source/MasterDeck.cpp)
 
 target_sources(TapeFour PRIVATE
     Source/Main.cpp
@@ -138,7 +139,8 @@ target_sources(TapeFour PRIVATE
     Source/BlockPicker.cpp
     Source/ChainEditor.cpp
     Source/InlayCard.cpp
-    Source/SetupWindow.cpp)
+    Source/SetupWindow.cpp
+    Source/MasterDeckCard.cpp)
 
 target_compile_definitions(TapeFour PRIVATE
     ${TAPEFOUR_PLATFORM_DEFS}

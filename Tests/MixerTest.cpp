@@ -770,6 +770,150 @@ int main()
         dir.deleteRecursively();
     }
 
+    // ---- Mixdown: the master bus, straight to files (DIRECT) or through the master deck's cassette ----
+    {
+        auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("tf_mixdown_test");
+        dir.deleteRecursively();
+        dir.createDirectory();
+        TapeShelf::setFolderForTests (dir.getChildFile ("shelf"));
+        auto mixes = dir.getChildFile ("Mixdowns");
+        juce::AudioFormatManager fm;
+        fm.registerBasicFormats();
+        auto readStereo = [&] (const juce::String& path)
+        {
+            juce::AudioBuffer<float> b;
+            if (auto reader = std::unique_ptr<juce::AudioFormatReader> (fm.createReaderFor (juce::File (path))))
+            {
+                b.setSize (2, (int) reader->lengthInSamples);
+                reader->read (&b, 0, (int) reader->lengthInSamples, 0, true, true);
+            }
+            return std::vector<float> (b.getReadPointer (0), b.getReadPointer (0) + b.getNumSamples());
+        };
+
+        Rig m;
+        auto& me = *m.engine;
+        auto& md = me.masterDeck;
+        me.track[2].armed = true;   // its input, live, is the mix
+        m.f[0] = 500; m.amp[0] = 0.3f;
+        ExportFormats wav;
+        juce::String why, problem;
+        MixTake take;
+        auto finishTake = [&]
+        {
+            m.cmd (TapeEngine::Command::stop);
+            for (int i = 0; i < 400; ++i)
+            {
+                m.run (0.01);
+                if (md.collectFinished (take, problem)) return true;
+                juce::Thread::sleep (2);
+            }
+            return false;
+        };
+
+        // DIRECT: the file is the master bus, sample for sample.
+        md.settings.model = -1;
+        check (md.arm (wav, mixes, "demo", 0, why) && md.getState() == MasterDeck::State::armed, "mixdown: arms (DIRECT)", 1, 1);
+        m.cmd (TapeEngine::Command::play);
+        auto heard = m.run (1.0);
+        const bool done = finishTake();
+        auto file = take.files.isEmpty() ? std::vector<float>() : readStereo (take.files[0]);
+        double worst = file.empty() ? 1.0 : 0.0;
+        for (size_t i = 0; i < std::min (file.size(), heard.size()); ++i) worst = std::max (worst, (double) std::abs (file[i] - heard[i]));
+        check (done && take.number == 1 && take.side == -1 && std::abs ((double) file.size() / sr - 1.0) < 0.02 && worst < 1.0e-6 && problem.isEmpty(),
+               "mixdown DIRECT: the file is what you heard, sample for sample, until STOP", worst, 0.0);
+
+        // Through the master deck: a new SD46, side A.
+        md.settings.model = 1;
+        md.settings.nr = true;
+        md.settings.side = 0;
+        md.swapTape (Tape::makeStereo (0, 1, tfmt::Condition()));
+        md.applySettings (0);
+        check (md.arm (wav, mixes, "demo", 0, why), "mixdown: arms (master tape)", 1, 1);
+        m.cmd (TapeEngine::Command::play);
+        heard = m.run (2.0);
+        finishTake();
+        auto first = take;
+        file = first.files.isEmpty() ? std::vector<float>() : readStereo (first.files[0]);
+        const auto heardTone = tone (heard, 500.0, 0.5, 1.5), fileTone = tone (file, 500.0, 0.5, 1.5);
+        check (first.number == 2 && first.side == 0 && std::abs (first.start - MasterDeck::leaderSeconds * cellRate) < 1.0
+                   && std::abs (first.length / cellRate - 2.0) < 0.05 && std::abs ((double) file.size() / sr - 2.0) < 0.05,
+               "mixdown on tape: after the leader on side A, as long as it played", first.start / cellRate, MasterDeck::leaderSeconds);
+        check (std::abs (db (fileTone / heardTone)) < 1.5, "mixdown on tape: the files hold it played back off the tape (level, dB)", db (fileTone / heardTone), 0.0);
+        auto* master = md.getTape();
+        check (master->isRecorded (0, 30) && master->isRecorded (1, 30) && ! master->isRecorded (2, 30) && ! master->isRecorded (0, 5),
+               "mixdown on tape: recorded on side A's two tracks, after the leader", 1, 1);
+
+        // The next one goes after it, with a gap; side B starts at its own beginning.
+        check (md.arm (wav, mixes, "demo", 0, why), "mixdown: arms again for the next take", 1, 1);
+        m.cmd (TapeEngine::Command::play);
+        m.run (0.5);
+        finishTake();
+        check (take.number == 3 && std::abs (take.start - (first.start + first.length + MasterDeck::gapSeconds * cellRate)) < 1.0,
+               "mixdown on tape: the next take follows after a gap", (take.start - first.start - first.length) / cellRate, MasterDeck::gapSeconds);
+        md.settings.side = 1;
+        md.arm (wav, mixes, "demo", 0, why);
+        m.cmd (TapeEngine::Command::play);
+        m.run (1.0);
+        finishTake();
+        auto sideB = take;
+        check (sideB.side == 1 && std::abs (sideB.start - MasterDeck::leaderSeconds * cellRate) < 1.0 && master->isRecorded (2, 25) && master->isRecorded (3, 25),
+               "mixdown on tape: turned over, side B from its own start", sideB.side, 1);
+
+        // Listening to a take: the master tape plays it back in place of the mix.
+        me.track[2].armed = false;
+        m.amp[0] = 0.0f;
+        check (md.listen (first) && md.isListening(), "mixdown: a take can be listened to", 1, 1);
+        auto back = m.run (2.3);
+        check (std::abs (db (tone (back, 500.0, 0.5, 1.5) / heardTone)) < 1.5 && ! md.isListening(),
+               "mixdown: listening plays the take off the master tape, and stops at its end", db (tone (back, 500.0, 0.5, 1.5) / heardTone), 0.0);
+
+        // The master cassette keeps side B the way it lies on the tape: backwards, seen from side A.
+        auto folder = dir.getChildFile ("master");
+        master->save (folder);
+        auto asStereo = Tape::loadForStereoDeck (folder), asFourTrack = Tape::load (folder);
+        const auto len = master->getLengthCells();
+        const auto c0 = (int64_t) (2.5 * cellRate);
+        bool stereoSame = asStereo != nullptr, physical = asFourTrack != nullptr;
+        for (int64_t c = c0; c < c0 + 3200 && stereoSame && physical; c += 7)
+        {
+            stereoSame = std::abs (asStereo->readCell (2, c) - master->readCell (2, c)) < 1e-9f && std::abs (asStereo->readCell (0, c) - master->readCell (0, c)) < 1e-9f;
+            physical = std::abs (asFourTrack->readCell (2, len - 1 - c) - master->readCell (2, c)) < 1e-9f;
+        }
+        check (stereoSame && physical && asStereo->getLayout() == tfmt::Layout::stereoTwoSides && asStereo->isRecorded (2, 25),
+               "master cassette: saved as it lies (side B reversed), and a stereo deck reads both sides forwards", stereoSame && physical, 1);
+
+        // A side that's full, a tape that's protected: refused, with why.
+        md.settings.side = 0;
+        MixTake huge;
+        huge.side = 0;
+        huge.start = 0;
+        huge.length = (double) master->getLengthCells();
+        md.takes.push_back (huge);
+        check (! md.arm (wav, mixes, "demo", 0, why) && why.contains ("FULL"), "mixdown: a full side is refused (turn it over)", 1, 1);
+        md.takes.pop_back();
+        master->protectA = true;
+        check (! md.arm (wav, mixes, "demo", 0, why) && why.contains ("PROTECTED"), "mixdown: a write-protected master is refused", 1, 1);
+        master->protectA = false;
+
+        // A mix that clips says where.
+        md.settings.model = -1;
+        me.track[2].armed = true;
+        m.amp[0] = 1.0f;
+        me.track[2].gain = 4.0f;
+        md.arm (wav, mixes, "demo", 0, why);
+        m.cmd (TapeEngine::Command::play);
+        m.run (0.5);
+        const auto clipped = md.clippedAtSeconds();
+
+        finishTake();
+        check (clipped >= 0.0 && clipped < 0.3, "mixdown: a clipped mix is noticed (seconds in)", clipped, 0.0);
+        check (mixes.getChildFile ("demo - mix 1.wav").existsAsFile() && mixes.getChildFile ("demo - mix 2.wav").existsAsFile()
+                   && mixes.getChildFile ("demo - mix 5.wav").existsAsFile() && md.takes.size() == 4 && md.takes.front().number == 2,
+               "mixdown: every take its own file; the takes made with this master tape listed with it", (int) md.takes.size(), 4);
+        TapeShelf::setFolderForTests ({});
+        dir.deleteRecursively();
+    }
+
     // ---- Recording lines up with what you heard, on an interface with 25 ms each way ----
     {
         fakeInputLatency = 1200;

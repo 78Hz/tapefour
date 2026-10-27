@@ -148,7 +148,7 @@ td:first-child { font-weight: 600; }
   <div><span class="n">1</span><span class="t">Welcome<span class="d">What TAPE·FOUR is and how it differs from a DAW</span></span></div>
   <div><span class="n">2</span><span class="t">Getting started<span class="d">Install, audio interface, MIDI, plug-ins</span></span></div>
   <div><span class="n">3</span><span class="t">The front panel<span class="d">Every control, at a glance</span></span></div>
-  <div><span class="n">4</span><span class="t">Cassettes<span class="d">Inserting tapes, the shelf, label and inlay</span></span></div>
+  <div><span class="n">4</span><span class="t">Cassettes<span class="d">Blank tapes and their condition, the shelf, .cass files, exports</span></span></div>
   <div><span class="n">5</span><span class="t">The four tape types<span class="d">BASIC, SD, XR and MX, and how they sound</span></span></div>
   <div><span class="n">6</span><span class="t">The tape switch<span class="d">Bias and EQ, and what each mismatch does</span></span></div>
   <div><span class="n">7</span><span class="t">Transport and counter<span class="d">Recording, punch-in, return to zero</span></span></div>
@@ -156,9 +156,10 @@ td:first-child { font-weight: 600; }
   <div><span class="n">9</span><span class="t">The mixer<span class="d">Gain, EQ, pan, faders, meters, mute, solo, arm</span></span></div>
   <div><span class="n">10</span><span class="t">Speed and pitch<span class="d">1⅞ and 3¾ ips, varispeed</span></span></div>
   <div><span class="n">11</span><span class="t">Noise reduction<span class="d">The three types, and how they meet the tape</span></span></div>
-  <div><span class="n">12</span><span class="t">Tape character<span class="d">Hiss, wow, flutter, drive and the rest</span></span></div>
+  <div><span class="n">12</span><span class="t">The deck and the tape's condition<span class="d">The machine, wear and age</span></span></div>
   <div><span class="n">13</span><span class="t">MIDI, MIDI learn and the deck state<span class="d">Controllers, MPE, synths out, learn, MMC, recall</span></span></div>
-  <div><span class="n">14</span><span class="t">Reference<span class="d">Shortcuts, files, troubleshooting, measurements</span></span></div>
+  <div><span class="n">14</span><span class="t">Mixdown and the master deck<span class="d">The master tape, sides, files</span></span></div>
+  <div><span class="n">15</span><span class="t">Reference<span class="d">Shortcuts, files, troubleshooting, measurements</span></span></div>
 </div>
 
 <!-- ======================================================= 1 WELCOME -->
@@ -257,6 +258,8 @@ td:first-child { font-weight: 600; }
   <span class="pin" style="left: 8.6%; top: 87%">17</span>
   <span class="pin" style="left: 58%; top: 46.7%">18</span>
   <span class="pin" style="left: 52.6%; top: 4.3%">19</span>
+  <span class="pin" style="left: 52.6%; top: 23.8%">20</span>
+  <span class="pin" style="left: 52.6%; top: 92%">21</span>
 </figure>
 <p>Every key on the deck works the same way: the LED above its label lights when it's on, and the key itself never changes colour. The colours mean the same thing everywhere: red for record and arm, green for play and a tape that matches the switch, amber for a mode that's on or a mismatch, orange for mute and yellow for solo. Keys that just do something once (EJECT, RESET, RTZ) have no LED.</p>
 <div class="legend">
@@ -272,21 +275,23 @@ td:first-child { font-weight: 600; }
   <div><span class="n">10</span><span><strong>Pitch</strong>: varispeed, smoothly from −12% to +12%.</span></div>
   <div><span class="n">11</span><span><strong>Tape speed</strong>: 1⅞ or 3¾ inches per second; the lit key is the speed.</span></div>
   <div><span class="n">12</span><span><strong>Noise reduction</strong> on or off; its LED shows which.</span></div>
-  <div><span class="n">13</span><span><strong>NR type display.</strong> Click it to choose the type and the tape character in Setup.</span></div>
+  <div><span class="n">13</span><span><strong>NR type display.</strong> Click it to choose the type, and the rest of the deck, in Setup.</span></div>
   <div><span class="n">14</span><span><strong>Track display.</strong> What plays the track, which controller and input feed it, its signal chain as a row of blocks, and the NR, EQ and MIDI lamps. Click it to open the track's signal chain (chapter 8); double-click it to open the window of the first plug-in in the chain.</span></div>
   <div><span class="n">15</span><span><strong>Gain, EQ and pan.</strong> HIGH, MID with its FREQ knob, and LOW.</span></div>
   <div><span class="n">16</span><span><strong>Meter and fader.</strong> 0 VU on the meter is Dolby level on tape.</span></div>
   <div><span class="n">17</span><span><strong>MUTE, SOLO and ARM</strong>, each with its own lamp. Mute silences the track, solo picks what you hear, and an armed track plays its live input and records when you press REC (chapter 9).</span></div>
-  <div><span class="n">18</span><span><strong>Master strip.</strong> Phones level, stereo meter and master fader.</span></div>
+  <div><span class="n">18</span><span><strong>Master strip.</strong> Phones level, stereo meter with its peak readout, and master fader.</span></div>
   <div><span class="n">19</span><span><strong>LEARN.</strong> MIDI learn: map knobs, faders and buttons on your controller to the deck (chapter 13).</span></div>
+  <div><span class="n">20</span><span><strong>Master deck display.</strong> The master tape, the side and how much is on it, and the file format. Click it to open the master deck (chapter 14).</span></div>
+  <div><span class="n">21</span><span><strong>SIDE and MIXDOWN.</strong> Turn the master tape over, and arm a mixdown: PLAY then records the mix (chapter 14).</span></div>
 </div>
 
 <!-- ======================================================= 4 CASSETTES -->
 <h1><span class="num">4</span>Cassettes</h1>
 <h2>Putting in a tape</h2>
-<p>With the tape stopped, press <span class="ctl">EJECT</span>. The menu's top half inserts a new blank tape: first choose the cassette (BASIC, SD, XR or MX), then the length. The bottom half, the <strong>tape shelf</strong>, lists every tape you have made. The tape that's in the deck is ticked.</p>
+<p>With the tape stopped, press <span class="ctl">EJECT</span>. The menu's top part inserts a new blank tape: choose the cassette (BASIC, SD, XR or MX), then the length, then its condition. The middle part works on the cassette in the deck. The bottom part, the <strong>tape shelf</strong>, lists every tape you have made, and the tape that's in the deck is ticked.</p>
 <div class="grid2">
-  <figure><img src="images/eject_menu.png" alt="Eject menu, choosing a new tape"><figcaption><b>Inserting a blank.</b> Choose the cassette, then the length.</figcaption></figure>
+  <figure><img src="images/eject_menu.png" alt="The eject menu"><figcaption><b>The eject menu.</b> New blank tapes, the cassette in the deck, and the shelf.</figcaption></figure>
   <figure><img src="images/eject_shelf.png" alt="Eject menu, the tape shelf"><figcaption><b>The tape shelf.</b> Each entry shows the label, cassette, minutes used, tracks used and date.</figcaption></figure>
 </div>
 <table>
@@ -298,6 +303,38 @@ td:first-child { font-weight: 600; }
   </tbody>
 </table>
 <p>Like a real 4-track, TAPE·FOUR uses one side only, with all four tracks running the same way. When the tape reaches the end, the transport stops and the status display shows <span class="lcd">END OF TAPE</span>.</p>
+
+<h2>A blank tape's condition</h2>
+<p>A cassette's condition belongs to the cassette, as on a real one, so you choose it when you put in a blank. It is saved with the tape and travels with it.</p>
+<table>
+  <thead><tr><th>Condition</th><th class="num">Hiss</th><th class="num">Treble</th><th class="num">Mod. noise</th><th>Dropouts</th></tr></thead>
+  <tbody>
+    <tr><td>NEW</td><td class="num">as measured</td><td class="num">as measured</td><td class="num">as measured</td><td>almost none</td></tr>
+    <tr><td>USED</td><td class="num">+0.5 dB</td><td class="num">−0.5 dB</td><td class="num">+1 dB</td><td>one every few minutes</td></tr>
+    <tr><td>WORN</td><td class="num">+1.5 dB</td><td class="num">−1.5 dB</td><td class="num">+3 dB</td><td>about one a minute</td></tr>
+    <tr><td>CHEWED</td><td class="num">+3 dB</td><td class="num">−4 dB</td><td class="num">+6 dB</td><td>several a minute</td></tr>
+  </tbody>
+</table>
+<p>Dropouts sit at fixed places on the tape, so a dropout comes back at the same moment every time you play that stretch. A tape also wears and ages slowly as you use it (chapter 12). Tapes made before this version are given the condition closest to their old settings.</p>
+
+<h2>Write-protect tab</h2>
+<p><span class="ctl">EJECT → Write-protect it (break out the tab)</span> stops the deck recording on the cassette, as on a real one: pressing <span class="ctl">REC</span> shows <span class="lcd">WRITE-PROTECTED</span> instead. Choose it again to tape over the hole.</p>
+
+<h2>Cassette files (.cass)</h2>
+<p><span class="ctl">EJECT → Export as a .cass file</span> saves the cassette in the deck as a single file you can keep, send to someone or open on another computer. It holds the tape and nothing else: the four tracks (16-bit, uncompressed), what was recorded where and at what speed, the formulation, condition and wear, the label and the tabs. Your mixer settings and plug-ins stay behind. A C-60 is about 460 MB, a C-90 about 690 MB.</p>
+<p><span class="ctl">EJECT → Open a .cass file</span>, or opening a <span class="lcd">.cass</span> file with TAPE·FOUR, puts a copy on your shelf and loads it. The format is open and documented with the source code (<span class="lcd">docs/formats</span>), so other programs can read and write it.</p>
+
+<h2>Exporting the tracks</h2>
+<p><span class="ctl">EJECT → Export its tracks</span> writes each track with something on it to its own file, as it plays back off the tape on this deck (speed, noise reduction, the tape switch and the tape's condition included). Every file starts at the start of the tape, so they line up with each other. <span class="ctl">EJECT → File formats</span> chooses the format:</p>
+<table>
+  <thead><tr><th>Format</th><th>Choices</th><th>Use it for</th></tr></thead>
+  <tbody>
+    <tr><td>WAV (default)</td><td>16-bit, 24-bit, 32-bit float</td><td>Taking the tracks into another program at full quality.</td></tr>
+    <tr><td>FLAC</td><td>16-bit, 24-bit</td><td>The same quality in about half the space.</td></tr>
+    <tr><td>MP3</td><td>128 to 320 kbps</td><td>Sending a listen to someone.</td></tr>
+  </tbody>
+</table>
+<p>Tick several, or <span class="ctl">All three</span>, to get every format at once. Mixdowns use the same choice.</p>
 
 <h2>Saving</h2>
 <p>You never need to save. A tape is written to disk once it has been stopped for a second, and again whenever you change it. It is also saved when you eject it and when you quit. The deck remembers which tape was in when you quit and loads it next time.</p>
@@ -562,7 +599,7 @@ td:first-child { font-weight: 600; }
 
 <!-- ======================================================= 11 NR -->
 <h1><span class="num">11</span>Noise reduction</h1>
-<p>Noise reduction encodes what you record and decodes on playback. On the way to tape it boosts quiet sounds, mostly the treble. On the way back it turns them down again, and the tape hiss goes down with them. Turn it on with the <span class="ctl">Noise reduction</span> button. Choose the type by clicking the <span class="ctl">NR type</span> display, or in <strong>Setup → Tape</strong>.</p>
+<p>Noise reduction encodes what you record and decodes on playback. On the way to tape it boosts quiet sounds, mostly the treble. On the way back it turns them down again, and the tape hiss goes down with them. Turn it on with the <span class="ctl">Noise reduction</span> button. Choose the type by clicking the <span class="ctl">NR type</span> display, or in <strong>Setup → DECK</strong>.</p>
 <table>
   <thead><tr><th>Type</th><th>How it works</th><th>Hiss reduction</th><th>Character</th></tr></thead>
   <tbody>
@@ -583,35 +620,42 @@ td:first-child { font-weight: 600; }
   <li><strong>Grain.</strong> NR can't remove modulation noise, which rides on the signal. A 2:1 compander's gain swings make it, and the hiss, rise and fall. That's most obvious on BASIC.</li>
 </ul>
 
-<!-- ======================================================= 12 TAPE CHARACTER -->
-<h1><span class="num">12</span>Tape character</h1>
-<p><strong>Setup → Tape</strong> shows the loaded cassette's measured figures. Its sliders adjust the deck and the tape's condition on top of those figures. Double-click <span class="ctl">Hiss</span> or <span class="ctl">Tape drive</span> to return it to the centre.</p>
-<figure class="narrow"><img src="images/setup_tape.png" alt="Setup, Tape tab"><figcaption><b>Setup → Tape</b>, with an SD60 loaded.</figcaption></figure>
+<!-- ======================================================= 12 DECK -->
+<h1><span class="num">12</span>The deck and the tape's condition</h1>
+<p>As in the real world, some of the sound belongs to the machine and some to the cassette. The machine's wow, flutter, heads and crosstalk stay the same whatever tape is in it. The cassette's formulation, condition and wear go with the cassette, wherever it is played.</p>
+<h2>The deck: Setup → DECK</h2>
+<figure class="narrow"><img src="images/setup_deck.png" alt="Setup, Deck tab"><figcaption><b>Setup → DECK</b>, with a new SD60 loaded.</figcaption></figure>
 <table>
   <thead><tr><th>Control</th><th>Range</th><th>What to expect</th></tr></thead>
   <tbody>
-    <tr><td>Hiss</td><td>Off, or −12 to +12 dB relative to the tape's measured hiss (centre = as measured)</td><td>Real cassettes without NR hiss at 54–63 dB below 0 VU. That is audible in quiet passages but not intrusive. Turn it up to taste for a dirtier tape, or off for a silent background.</td></tr>
-    <tr><td>Wow</td><td>0–0.5%</td><td>A slow pitch waver (under 1.5 Hz). It's most audible on sustained notes and piano.</td></tr>
+    <tr><td>Wow</td><td>0–0.6%</td><td>A slow pitch waver (under 1.5 Hz). It's most audible on sustained notes and piano.</td></tr>
     <tr><td>Flutter</td><td>0–0.3%</td><td>A fast waver (6–12 Hz). It gives a slight shimmer, and above 0.15% a watery roughness.</td></tr>
-    <tr><td>Tape drive</td><td>−6 to +6 dB (centre = 0 VU at Dolby level)</td><td>Where 0 VU lands on the tape. More drive brings saturation and treble compression earlier, the way a deck calibrated hot would. Less drive keeps it cleaner. The playback level isn't changed.</td></tr>
-    <tr><td>HF loss</td><td>0 to −12 dB at 10 kHz</td><td>A worn or misaligned head. It dulls everything played back, hiss included.</td></tr>
-    <tr><td>Track crosstalk</td><td>Off, or −80 to −30 dB</td><td>Neighbouring tracks leak into each other. You may hear it as a faint ghost of track 2 behind track 1.</td></tr>
-    <tr><td>Dropouts</td><td>None to frequent</td><td>Brief dips in level, from 15 to 75 ms, as a damaged patch of tape passes the head.</td></tr>
     <tr><td>Speed drift</td><td>0 to ±1%</td><td>The tape speed wanders slowly, every few seconds, as with tired motor belts.</td></tr>
+    <tr><td>Heads</td><td>Treble to 4–20 kHz</td><td>Worn or misaligned heads lose treble on playback, whatever the tape. It dulls everything played back, hiss included.</td></tr>
+    <tr><td>Crosstalk</td><td>None, or −100 to −40 dB</td><td>Neighbouring tracks leak into each other. You may hear it as a faint ghost of track 2 behind track 1.</td></tr>
+    <tr><td>Tape drive</td><td>−6 to +6 dB (centre = 0 VU at Dolby level)</td><td>Where 0 VU lands on the tape. More drive brings saturation and treble compression earlier, the way a deck calibrated hot would. Less drive keeps it cleaner. The playback level isn't changed. Double-click to return to the centre.</td></tr>
     <tr><td>Noise reduction</td><td>2:1, B or C</td><td>See chapter 11.</td></tr>
   </tbody>
 </table>
-<h2>Condition presets</h2>
-<p>The presets set every slider except Tape drive, which is calibration rather than wear.</p>
+<p>The machine presets set every control except tape drive and noise reduction:</p>
 <table>
-  <thead><tr><th>Preset</th><th class="num">Hiss</th><th class="num">Wow</th><th class="num">Flutter</th><th class="num">HF loss</th><th class="num">Crosstalk</th><th>Dropouts</th><th class="num">Drift</th></tr></thead>
+  <thead><tr><th>Machine</th><th class="num">Wow</th><th class="num">Flutter</th><th class="num">Drift</th><th class="num">Heads</th><th class="num">Crosstalk</th></tr></thead>
   <tbody>
-    <tr><td>Clean</td><td class="num">off</td><td class="num">0</td><td class="num">0</td><td class="num">0 dB</td><td class="num">off</td><td>none</td><td class="num">0</td></tr>
-    <tr><td>Well kept</td><td class="num">+1.2 dB</td><td class="num">0.15%</td><td class="num">0.08%</td><td class="num">−2.4 dB</td><td class="num">−65 dB</td><td>rare</td><td class="num">±0.2%</td></tr>
-    <tr><td>Worn</td><td class="num">+6 dB</td><td class="num">0.30%</td><td class="num">0.15%</td><td class="num">−6.6 dB</td><td class="num">−55 dB</td><td>occasional</td><td class="num">±0.4%</td></tr>
-    <tr><td>Chewed</td><td class="num">+9.6 dB</td><td class="num">0.45%</td><td class="num">0.24%</td><td class="num">−9.6 dB</td><td class="num">−45 dB</td><td>frequent</td><td class="num">±0.7%</td></tr>
+    <tr><td>NEW</td><td class="num">0.08%</td><td class="num">0.045%</td><td class="num">±0.1%</td><td class="num">18 kHz</td><td class="num">−70 dB</td></tr>
+    <tr><td>SERVICED (as supplied)</td><td class="num">0.15%</td><td class="num">0.075%</td><td class="num">±0.2%</td><td class="num">15.2 kHz</td><td class="num">−65 dB</td></tr>
+    <tr><td>WORN</td><td class="num">0.30%</td><td class="num">0.15%</td><td class="num">±0.4%</td><td class="num">9.3 kHz</td><td class="num">−55 dB</td></tr>
+    <tr><td>NEGLECTED</td><td class="num">0.45%</td><td class="num">0.24%</td><td class="num">±0.7%</td><td class="num">6.6 kHz</td><td class="num">−45 dB</td></tr>
   </tbody>
 </table>
+<p>The panel below the controls shows the cassette in the deck: its measured figures and its condition. Tick <strong>Play every cassette as new</strong> to have the deck ignore cassettes' condition and age; their formulation still counts. The deck's settings are saved in <span class="lcd">TF-4.deck</span>, beside the settings file.</p>
+
+<h2>Wear and age</h2>
+<p>Real tapes change slowly, and so do these. Nothing here is exaggerated: a tape you use for months still sounds like the same tape.</p>
+<ul>
+  <li><strong>Use.</strong> Every pass over the heads wears that stretch of tape a little, and only that stretch. After about 400 passes it has lost half a dB of treble, gained about a dB of modulation noise, and has twice the dropouts it started with. The wear slows down from there.</li>
+  <li><strong>Time.</strong> The oxide loses up to 0.3 dB of treble over the years.</li>
+  <li><strong>Print-through.</strong> A recording very faintly magnetises the turns of tape either side of it on the reel. You hear it as a quiet pre-echo and post-echo in the silence just before and after loud sounds: about 60 dB down a few days after recording, and about 50 dB down after twenty years.</li>
+</ul>
 
 <!-- ======================================================= 13 MIDI -->
 <h1><span class="num">13</span>MIDI, MIDI learn and the deck state</h1>
@@ -674,13 +718,40 @@ td:first-child { font-weight: 600; }
   <li>gain, EQ, pan and faders;</li>
   <li>master and phones;</li>
   <li>speed and pitch;</li>
-  <li>tape character.</li>
+  <li>the tape switch and noise reduction.</li>
 </ul>
 <p>A plug-in's sound is saved when you close its window, a second after the tape stops, when the tape is saved or ejected, and when you quit. While a plug-in's window stays open it's also saved once a minute while the tape is stopped, so a crash costs at most a minute of tweaking. Big plug-ins are never asked for their sound while the tape is running.</p>
 <p>With <strong>Recall the deck with each tape</strong> ticked, loading a tape puts the deck back exactly as it was. Unticked (the default), the deck stays as it is when you change tapes. The tape switch always moves to the new tape's type either way.</p>
 
+<!-- ======================================================= 14 MIXDOWN -->
+<h1><span class="num">14</span>Mixdown and the master deck</h1>
+<p>When the mix is right, record it to a second cassette deck: the <strong>master deck</strong>, a good stereo hi-fi deck. The mix goes onto a stereo master tape and is played straight back off it, as on a three-head deck, and that is what is written to the files. You hear the master bus as usual while it records.</p>
+<figure class="narrow"><img src="images/master_deck.png" alt="The master deck"><figcaption><b>The master deck</b>, opened from the display on the master strip.</figcaption></figure>
+<h2>Setting up the master deck</h2>
+<p>Click the display at the top of the <span class="ctl">MASTER</span> strip.</p>
+<table>
+  <tbody>
+    <tr><td>Tape</td><td>BASIC, SD, XR or MX, as on the TF-4. <span class="ctl">DIRECT</span> skips the tape and writes the mix exactly as it is.</td></tr>
+    <tr><td>Length</td><td>C-46, C-60 or C-90 for new master tapes. A master tape has two sides, like any cassette.</td></tr>
+    <tr><td>NR</td><td>Record and play the master with noise reduction, of the same type as the TF-4's.</td></tr>
+    <tr><td>Condition</td><td>The condition of new master tapes, as in chapter 4.</td></tr>
+    <tr><td>Rec level</td><td>The master deck's record level, −12 to +6 dB. It can be changed during a mix.</td></tr>
+    <tr><td>Files</td><td>WAV, FLAC, MP3 or all three, with their bit depth or bit rate. This is the same choice as for track exports.</td></tr>
+  </tbody>
+</table>
+<p>Changing the tape, length or condition while the master tape is still blank swaps it for a new one of that kind. Once it has a mix on it, <span class="ctl">NEW MASTER TAPE</span> puts in a fresh one, and <span class="ctl">MASTER TAPES</span> loads an older one. Every master deck setting is remembered. The master deck's own machine settings are in <span class="lcd">TF-M.deck</span>, beside the settings file.</p>
+<h2>Making a mix</h2>
+<ol>
+  <li>Press <span class="ctl">MIXDOWN</span> under the master fader. Its LED lights and the status display says which mix is next.</li>
+  <li>Press <span class="ctl">PLAY</span>, from wherever you want the mix to start. The master deck records.</li>
+  <li>Press <span class="ctl">STOP</span> to end the mix. The master deck lets the last moment come off the tape, then finishes the files.</li>
+</ol>
+<p>The <span class="lcd">PEAK</span> readout above the master meter holds the loudest level of the mix, and the display warns if the mix clipped. Each mix goes after the last one on the current side, with a four-second gap. When a side is full the mix ends there: press <span class="ctl">SIDE</span> (or click the other side in the master deck) to turn the tape over.</p>
+<h2>Your mixes</h2>
+<p>The files go to <span class="lcd">Documents/TapeFour/Mixdowns/</span>, in a folder named after the tape, one file per format; <span class="ctl">SHOW FOLDER</span> opens it. The master deck lists every mix on the master tape and where it sits on each side. Click one to listen to it, off the master tape. <span class="ctl">SAVE SIDE AS ONE FILE</span> writes a whole side, gaps and all, as one file, and <span class="ctl">EXPORT .CASS</span> saves the master tape itself as a cassette file (chapter 4).</p>
+
 <!-- ======================================================= 14 REFERENCE -->
-<h1><span class="num">14</span>Reference</h1>
+<h1><span class="num">15</span>Reference</h1>
 <h2>Keyboard</h2>
 <table>
   <thead><tr><th>Key</th><th>Action</th></tr></thead>
@@ -696,8 +767,9 @@ td:first-child { font-weight: 600; }
 <h2>Where things are kept</h2>
 <table>
   <tbody>
-    <tr><td>Tapes</td><td><span class="lcd">Documents/TapeFour/Tape Shelf/</span>: one folder per tape, holding the audio for each track, <span class="lcd">tape.xml</span> (label, inlay and what's recorded where) and <span class="lcd">deck.xml</span> (the deck that goes with the tape). Tapes are saved in the background: every five seconds while recording, so a crash costs seconds rather than a take; a second after the transport stops; and on eject and quit.</td></tr>
-    <tr><td>Settings</td><td><span class="lcd">TapeFour.settings</span>: audio device, MIDI, deck MIDI mappings, the deck and tape character. In <span class="lcd">%APPDATA%\TapeFour</span> on Windows, <span class="lcd">~/Library/Application Support/TapeFour</span> on a Mac, <span class="lcd">~/.config/TapeFour</span> on Linux. Only written when something has changed.</td></tr>
+    <tr><td>Tapes</td><td><span class="lcd">Documents/TapeFour/Tape Shelf/</span>: one folder per tape, holding the cassette (the same files as in a <span class="lcd">.cass</span>: <span class="lcd">cassette.json</span>, <span class="lcd">state.json</span>, and each track's audio and map) and <span class="lcd">session.xml</span> (the mixer and plug-ins that go with it). Tapes from earlier versions are converted the first time they're loaded, and the old files are kept with <span class="lcd">.bak</span> on the end. Tapes are saved in the background: every five seconds while recording, so a crash costs seconds rather than a take; a second after the transport stops; and on eject and quit.</td></tr>
+    <tr><td>Mixdowns</td><td><span class="lcd">Documents/TapeFour/Mixdowns/</span>, one folder per tape.</td></tr>
+    <tr><td>Settings</td><td><span class="lcd">TapeFour.settings</span>: audio device, MIDI, deck MIDI mappings, the knobs and the master deck. Beside it, <span class="lcd">TF-4.deck</span> and <span class="lcd">TF-M.deck</span> hold the two machines. In <span class="lcd">%APPDATA%\TapeFour</span> on Windows, <span class="lcd">~/Library/Application Support/TapeFour</span> on a Mac, <span class="lcd">~/.config/TapeFour</span> on Linux. Only written when something has changed.</td></tr>
     <tr><td>Crash reports</td><td><span class="lcd">Crashes</span>, next to the settings. If TapeFour ever crashes it writes a report there (the version and a stack trace, and on Windows a <span class="lcd">.dmp</span> file) and says so when it next starts.</td></tr>
   </tbody>
 </table>
@@ -710,7 +782,7 @@ td:first-child { font-weight: 600; }
     <tr><td>A take seems to have recorded silence</td><td>While a track is armed you hear its live input, not the tape. Disarm it and play the take back.</td></tr>
     <tr><td>An instrument doesn't play</td><td>Tick the controller in Setup → MIDI &amp; Deck. Check <span class="ctl">Played by</span> in the track's chain inputs, and arm the track: instruments only sound while armed. Check the instrument isn't bypassed or after a MIDI effect that filters notes out. Watch the MIDI IN lamp and the track's MIDI lamp.</td></tr>
     <tr><td>Recordings sound distorted</td><td>Lower GAIN so peaks sit around 0 VU, use a tape with more headroom (MX), centre Tape drive, and check the tape switch matches the tape.</td></tr>
-    <tr><td>Everything sounds dull</td><td>Check the EQ lamps (playback EQ mismatch), the NR lamps (NR mismatch), the tape switch (over-bias) and HF loss in Setup → Tape.</td></tr>
+    <tr><td>Everything sounds dull</td><td>Check the EQ lamps (playback EQ mismatch), the NR lamps (NR mismatch), the tape switch (over-bias) the heads in Setup → DECK, and the cassette's condition.</td></tr>
     <tr><td>Bounces get quieter or louder</td><td>That's the tape's sensitivity, doubled with 2:1 NR. Correct it with the faders before each bounce.</td></tr>
     <tr><td>A plug-in doesn't appear after a scan</td><td>Scan its format: each format has its own <strong>Scan for new or updated … plug-ins</strong> in Setup → Plug-ins → Options…. On Linux, LV2 plug-ins must be in an LV2 folder (one that holds <span class="lcd">.lv2</span> bundles), and CLAP plug-ins in a CLAP folder or one named in <span class="lcd">CLAP_PATH</span>.</td></tr>
     <tr><td>A plug-in shows as failed after a scan</td><td>It crashed or hung while being scanned, so TAPE·FOUR set it aside. Update the plug-in, select it in Setup → Plug-ins, choose <strong>Options… → Remove selected plug-in from list</strong>, and scan again.</td></tr>

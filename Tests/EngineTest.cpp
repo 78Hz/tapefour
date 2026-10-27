@@ -188,11 +188,11 @@ static void renderWear (const juce::File& folder)
         r.rewindTo (0);
         return r.run (12.0, TapeEngine::Command::play, false, 0, 0);
     };
-    for (uint16_t passes : { 0, 10, 100, 1000 })
+    for (int passes : { 0, 10, 100, 1000 })
     {
         Rig r;
         take (r);
-        r.tape.setPassesForTests (passes);
+        r.tape.setPassesForTests ((uint16_t) passes);
         write ("wear-" + juce::String (passes) + "-passes", play (r));
     }
     for (int years : { 1, 5, 20 })

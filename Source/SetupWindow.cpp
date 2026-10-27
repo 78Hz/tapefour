@@ -538,7 +538,12 @@ public:
         g.drawText ("THIS TAPE:  " + tape->productName() + utf ("  \xc2\xb7  ") + utf (m.position), r.removeFromTop (26), juce::Justification::centredLeft);
         g.setColour (Pal::lcdText);
         g.setFont (lf.mono (15.0f));
-        auto f1 = [] (double v) { return (v > 0 ? "+" : "") + juce::String (v, 1); };
+        auto f1 = [] (double v)
+        {
+            v = std::round (v * 10.0) / 10.0;
+            if (std::abs (v) < 0.05) return juce::String ("0.0");   // never "-0.0" or "+0.0"
+            return (v > 0 ? "+" : "") + juce::String (v, 1);
+        };
         g.drawText ("MOL 400 Hz " + f1 (m.mol400) + " dB   MOL 100 Hz " + f1 (m.mol100) + " dB   SOL 10 kHz " + f1 (m.sol10k) + " dB",
                     r.removeFromTop (22), juce::Justification::centredLeft);
         g.drawText ("S/N " + juce::String (m.snr, 1) + " dBA   MOD NOISE " + juce::String (m.modNoise, 1) + " dB   SENS " + f1 (m.sensitivity)

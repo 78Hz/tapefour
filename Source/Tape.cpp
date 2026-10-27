@@ -304,9 +304,12 @@ bool Tape::writeAudio (const juce::File& folder)
             continue;
         }
 
+        const bool reversed = reversedInMemory (t);
         for (int s = 0; s <= lastNeeded; ++s)
         {
-            auto offset = (int64_t) s * (int64_t) bytesPerSecond;
+            // A track held the other way round is written as it lies on the tape: this second of it
+            // is the mirrored second of the file, its cells in reverse.
+            auto offset = (int64_t) (reversed ? numSeconds - 1 - s : s) * (int64_t) bytesPerSecond;
             bool beyondEnd = offset >= existing;
 
             // Clear the flag before copying: if the audio thread writes this second again
@@ -317,7 +320,7 @@ bool Tape::writeAudio (const juce::File& folder)
             auto firstCell = (int64_t) s * cellRate;
             auto count = (size_t) std::min<int64_t> (cellRate, lengthCells - firstCell);
             for (size_t i = 0; i < count; ++i)
-                chunk[i] = data[t][firstCell + (int64_t) i].load (std::memory_order_relaxed);
+                chunk[i] = data[t][firstCell + (int64_t) (reversed ? count - 1 - i : i)].load (std::memory_order_relaxed);
 
             out.setPosition (offset);
             if (! out.write (chunk.data(), count * sizeof (int16_t)))
@@ -373,10 +376,11 @@ std::shared_ptr<Tape::Snapshot> Tape::snapshot() const
         m.resize ((size_t) numBlocks);
         for (int b = 0; b < numBlocks; ++b)
         {
-            m.flags[(size_t) b] = flagsAt (t, b).load (std::memory_order_relaxed);
-            m.recorder[(size_t) b] = recorderAt (t, b).load (std::memory_order_relaxed);
-            m.speedMilli[(size_t) b] = speedMilliAt (t, b).load (std::memory_order_relaxed);
-            m.day[(size_t) b] = dayAt (t, b).load (std::memory_order_relaxed);
+            const auto k = (size_t) (reversedInMemory (t) ? numBlocks - 1 - b : b);   // as it lies on the tape
+            m.flags[k] = flagsAt (t, b).load (std::memory_order_relaxed);
+            m.recorder[k] = recorderAt (t, b).load (std::memory_order_relaxed);
+            m.speedMilli[k] = speedMilliAt (t, b).load (std::memory_order_relaxed);
+            m.day[k] = dayAt (t, b).load (std::memory_order_relaxed);
         }
     }
     if (wearDirty.exchange (false))
@@ -448,7 +452,25 @@ std::unique_ptr<Tape> Tape::load (const juce::File& folder)
 {
     if (! folder.getChildFile (tfmt::CassFiles::manifest).existsAsFile())
         return loadLegacy (folder);
+    return loadCassette (folder, false);
+}
 
+std::unique_ptr<Tape> Tape::loadForStereoDeck (const juce::File& folder)
+{
+    auto t = loadCassette (folder, true);
+    return t != nullptr && t->layout == tfmt::Layout::stereoTwoSides ? std::move (t) : nullptr;
+}
+
+std::unique_ptr<Tape> Tape::makeStereo (int typeIndex, int modelIndex, const tfmt::Condition& c)
+{
+    auto t = std::make_unique<Tape> (typeIndex, modelIndex, c);
+    t->layout = tfmt::Layout::stereoTwoSides;
+    t->sidesInPlayingOrder = true;
+    return t;
+}
+
+std::unique_ptr<Tape> Tape::loadCassette (const juce::File& folder, bool playingOrder)
+{
     tfmt::CassetteInfo info;
     std::string err;
     if (! tfmt::readManifest (pathOf (folder), info, err))
@@ -461,6 +483,7 @@ std::unique_ptr<Tape> Tape::load (const juce::File& folder)
     std::unique_ptr<Tape> tape;
     try { tape = std::make_unique<Tape> (info); }
     catch (...) { return {}; }
+    tape->sidesInPlayingOrder = playingOrder;
 
     tfmt::CassetteState st;
     if (tfmt::readState (pathOf (folder), st, err))
@@ -475,12 +498,14 @@ std::unique_ptr<Tape> Tape::load (const juce::File& folder)
     {
         tfmt::TrackMap m;
         tfmt::readMap (pathOf (folder.getChildFile (str (info.tracks[(size_t) t].map))), (size_t) tape->numBlocks, m);
+        const bool reversed = tape->reversedInMemory (t);
         for (int b = 0; b < tape->numBlocks; ++b)
         {
-            tape->flagsAt (t, b) = m.flags[(size_t) b];
-            tape->recorderAt (t, b) = m.recorder[(size_t) b];
-            tape->speedMilliAt (t, b) = m.speedMilli[(size_t) b];
-            tape->dayAt (t, b) = m.day[(size_t) b];
+            const auto k = (size_t) (reversed ? tape->numBlocks - 1 - b : b);
+            tape->flagsAt (t, b) = m.flags[k];
+            tape->recorderAt (t, b) = m.recorder[k];
+            tape->speedMilliAt (t, b) = m.speedMilli[k];
+            tape->dayAt (t, b) = m.day[k];
         }
 
         auto file = folder.getChildFile (str (info.tracks[(size_t) t].pcm));
@@ -492,6 +517,18 @@ std::unique_ptr<Tape> Tape::load (const juce::File& folder)
                 auto cells = std::min<int64_t> (in.getTotalLength() / (int64_t) sizeof (int16_t), tape->lengthCells);
                 // Nothing else can see this tape yet, so read straight into it.
                 in.read (static_cast<void*> (tape->data[t]), (int) std::min<int64_t> (cells * (int64_t) sizeof (int16_t), (int64_t) std::numeric_limits<int>::max()));
+                if (reversed)
+                {
+                    // The file is the tape as it lies; this deck holds side B the way it plays.
+                    auto* d = tape->data[t];
+                    const auto len = tape->lengthCells;
+                    for (int64_t c = 0; c < len / 2; ++c)
+                    {
+                        auto a = d[c].load (std::memory_order_relaxed), z = d[len - 1 - c].load (std::memory_order_relaxed);
+                        d[c].store (z, std::memory_order_relaxed);
+                        d[len - 1 - c].store (a, std::memory_order_relaxed);
+                    }
+                }
             }
         }
     }

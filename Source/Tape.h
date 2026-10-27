@@ -63,12 +63,25 @@ public:
     void addPass (int64_t second) noexcept
     {
         if (second < 0 || second >= numSeconds) return;
+        if (sideB.load (std::memory_order_relaxed)) second = numSeconds - 1 - second;   // passes are counted along the tape itself
         auto& p = passesAt ((int) second);
         auto v = p.load (std::memory_order_relaxed);
         if (v < 65535) p.store ((uint16_t) (v + 1), std::memory_order_relaxed);
         wearDirty.store (true, std::memory_order_release);
     }
-    int passesAt (double pos) const noexcept    { return passesAt (juce::jlimit (0, numSeconds - 1, (int) (pos / cellRate))).load (std::memory_order_relaxed); }
+    int passesAt (double pos) const noexcept
+    {
+        auto s = juce::jlimit (0, numSeconds - 1, (int) (pos / cellRate));
+        return passesAt (sideB.load (std::memory_order_relaxed) ? numSeconds - 1 - s : s).load (std::memory_order_relaxed);
+    }
+
+    // ---- two-sided cassettes ----
+    /** A stereo cassette held side by side: tracks 3 and 4 (side B) in the order they play, so a
+        stereo deck runs both sides forwards. A deck that only plays one way (the TF-4) holds them as
+        they lie on the tape, so side B plays backwards in it, as on a real multitracker. */
+    bool holdsSidesInPlayingOrder() const noexcept { return sidesInPlayingOrder; }
+    /** Which side is in front of the heads (for counting passes along the tape). */
+    void setSideB (bool b) noexcept             { sideB = b; }
     /** The day a stretch was recorded (days since 2000-01-01), or 0 if unknown or blank. */
     int recordedDay (int track, int block) const noexcept { return dayAt (track, block).load (std::memory_order_relaxed); }
     /** Today, as the cassette counts it: stamps new recordings, and ages old ones. The deck keeps it current. */
@@ -146,6 +159,10 @@ public:
     bool save (const juce::File& folder);
     /** A cassette from its folder. A folder from before the cassette format is converted. */
     static std::unique_ptr<Tape> load (const juce::File& folder);
+    /** A stereo cassette for a stereo deck: side B held in playing order (see holdsSidesInPlayingOrder). */
+    static std::unique_ptr<Tape> loadForStereoDeck (const juce::File& folder);
+    /** A new blank stereo cassette for a stereo deck. */
+    static std::unique_ptr<Tape> makeStereo (int typeIndex, int modelIndex, const tfmt::Condition& condition);
     bool needsSaving() const noexcept;
     bool hasUnsavedAudio() const noexcept       { return dataDirty.load(); }
     void markMetaChanged() noexcept { metaDirty = true; }
@@ -154,6 +171,11 @@ public:
 private:
     void allocate();
     static std::unique_ptr<Tape> loadLegacy (const juce::File& folder);
+    static std::unique_ptr<Tape> loadCassette (const juce::File& folder, bool sidesInPlayingOrder);
+    /** Track t is held the other way round from how it lies on the tape. */
+    bool reversedInMemory (int t) const noexcept { return sidesInPlayingOrder && layout == tfmt::Layout::stereoTwoSides && t >= 2; }
+    bool sidesInPlayingOrder = false;
+    std::atomic<bool> sideB { false };
 
     TapeTypeInfo typeInfo {};
     TapeModel modelInfo {};

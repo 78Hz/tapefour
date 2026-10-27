@@ -328,8 +328,21 @@ void AudioEngine::restoreMachine (const juce::XmlElement* legacyDeck)
     setMachine (d);
 }
 
+juce::File AudioEngine::getMasterMachineFile() const
+{
+    return props.getFile().getSiblingFile ("TF-M.deck");
+}
+
 void AudioEngine::saveMachine()
 {
+    // The master deck's description is written once, so it's there to read (or edit).
+    if (auto f = getMasterMachineFile(); ! f.existsAsFile())
+    {
+        std::string err;
+        tfmt::writeDeck (tfmt::pathFromUtf8 (f.getFullPathName().toStdString()), masterDeck.getMachine(), err);
+    }
+    props.setValue ("masterDeck", masterDeck.settings.toXml().get());
+
     auto d = getMachine();
     auto text = tfmt::toJson (d).dump();
     if (text == lastSavedMachine) return;
@@ -344,6 +357,14 @@ void AudioEngine::restoreAll()
     auto deck = props.getXmlValue ("deck");
     restoreHardware (hw.get(), deck.get());
     restoreMachine (deck.get());
+    {
+        auto m = props.getXmlValue ("masterDeck");
+        masterDeck.settings = MasterSettings::fromXml (m.get());
+        tfmt::DeckDescription d;
+        std::string err;
+        if (tfmt::readDeck (tfmt::pathFromUtf8 (getMasterMachineFile().getFullPathName().toStdString()), d, err))
+            masterDeck.setMachine (d);
+    }
 
     if (deck != nullptr)
     {
@@ -370,7 +391,7 @@ void AudioEngine::saveSettings (bool freshPluginState)
     if (auto deck = createDeckState (freshPluginState)) props.setValue ("deck", deck.get());
     if (auto hw = createHardwareState()) props.setValue ("hardware", hw.get());
     props.setValue ("recallDeckWithTape", recallDeckWithTape.load());
-    props.saveIfNeeded();
     saveMachine();
+    props.saveIfNeeded();
 }
 } // namespace tf

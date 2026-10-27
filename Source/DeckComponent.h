@@ -57,6 +57,22 @@ private:
     void chooseCassetteFile();
     void toggleWriteProtect();
     void exportTracks();
+
+    // ---- the master deck and mixdowns (MasterDeckCard, MasterDeck) ----
+    void openMasterDeck();
+    void masterSettingsChanged();
+    void flipMasterTape();
+    void toggleMixdown();
+    bool armMixdown (bool announce);
+    void newMasterTape();
+    void loadMasterTape (const juce::String& id);
+    void putInMasterTape (std::function<std::unique_ptr<Tape>()> make, const juce::String& doneText);
+    void exportMasterCassette();
+    void saveMasterSide (int side);
+    void collectMixdown();
+    juce::File mixdownFolder() const;
+    juce::String mixdownName() const;
+    bool masterBusy = false;    // a master tape is being made or loaded
     /** The file formats exports and mixdowns write, as a menu of choices (shared, remembered). */
     juce::PopupMenu formatsMenu();
     void setExportFormats (const ExportFormats&);

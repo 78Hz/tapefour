@@ -49,6 +49,7 @@ std::vector<TapeShelf::Entry> TapeShelf::list()
             e.minutes     = info.minutesPerSide;
             e.formulation = juce::String::fromUTF8 (info.formulation.name.c_str());
             e.grade       = juce::String::fromUTF8 (info.condition.grade.c_str());
+            e.layout      = info.layout;
             e.usedSeconds = state.usedSeconds;
             e.tracksUsed  = state.tracksUsed;
             auto stateFile = folder.getChildFile (tfmt::CassFiles::state);

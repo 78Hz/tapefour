@@ -1,5 +1,6 @@
 #include "DeckComponent.h"
 #include "SetupWindow.h"
+#include "MasterDeckCard.h"
 
 namespace tf
 {
@@ -136,6 +137,9 @@ DeckComponent::DeckComponent (AudioEngine& e, juce::PropertiesFile& settings)
         addAndMakeVisible (s);
     }
     addAndMakeVisible (master);
+    master.onMasterDeck = [this] { openMasterDeck(); };
+    master.onSide = [this] { flipMasterTape(); };
+    master.onMixdown = [this] { toggleMixdown(); };
 
     // Keep the keyboard for the deck (transport and playing notes), except where text is typed.
     std::function<void (juce::Component&)> noFocus = [&] (juce::Component& c)
@@ -172,6 +176,12 @@ DeckComponent::DeckComponent (AudioEngine& e, juce::PropertiesFile& settings)
 
     if (auto f = props.getXmlValue ("exportFormats")) exportFormats = ExportFormats::fromXml (f.get());
     loadStartupTape();
+    // The master tape that was in the master deck (or a new one of the kind chosen).
+    {
+        const auto id = engine.masterDeck.settings.masterId;
+        if (id.isNotEmpty()) loadMasterTape (id);
+        else if (! engine.masterDeck.settings.direct()) newMasterTape();
+    }
     if (engine.getStartupProblem().isNotEmpty())
         say (engine.getStartupProblem() + " - OPEN SETUP", 10.0);
     startTimerHz (30);
@@ -201,6 +211,14 @@ void DeckComponent::prepareToQuit()
                     && engine.deviceManager.getCurrentAudioDevice() != nullptr; ++i)
         juce::Thread::sleep (5);
     overlay.reset();
+    // A mixdown running ends with the tape: wait for its files, then keep the master tape.
+    engine.masterDeck.disarm();
+    for (int i = 0; i < 300 && engine.masterDeck.getState() != MasterDeck::State::off
+                    && engine.masterDeck.getState() != MasterDeck::State::done
+                    && engine.deviceManager.getCurrentAudioDevice() != nullptr; ++i)
+        juce::Thread::sleep (10);
+    collectMixdown();
+    if (auto* m = engine.masterDeck.getTape()) writer.saveTape (*m);
     saveTape (false, true, true);
     writer.waitUntilIdle();     // everything on disk before we go
     if (auto* t = engine.getTape())
@@ -438,12 +456,39 @@ void DeckComponent::timerCallback()
         case Mode::ff:  text = "FAST FORWARD"; break;
         case Mode::rew: text = engine.tapeEngine.isReturningToZero() ? "RETURN TO ZERO" : "REWIND"; break;
     }
+    // A mixdown shows on the status display while it runs, and while it waits for PLAY.
+    juce::String mixSub;
+    {
+        const auto& md = engine.masterDeck;
+        const auto st = md.getState();
+        if (st == MasterDeck::State::recording || st == MasterDeck::State::tailing)
+        {
+            text = (mode == Mode::rec ? "REC" : "PLAY") + juce::String (juce::CharPointer_UTF8 (" \xc2\xb7 MIX ")) + juce::String (md.currentTakeNumber())
+                   + (blink ? juce::String (juce::CharPointer_UTF8 (" \xe2\x97\x8f ")) : juce::String ("   ")) + formatTime (md.takeSeconds());
+            mixSub = md.clippedAtSeconds() >= 0.0 ? "CLIPPED AT " + formatTime (md.clippedAtSeconds()) + " - LOWER MASTER"
+                   : md.settings.direct() ? utf ("\xe2\x86\x92 ") + exportFormats.describe()
+                   : utf ("\xe2\x86\x92 MASTER SIDE ") + (md.settings.side == 0 ? "A " : "B ")
+                         + formatTime (md.sideUsedSeconds (md.settings.side) + md.takeSeconds() + (md.takes.empty() ? MasterDeck::leaderSeconds : MasterDeck::gapSeconds))
+                         + " " + exportFormats.describe();
+        }
+        else if (st == MasterDeck::State::finishing)
+        {
+            text = "SAVING MIX " + juce::String (md.currentTakeNumber());
+            mixSub = exportFormats.describe();
+        }
+        else if (st == MasterDeck::State::armed && mode == Mode::stop)
+        {
+            text = "MIXDOWN ARMED";
+            mixSub = "PLAY STARTS MIX " + juce::String (md.currentTakeNumber()) + ", STOP ENDS IT";
+        }
+    }
     if (message.isNotEmpty() && juce::Time::getMillisecondCounterHiRes() * 0.001 < messageUntil)
         text = message;
     else if (learnLayer != nullptr)
         text = engine.mapper.isLearning() ? "LEARN: MOVE A CONTROL" : "LEARN: CLICK A CONTROL";
     status.top = text;
-    status.sub = engine.soloedTracksAllMuted() ? juce::String ("SOLOED TRACK IS MUTED")
+    status.sub = mixSub.isNotEmpty() ? mixSub
+               : engine.soloedTracksAllMuted() ? juce::String ("SOLOED TRACK IS MUTED")
                : tape != nullptr && engine.tapeEngine.params.tapeSwitch.load() != tape->naturalPosition()
                      ? juce::String (engine.tapeEngine.params.tapeSwitch.load() < tape->naturalPosition() ? "BIAS LOW: " : "BIAS HIGH: ")
                            + iecTypeName (tape->naturalPosition()) + " TAPE AT " + positionName (engine.tapeEngine.params.tapeSwitch.load())
@@ -483,7 +528,8 @@ void DeckComponent::timerCallback()
     if (midiOutHold > 0) --midiOutHold;
 
     for (auto* s : strips) s->refresh (blink);
-    master.refresh();
+    master.refresh (exportFormats.describe(), blink);
+    collectMixdown();
 
     // MIDI learn and remote control
     engine.mapper.poll();
@@ -748,6 +794,7 @@ void DeckComponent::showEjectMenu()
         m.addItem ("No saved tapes yet", false, false, nullptr);
     for (auto& e : shelf)
     {
+        if (e.layout == tfmt::Layout::stereoTwoSides) continue;   // master tapes live in the master deck
         auto text = (e.name.isNotEmpty() ? e.name : juce::String ("(no label)")) + utf ("   \xc2\xb7   ")
                     + e.formulation + juce::String (e.minutes * 2) + (e.grade.isNotEmpty() && e.grade != "new" ? " " + e.grade.toUpperCase() : juce::String())
                     + "  " + formatTime (e.usedSeconds) + " used  " + juce::String (e.tracksUsed) + "/4 trk  " + e.created;
@@ -843,6 +890,251 @@ void DeckComponent::exportTracks()
                                              : "COULD NOT EXPORT: " + job->error.toUpperCase().substring (0, 40), 6.0);
                           });
     });
+}
+
+//==============================================================================
+juce::File DeckComponent::mixdownFolder() const
+{
+    return juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("TapeFour").getChildFile ("Mixdowns")
+               .getChildFile (juce::File::createLegalFileName (mixdownName()));
+}
+
+juce::String DeckComponent::mixdownName() const
+{
+    auto* t = engine.getTape();
+    if (t == nullptr) return "mixdown";
+    return t->name.isNotEmpty() ? t->name : t->productName();
+}
+
+void DeckComponent::openMasterDeck()
+{
+    closeOverlay();
+    auto card = std::make_unique<MasterDeckCard> (engine, exportFormats);
+    card->onClose = [this] { closeOverlay(); };
+    card->onSettingsChanged = [this] { masterSettingsChanged(); };
+    card->onFormatsChanged = [this] (const ExportFormats& f) { setExportFormats (f); };
+    card->onFlip = [this] { flipMasterTape(); };
+    card->onNewMasterTape = [this] { newMasterTape(); };
+    card->onExportCassette = [this] { exportMasterCassette(); };
+    card->onShowFolder = [this]
+    {
+        auto f = mixdownFolder();
+        f.createDirectory();
+        f.revealToUser();
+    };
+    card->onSaveSide = [this] (int side) { saveMasterSide (side); };
+    card->onListen = [this] (const MixTake& take)
+    {
+        if (engine.tapeEngine.getMode() != Mode::stop) { say ("STOP THE TAPE FIRST"); return; }
+        if (! engine.masterDeck.listen (take)) say ("CAN'T LISTEN WHILE A MIX IS BEING TAKEN");
+        else say ("LISTENING: MIX " + juce::String (take.number), 3.0);
+    };
+    card->onLoadMaster = [this] (const juce::String& id) { loadMasterTape (id); };
+    showOverlay (std::move (card), juce::Rectangle<int> (MasterDeckCard::width, MasterDeckCard::height).withCentre ({ designWidth / 2, designHeight / 2 }));
+}
+
+void DeckComponent::masterSettingsChanged()
+{
+    auto& md = engine.masterDeck;
+    const auto st = md.getState();
+    const bool wasArmed = st == MasterDeck::State::armed;
+    if (st != MasterDeck::State::off && ! wasArmed) return;   // not during a take
+    if (wasArmed) md.disarm();
+
+    // A blank master tape in the deck is simply swapped for one of the new kind.
+    const auto& ms = md.settings;
+    auto* t = md.getTape();
+    const bool blank = t != nullptr && md.takes.empty() && t->tracksUsed() == 0;
+    const bool differs = t != nullptr && (t->getModel() != ms.model || t->getTypeInfo().minutes != tapeTypes[ms.length].minutes
+                                          || juce::String (t->getCondition().grade) != ms.grade);
+    if (! ms.direct() && (t == nullptr || (blank && differs)))
+        newMasterTape();
+    md.applySettings (engine.tapeEngine.params.nrType.load());
+    engine.saveSettings();
+    if (wasArmed) armMixdown (false);
+}
+
+void DeckComponent::flipMasterTape()
+{
+    auto& md = engine.masterDeck;
+    const auto st = md.getState();
+    if (md.settings.direct()) return;
+    if (st != MasterDeck::State::off && st != MasterDeck::State::armed) { say ("WAIT FOR THE MIX TO FINISH"); return; }
+    const bool wasArmed = st == MasterDeck::State::armed;
+    if (wasArmed) md.disarm();
+    md.stopListening();
+    md.settings.side = 1 - md.settings.side;
+    engine.saveSettings();
+    say (md.settings.side == 0 ? "MASTER TAPE: SIDE A" : "MASTER TAPE: SIDE B");
+    if (wasArmed) armMixdown (false);
+}
+
+bool DeckComponent::armMixdown (bool announce)
+{
+    juce::String why;
+    auto& md = engine.masterDeck;
+    if (! md.arm (exportFormats, mixdownFolder(), mixdownName(), engine.tapeEngine.params.nrType.load(), why))
+    {
+        say (why, 4.0);
+        return false;
+    }
+    engine.peakHoldL = 0.0f;
+    engine.peakHoldR = 0.0f;
+    if (announce) say ("MIXDOWN ARMED: PLAY STARTS MIX " + juce::String (md.currentTakeNumber()), 3.0);
+    return true;
+}
+
+void DeckComponent::toggleMixdown()
+{
+    auto& md = engine.masterDeck;
+    if (md.isArmedByUser())
+    {
+        md.disarm();
+        if (md.getState() == MasterDeck::State::off) say ("MIXDOWN OFF");
+        return;
+    }
+    if (masterBusy) { say ("THE MASTER TAPE IS STILL LOADING"); return; }
+    armMixdown (true);
+}
+
+void DeckComponent::collectMixdown()
+{
+    auto& md = engine.masterDeck;
+    MixTake take;
+    juce::String problem;
+    if (! md.collectFinished (take, problem)) return;
+    if (auto* m = md.getTape(); m != nullptr && take.side >= 0) writer.saveTape (*m);
+    if (problem.isNotEmpty())
+        say ("MIX " + juce::String (take.number) + ": " + problem.toUpperCase().substring (0, 44), 6.0);
+    else
+        say ("SAVED MIX " + juce::String (take.number) + utf (" \xc2\xb7 ") + formatTime (take.length / cellRate) + utf (" \xc2\xb7 ") + take.formats, 5.0);
+    if (take.side >= 0 && md.nextStart() < 0)
+        say ("SAVED MIX " + juce::String (take.number) + juce::String (" - SIDE ") + (take.side == 0 ? "A" : "B") + " IS FULL", 6.0);
+    // Still armed: the next pass is the next take.
+    if (md.isArmedByUser())
+        armMixdown (false);
+}
+
+void DeckComponent::putInMasterTape (std::function<std::unique_ptr<Tape>()> make, const juce::String& doneText)
+{
+    auto& md = engine.masterDeck;
+    const auto st = md.getState();
+    if (masterBusy) return;
+    if (st != MasterDeck::State::off && st != MasterDeck::State::armed) { say ("WAIT FOR THE MIX TO FINISH"); return; }
+    const bool wasArmed = st == MasterDeck::State::armed;
+    if (wasArmed) md.disarm();
+    md.stopListening();
+    if (auto* old = md.getTape()) writer.saveTape (*old);
+    masterBusy = true;
+    auto made = std::make_shared<std::unique_ptr<Tape>>();
+    writer.enqueue ([made, make] { *made = make(); },
+                    [safe = juce::Component::SafePointer<DeckComponent> (this), made, doneText, wasArmed]
+                    {
+                        if (safe == nullptr) return;
+                        auto& d = *safe;
+                        d.masterBusy = false;
+                        if (*made == nullptr) { d.say ("THAT MASTER TAPE WOULD NOT LOAD", 4.0); return; }
+                        auto& deck = d.engine.masterDeck;
+                        if (deck.getState() != MasterDeck::State::off) deck.disarm();
+                        deck.settings.masterId = (*made)->id;
+                        deck.settings.model = (*made)->getModel();
+                        for (int i = 0; i < numTapeTypes; ++i)
+                            if (tapeTypes[i].minutes == (*made)->getTypeInfo().minutes) deck.settings.length = i;
+                        deck.settings.grade = juce::String ((*made)->getCondition().grade);
+                        d.writer.retire (deck.swapTape (std::move (*made)));
+                        deck.applySettings (d.engine.tapeEngine.params.nrType.load());
+                        d.engine.saveSettings();
+                        if (doneText.isNotEmpty()) d.say (doneText + deck.getTape()->productName(), 3.0);
+                        if (wasArmed) d.armMixdown (false);
+                    });
+}
+
+void DeckComponent::newMasterTape()
+{
+    const auto ms = engine.masterDeck.settings;
+    if (ms.direct()) return;
+    int count = 1;
+    for (auto& e : TapeShelf::list()) if (e.layout == tfmt::Layout::stereoTwoSides) ++count;
+    const auto model = juce::jlimit (0, numTapeModels - 1, ms.model), length = ms.length;
+    const auto grade = ms.grade;
+    putInMasterTape ([model, length, grade, count]
+                     {
+                         auto t = Tape::makeStereo (length, model, tfmt::Condition::forGrade (grade.toStdString()));
+                         t->name = "master tape " + juce::String (count);
+                         TapeShelf::save (*t);
+                         return t;
+                     },
+                     "NEW MASTER TAPE: ");
+}
+
+void DeckComponent::loadMasterTape (const juce::String& id)
+{
+    if (auto* cur = engine.masterDeck.getTape(); cur != nullptr && cur->id == id) return;
+    putInMasterTape ([id]
+                     {
+                         return Tape::loadForStereoDeck (TapeShelf::folderFor (id));
+                     },
+                     {});
+}
+
+void DeckComponent::exportMasterCassette()
+{
+    auto* m = engine.masterDeck.getTape();
+    if (m == nullptr) { say ("NO MASTER TAPE"); return; }
+    auto start = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("TapeFour")
+                     .getChildFile (juce::File::createLegalFileName (m->name.isNotEmpty() ? m->name : m->productName()) + ".cass");
+    chooser = std::make_unique<juce::FileChooser> ("Export the master tape", start, "*.cass");
+    chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+                              | juce::FileBrowserComponent::warnAboutOverwriting,
+                          [safe = juce::Component::SafePointer<DeckComponent> (this)] (const juce::FileChooser& fc)
+    {
+        if (safe == nullptr || fc.getResult() == juce::File()) return;
+        auto& d = *safe;
+        auto* tape = d.engine.masterDeck.getTape();
+        if (tape == nullptr) return;
+        auto target = fc.getResult().withFileExtension ("cass");
+        d.writer.saveTape (*tape);
+        auto id = tape->id;
+        auto error = std::make_shared<juce::String>();
+        auto ok = std::make_shared<bool> (false);
+        d.writer.enqueue ([id, target, error, ok] { *ok = TapeShelf::exportCassette (id, target, *error); },
+                          [safe, target, error, ok]
+                          {
+                              if (safe != nullptr)
+                                  safe->say (*ok ? "EXPORTED " + target.getFileName().toUpperCase() : "COULD NOT EXPORT: " + error->toUpperCase().substring (0, 40), 5.0);
+                          });
+    });
+}
+
+void DeckComponent::saveMasterSide (int side)
+{
+    auto& md = engine.masterDeck;
+    auto* m = md.getTape();
+    if (m == nullptr) return;
+    if (md.sideUsedSeconds (side) <= 0.0) { say (juce::String ("NOTHING ON SIDE ") + (side == 0 ? "A" : "B") + " YET"); return; }
+    if (md.getState() != MasterDeck::State::off || md.isListening()) { say ("WAIT FOR THE MIX TO FINISH"); return; }
+    auto job = std::make_shared<SideExport>();
+    job->base = mixdownFolder().getChildFile (juce::File::createLegalFileName ((m->name.isNotEmpty() ? m->name : m->productName())
+                                                                               + " - side " + (side == 0 ? "A" : "B")));
+    job->formats = exportFormats;
+    auto* device = engine.deviceManager.getCurrentAudioDevice();
+    job->sampleRate = device != nullptr ? device->getCurrentSampleRate() : 48000.0;
+    job->side = side;
+    mixdownFolder().createDirectory();
+    masterBusy = true;
+    say ("SAVING SIDE " + juce::String (side == 0 ? "A" : "B") + "...", 600.0);
+    auto ok = std::make_shared<bool> (false);
+    auto machine = md.getMachine();
+    const bool nr = md.settings.nr;
+    const int nrSystem = engine.tapeEngine.params.nrType.load();
+    writer.enqueue ([job, ok, m, machine, nr, nrSystem] { *ok = job->run (*m, machine, nr, nrSystem); },
+                    [safe = juce::Component::SafePointer<DeckComponent> (this), job, ok, side]
+                    {
+                        if (safe == nullptr) return;
+                        safe->masterBusy = false;
+                        safe->say (*ok ? juce::String ("SAVED SIDE ") + (side == 0 ? "A" : "B") + ": " + job->formats.describe()
+                                       : "COULD NOT SAVE THE SIDE: " + job->error.toUpperCase().substring (0, 36), 5.0);
+                    });
 }
 
 void DeckComponent::toggleWriteProtect()

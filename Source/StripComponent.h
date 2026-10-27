@@ -49,16 +49,24 @@ class MasterStrip : public juce::Component
 public:
     explicit MasterStrip (AudioEngine& engine);
 
-    void refresh();
+    /** formats: what a mixdown writes ("WAV + MP3"); blink: the deck's blink phase. */
+    void refresh (const juce::String& formats, bool blink);
     void syncFromEngine();
     void paint (juce::Graphics&) override;
     void resized() override;
+    void mouseDown (const juce::MouseEvent&) override;
     void forEachLearnTarget (const std::function<void (juce::Component&, MidiMapper::Control)>& fn);
+
+    std::function<void()> onMasterDeck, onSide, onMixdown;   // the display, the SIDE key, the MIXDOWN key
 
 private:
     AudioEngine& engine;
     LabeledKnob phones;
+    LcdButton display;
+    LedKey side { "SIDE A", Pal::orange }, mixdown { "MIXDOWN", Pal::red };
     Meter meter { 2 };
     Fader fader;
+    juce::Rectangle<int> peakArea;
+    juce::String peakText = "-INF  -INF";
 };
 } // namespace tf

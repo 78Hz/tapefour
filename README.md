@@ -133,19 +133,51 @@ The **TAPE · BIAS · EQ** switch under the cassette (NORMAL / CHROME / METAL) s
 - **Erase:** recording over a metal tape at NORMAL doesn't fully erase it. The old recording, mostly its bass, stays about 30 dB down under the new one.
 - **With noise reduction:** the decoder enlarges any level or treble error, just as on a real deck. With 2:1 a 1 dB error becomes 2 dB, and with B and C a mismatch's treble error "breathes" as the music gets louder and quieter.
 
-### Tape character
+### Cassettes and their condition
 
-**Setup → Tape** shows the current cassette's figures. The sliders adjust things on top of those figures:
+A cassette's formulation and condition belong to the cassette, as they would in the real world. When you put in a blank tape (**EJECT → INSERT NEW BLANK TAPE**) you choose the formulation, the length and the condition: **NEW**, **USED**, **WORN** or **CHEWED**. A used tape has slightly more hiss, a little less treble and the occasional dropout; a chewed one has a lot of all three. Dropouts sit at fixed places on the tape, so they come back at the same moment every time you play it.
 
-- **HISS** is relative to the cassette's measured level. Centre is as measured; double-click to return there.
-- **TAPE DRIVE** sets where 0 VU lands on the tape, ±6 dB around Dolby level. More drive means earlier saturation.
+Tapes also age, gently, as real ones do:
 
-The other sliders are wow, flutter, HF loss, track crosstalk, dropouts and speed drift. You also choose the noise reduction type here (2:1 compander, sliding band B or C). The condition presets go from **Clean** to **Chewed**; they leave the drive alone.
+- **Use**: every pass over the heads wears the oxide a little. After a few hundred passes a stretch of tape has lost about half a dB of treble and gained slightly more modulation noise and dropouts. Only the parts of the tape that have been played wear.
+- **Time**: a tape loses up to 0.3 dB of treble over the years, and a recording slowly prints through onto the next turn of tape on the reel: a faint pre-echo and post-echo, about 60 dB down after a few days and 50 dB down after twenty years.
+
+`TAPEFOUR_WEAR_RENDER=folder EngineTest` writes the same recording after 0, 10, 100 and 1,000 passes and after 1, 5 and 20 years, for comparison.
+
+### The deck
+
+**Setup → DECK** is the TF-4 itself: its wow, flutter, speed drift, heads (how much treble they can play back) and crosstalk between tracks, with presets from **NEW** to **NEGLECTED**. It also holds the tape drive (where 0 VU lands on the tape, ±6 dB around Dolby level) and the noise reduction type (2:1 compander, sliding band B or C). These are the machine's and stay the same whatever cassette is in it. They're kept in `TF-4.deck` beside the settings.
+
+The panel also shows the figures of the cassette in the deck. **Play every cassette as new** makes the deck ignore cassettes' condition and age (it still honours their formulation).
+
+### Write-protect tabs
+
+**EJECT → Write-protect it** breaks out the cassette's tab: the deck then refuses to record on it, as a real deck would. Click it again to tape over the hole.
+
+### Cassette files (.cass)
+
+**EJECT → Export as a .cass file** saves the cassette in the deck as a single `.cass` file: the four tracks (16-bit, uncompressed), what was recorded where and at what speed, its formulation, condition and wear, and its tabs. It holds the tape only, not your mixer settings or plug-ins. **EJECT → Open a .cass file** (or opening one with TAPE·FOUR) puts a copy of it on your tape shelf and loads it. A C90 is about 690 MB as a file. The format is described in `docs/formats/`.
+
+### Exporting tracks
+
+**EJECT → Export its tracks** renders each track that has something on it to its own file, as it plays back off the tape on this deck. **EJECT → File formats** chooses WAV (16-bit, 24-bit or 32-bit float), FLAC (16 or 24-bit), MP3 (128 to 320 kbps), or all three at once. WAV is the default. The same choice is used for mixdowns.
+
+### Mixdown and the master deck
+
+The mix goes to a second, stereo cassette deck: the master deck. Click the display at the top of the **MASTER** strip to open it.
+
+- **Tape**: BASIC, SD, XR or MX, or **DIRECT** to skip the tape and write the mix as it is. The master deck is a good stereo hi-fi deck (its machine settings are in `TF-M.deck`). Choose the length and condition of new master tapes, and whether it records with noise reduction.
+- **Sides**: the master tape has a side A and a side B. Click the other side to turn it over. Each mix is recorded after the last one on the current side, with a gap between them. When a side is full, turn it over or put in a new master tape.
+- **Making a mix**: press **MIXDOWN** under the master fader, then **PLAY**. The mix is recorded on the master tape and played straight back off it, as on a three-head deck, and what comes off the tape is written to files. Press **STOP** to end the mix. The **PEAK** readout holds the loudest level of the mix, and the display warns if it clipped.
+- **Files** go to `Documents/TapeFour/Mixdowns/<tape name>/`, one per format. The master deck lists every mix on the master tape: click one to listen to it off the tape, or **SAVE SIDE AS ONE FILE** to get a whole side. **EXPORT .CASS** saves the master tape itself, and **MASTER TAPES** loads an older one.
+
+Every master deck setting is remembered.
 
 ## Where things are kept
 
-- **Tapes**: `Documents/TapeFour/Tape Shelf/`, one folder per tape (the audio, `tape.xml` for what's recorded where, and `deck.xml` for the deck that goes with it). Tapes are saved in the background: every five seconds while recording, so a crash costs seconds rather than a take; whenever the transport has been stopped for a second; and on eject and on quit.
-- **Settings**: `TapeFour.settings` in `%APPDATA%\TapeFour\` (Windows), `~/Library/Application Support/TapeFour/` (macOS) or `~/.config/TapeFour/` (Linux). This holds the audio device, MIDI controllers and synths, each track's chain (including each plug-in's state and its MIDI mappings), deck MIDI mappings, knob positions and tape character. It's only written when something has changed.
+- **Tapes**: `Documents/TapeFour/Tape Shelf/`, one folder per tape: the cassette (`cassette.json`, `state.json`, the tracks and their maps, the same files as in a `.cass`) and `session.xml`, the mixer and plug-ins that go with it. Tapes from earlier versions are converted the first time they're loaded; the old files are kept with `.bak` on the end. Tapes are saved in the background: every five seconds while recording, so a crash costs seconds rather than a take; whenever the transport has been stopped for a second; and on eject and on quit.
+- **Mixdowns**: `Documents/TapeFour/Mixdowns/`, one folder per tape.
+- **Settings**: `TapeFour.settings` in `%APPDATA%\TapeFour\` (Windows), `~/Library/Application Support/TapeFour/` (macOS) or `~/.config/TapeFour/` (Linux). This holds the audio device, MIDI controllers and synths, each track's chain (including each plug-in's state and its MIDI mappings), deck MIDI mappings, knob positions and the master deck. The machines are in `TF-4.deck` and `TF-M.deck` in the same folder. It's only written when something has changed.
 - **The window** opens where and at the size it was last time. Starting TapeFour while it's already running brings the running one to the front (two copies would fight over the audio device and the tape).
 - **Crash reports**: if TapeFour ever crashes it writes a report to `TapeFour/Crashes/` next to the settings (a `.txt` with the version and a stack trace, and on Windows a `.dmp`), and says so the next time it starts. Sending one along with a description of what you were doing makes the problem findable.
 
@@ -159,12 +191,13 @@ You need CMake 3.22 or later and a C++20 compiler.
 | macOS | Xcode 15 or later | `cmake -S . -B build -G Xcode "-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64"` then `cmake --build build --config Release` |
 | Linux | `ladspa-sdk libasound2-dev libjack-jackd2-dev libfreetype-dev libfontconfig1-dev libx11-dev libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev libxrender-dev` (Debian/Ubuntu names) | `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release` then `cmake --build build` |
 
-JUCE 8.0.11 and the CLAP headers (1.2.7, MIT licence) are downloaded during configuration. JUCE includes the ASIO headers (Steinberg made ASIO available under GPLv3), the VST3 SDK and LV2 support; CLAP plug-ins are hosted by TAPE·FOUR's own code (`Source/ClapFormat.cpp`), since JUCE doesn't host CLAP. JACK is loaded only if it's installed, so the Linux build runs without it.
+JUCE 8.0.11, the CLAP headers (1.2.7, MIT licence) and LAME (for MP3, LGPL) are downloaded during configuration. JUCE includes the ASIO headers (Steinberg made ASIO available under GPLv3), the VST3 SDK and LV2 support; CLAP plug-ins are hosted by TAPE·FOUR's own code (`Source/ClapFormat.cpp`), since JUCE doesn't host CLAP. JACK is loaded only if it's installed, so the Linux build runs without it.
 
 Add `-DTAPEFOUR_TESTS=ON` to also build the headless test programs, which every build on GitHub runs on all three platforms:
 
-- `EngineTest`: each cassette's MOL, SOL, hiss, modulation noise and sensitivity; pitch and level; noise reduction, tape speed, the tape switch, and clean punch-ins and punch-outs.
-- `MixerTest`: the whole audio path: monitoring and arming crossfades, EQ, bounce, the built-in synth via MIDI and MPE, per-track controllers, signal chains (MIDI effects, layering, MIX and bypass), CLAP hosting (scanning, an effect with parameters and saved state, an instrument fed CLAP note events, using two test plug-ins built from `Tests/fixtures/TestClap.c`), when plug-in state is saved, mute and solo, MIDI learn (pickup, encoders, toggles, MMC, plug-in parameters), hardware synth routing, recordings lining up on an interface with latency, saving while recording, plug-in load races, MIDI device slots, deck recall, and settings surviving a restart.
+- `FormatTest`: the `.cass` and `.deck` formats (the reference library in `Formats/`, which doesn't use JUCE).
+- `EngineTest`: each cassette's MOL, SOL, hiss, modulation noise and sensitivity; pitch and level; noise reduction, tape speed, the tape switch, clean punch-ins and punch-outs, the condition and wear of a cassette, write-protect tabs, and converting tapes from earlier versions.
+- `MixerTest`: the whole audio path: monitoring and arming crossfades, EQ, bounce, the built-in synth via MIDI and MPE, per-track controllers, signal chains (MIDI effects, layering, MIX and bypass), CLAP hosting (scanning, an effect with parameters and saved state, an instrument fed CLAP note events, using two test plug-ins built from `Tests/fixtures/TestClap.c`), when plug-in state is saved, mute and solo, MIDI learn (pickup, encoders, toggles, MMC, plug-in parameters), hardware synth routing, recordings lining up on an interface with latency, saving while recording, plug-in load races, MIDI device slots, deck recall, settings surviving a restart, `.cass` export and import, track exports in each format, and mixdowns (direct and on tape, both sides, a full side, listening).
 - `ScanTest build/crashplugin`: scans a plug-in made to crash, to show the scan survives it.
 
 To check real plug-ins on your machine, run `MixerTest` with `TAPEFOUR_SMOKE_DIR` set to a plug-in folder (for LV2, the folder holding the `.lv2` bundles): every format scans it, and each instrument found is loaded and played. `TAPEFOUR_CLAP_LOG=1` makes the app print what CLAP plug-ins ask of it.
@@ -181,5 +214,7 @@ To check real plug-ins on your machine, run `MixerTest` with `TAPEFOUR_SMOKE_DIR
 ## Licence
 
 TAPE·FOUR is released under the **GNU GPL v3** (see `LICENSE`), because it uses ASIO under Steinberg's GPLv3 option and JUCE under its GPL option.
+
+MP3 export uses LAME, under the GNU LGPL (version 2 or later), built from source with the rest of TAPE·FOUR.
 
 The embedded fonts (Barlow Condensed, Share Tech Mono, Caveat) are under the SIL Open Font License (`Resources/fonts/OFL.txt`).

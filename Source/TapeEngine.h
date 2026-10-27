@@ -69,6 +69,8 @@ public:
     void setReadOnly (bool on) noexcept { readOnly = on; }
     /** For a read-only engine: where on the tape to start playing. */
     void seek (double cells) noexcept   { pos = cells; }
+    /** Where the engine's head is (cells): for the thread that runs it. */
+    double getPosition() const noexcept { return pos; }
 
     void prepare (double sampleRate, int maxBlockSize);
     void setTape (Tape* t, bool newTape = true) noexcept;          // only call while the audio callback is locked out

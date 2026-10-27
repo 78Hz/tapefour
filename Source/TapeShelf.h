@@ -14,6 +14,7 @@ struct TapeShelf
         int type = 1, model = defaultTapeModel;   // the nearest standard length, the built-in formulation (for its look)
         int minutes = 30;                         // per side
         juce::String formulation, grade;          // as the cassette says
+        tfmt::Layout layout = tfmt::Layout::fourTrackOneWay;   // a stereo one is a master tape
         double usedSeconds = 0;
         int tracksUsed = 0;
         juce::Time modified;

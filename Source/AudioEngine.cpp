@@ -72,6 +72,8 @@ void AudioEngine::allocateBuffers (int size)
     }
     mixL.assign ((size_t) size, 0.0f);
     mixR.assign ((size_t) size, 0.0f);
+    masterL.assign ((size_t) size, 0.0f);
+    masterR.assign ((size_t) size, 0.0f);
     bounceSum.assign ((size_t) size, 0.0f);
     acc.setSize (2, size);
     scratch.setSize (2, size);
@@ -749,6 +751,8 @@ void AudioEngine::audioDeviceAboutToStart (juce::AudioIODevice* dev)
     }
     midi.sampleRateChanged (sampleRate);
     for (auto& p : mpeConfigPending) p = true;
+    masterDeck.prepare (sampleRate, maxBlock);
+    masterDeck.applySettings (tapeEngine.params.nrType.load());
 
     for (int t = 0; t < numTracks; ++t)
     {
@@ -761,6 +765,7 @@ void AudioEngine::audioDeviceAboutToStart (juce::AudioIODevice* dev)
 
 void AudioEngine::audioDeviceStopped()
 {
+    masterDeck.stopForDeviceChange();
 }
 
 void AudioEngine::copyInput (int ch, bool pair, const float* const* inputs, int numInputs, int n, float* dest, float gain) const
@@ -1087,7 +1092,20 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputs, 
         strips[t].addToMix (c, mixL.data(), mixR.data(), n, track[t].pan.load(), gain);
     }
 
+    // ---- the master bus: after the master fader, it's what you hear and what a mixdown takes ----
     auto mg = faderGain (masterFader.load());
+    for (int i = 0; i < n; ++i)
+    {
+        auto g = lastMaster + (mg - lastMaster) * (float) i / (float) n;
+        masterL[(size_t) i] = mixL[(size_t) i] * g;
+        masterR[(size_t) i] = mixR[(size_t) i] * g;
+    }
+    lastMaster = mg;
+    const auto deckMode = tapeEngine.getMode();
+    masterDeck.process (masterL.data(), masterR.data(), n, haveTape && (deckMode == Mode::play || deckMode == Mode::rec));
+    if (deckMode != Mode::stop) masterDeck.stopListening();   // the deck playing takes over from a take being listened to
+    masterDeck.listenInto (masterL.data(), masterR.data(), n);
+
     auto pg = std::pow (phones.load() / 0.6f, 2.0f);
     float pl = 0, pr = 0;
     auto mainPair = mainOutPair.load(), phonesPairIdx = phonesPair.load();
@@ -1095,8 +1113,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputs, 
     for (int i = 0; i < n; ++i)
     {
         auto f = (float) i / (float) n;
-        auto g = lastMaster + (mg - lastMaster) * f;
-        auto l = mixL[(size_t) i] * g, r = mixR[(size_t) i] * g;
+        auto l = masterL[(size_t) i], r = masterR[(size_t) i];
         pl = std::max (pl, std::abs (l));
         pr = std::max (pr, std::abs (r));
 
@@ -1112,10 +1129,11 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputs, 
             if (hr < numOutputs && outputs[hr] != nullptr) outputs[hr][i] = r * ph;
         }
     }
-    lastMaster = mg;
     lastPhones = pg;
 
     if (pl > meterL.load()) meterL = pl;
     if (pr > meterR.load()) meterR = pr;
+    if (pl > peakHoldL.load()) peakHoldL = pl;
+    if (pr > peakHoldR.load()) peakHoldR = pr;
 }
 } // namespace tf

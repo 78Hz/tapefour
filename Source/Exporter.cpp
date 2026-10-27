@@ -243,7 +243,8 @@ bool TrackExport::run (Tape& tape, const TapeEngine::Params& op, const TapeEngin
         eng.endBlock();
         for (size_t k = 0; k < tracks.size(); ++k)
         {
-            const float* ch[] { outs[(size_t) tracks[k]].data() };
+            // A mono file; both pointers are the track (GCC 11 can't see that the second isn't read).
+            const float* ch[] { outs[(size_t) tracks[k]].data(), outs[(size_t) tracks[k]].data() };
             if (! sets[k]->write (ch, block)) { error = sets[k]->getError(); return false; }
         }
         if (eng.getMode() != Mode::play) break;   // the end of the tape
