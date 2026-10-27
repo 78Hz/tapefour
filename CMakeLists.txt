@@ -203,8 +203,15 @@ if(TAPEFOUR_PLAYER)
     else()
         set(pocketPlatformOptions DOCUMENT_EXTENSIONS cass)
     endif()
+    # Its icon (Tools/make_icons.py): iOS rounds the corners itself; elsewhere it's a rounded square.
+    if(IOS)
+        set(pocketIcon "${CMAKE_CURRENT_SOURCE_DIR}/Player/Icons/icon_ios.png")
+    else()
+        set(pocketIcon "${CMAKE_CURRENT_SOURCE_DIR}/Player/Icons/icon_desktop.png")
+    endif()
     juce_add_gui_app(TapeFourPocket
         PRODUCT_NAME "TF-P1 Pocket"
+        ICON_BIG "${pocketIcon}"
         COMPANY_NAME "78Hz"
         BUNDLE_ID "com.78hz.tapefour.pocket"
         VERSION ${PROJECT_VERSION}

@@ -190,33 +190,82 @@ void CassetteComponent::drawHub (juce::Graphics& g, juce::Point<float> c, float 
     auto st = styleFor (model);
     auto rot = [&] (float extra) { return juce::AffineTransform::rotation (angle + extra).translated (c); };
     auto circle = [&] (float r) { return juce::Rectangle<float> (r * 2, r * 2).withCentre (c); };
+    constexpr float pi = juce::MathConstants<float>::pi;
 
+    // The leader clamp: a moulded frame set into the rim, about 52 degrees of it, its outer edge the
+    // rim itself (it never stands proud: the tape winds over it), open in the middle.
+    constexpr float clampSpan = 0.91f, clampIn = 70.0f, clampOut = hubR - 0.5f, frameW = 7.0f;
+    auto sector = [] (float r0, float r1, float a0, float a1)
+    {
+        juce::Path p;
+        p.addCentredArc (0, 0, r1, r1, 0, a0, a1, true);
+        p.addCentredArc (0, 0, r0, r0, 0, a1, a0, false);
+        p.closeSubPath();
+        return p;
+    };
+    // its outline
+    auto clampOutline = [&] (float inset)
+    {
+        const float a0 = -clampSpan * 0.5f + inset / clampOut, a1 = clampSpan * 0.5f - inset / clampOut;
+        const float rOut = clampOut - inset, rInA = clampIn + inset, rInB = clampIn + inset;
+        juce::Path p;
+        p.addCentredArc (0, 0, rOut, rOut, 0, a0, a1, true);
+        p.addCentredArc (0, 0, rInB, rInB, 0, a1, 0.0f, false);
+        p.addCentredArc (0, 0, rInA, rInA, 0, 0.0f, a0, false);
+        p.closeSubPath();
+        return p;
+    };
+    const auto clampWindow = clampOutline (frameW);
+
+    // the hub's body, with the clamp's window open through it
+    juce::Path body;
+    body.setUsingNonZeroWinding (false);
+    body.addEllipse (-hubR, -hubR, hubR * 2, hubR * 2);
+    body.addPath (clampWindow);
+    {
+        // hollow sections: arc-shaped openings between the rim and the inner ring, ribs between them
+        const float gapR0 = 80.0f, gapR1 = 90.0f;
+        const int n = 6;
+        const float rib = 0.16f;
+        for (int k = 0; k < n; ++k)
+        {
+            float a0 = (float) k * 2.0f * pi / (float) n + rib * 0.5f, a1 = (float) (k + 1) * 2.0f * pi / (float) n - rib * 0.5f;
+            const float c0 = -clampSpan * 0.5f - 0.05f + 2.0f * pi, c1 = clampSpan * 0.5f + 0.05f;   // not under the clamp
+            if (a1 > c0) a1 = c0;
+            if (a0 < c1) a0 = c1;
+            if (a1 - a0 > 0.05f) body.addPath (sector (gapR0, gapR1, a0, a1));
+        }
+    }
     g.setColour (st.hub);
-    g.fillEllipse (circle (hubR));
+    g.fillPath (body, rot (0));
     g.setColour (st.hubRing);
     g.drawEllipse (circle (hubR - 1), 2.0f);
-
-    if (st.accents)
     {
-        juce::Path arcs;
-        arcs.addCentredArc (0, 0, 102, 102, 0, -1.875f, -0.582f, true);
-        arcs.addCentredArc (0, 0, 102, 102, 0, 1.266f, 2.559f, true);
-        g.setColour (st.accent);
-        g.strokePath (arcs, juce::PathStrokeType (13.0f), rot (0));
+        // the inner ring's edge, not across the clamp's opening
+        const float rr = 78.0f;
+        juce::Path ring;
+        ring.addCentredArc (0, 0, rr, rr, 0, clampSpan * 0.5f, 2.0f * pi - clampSpan * 0.5f, true);
+        g.setColour (st.hubInner);
+        g.strokePath (ring, juce::PathStrokeType (3.0f), rot (0));
     }
 
-    g.setColour (st.hubInner);
-    g.drawEllipse (circle (80), 3.0f);
+    {
+        const auto col = st.accents ? st.accent : st.hub.darker (0.08f);
+        juce::Path frame = clampOutline (0.0f);
+        frame.setUsingNonZeroWinding (false);
+        frame.addPath (clampWindow);
+        g.setColour (col);
+        g.fillPath (frame, rot (0));
+        g.setColour (col.darker (0.4f));
+        g.strokePath (clampOutline (0.6f), juce::PathStrokeType (1.2f), rot (0));
+        g.strokePath (clampWindow, juce::PathStrokeType (1.2f), rot (0));
+        // the moulding's lit inner edge
+        g.setColour (col.brighter (0.4f).withAlpha (0.6f));
+        g.strokePath (clampOutline (frameW - 1.5f), juce::PathStrokeType (1.0f), rot (0));
+    }
 
-    juce::Path tooth;
-    tooth.addRoundedRectangle (-5.0f, -101.0f, 10.0f, 20.0f, 2.0f);
     juce::Path spline;
     spline.addRoundedRectangle (-6.0f, -58.0f, 12.0f, 15.0f, 2.0f);
-    for (int k = 0; k < 6; ++k)
-    {
-        g.setColour (st.hubTeeth);
-        g.fillPath (tooth, rot ((float) k * juce::MathConstants<float>::pi / 3.0f));
-    }
 
     g.setColour (st.hubCore.interpolatedWith (st.hub, 0.5f));
     g.fillEllipse (circle (58));
@@ -224,7 +273,7 @@ void CassetteComponent::drawHub (juce::Graphics& g, juce::Point<float> c, float 
     g.drawEllipse (circle (58), 3.0f);
     g.setColour (st.spindleTeeth);
     for (int k = 0; k < 6; ++k)
-        g.fillPath (spline, rot ((float) k * juce::MathConstants<float>::pi / 3.0f));
+        g.fillPath (spline, rot ((float) k * pi / 3.0f));
     g.setColour (st.hubCore);
     g.fillEllipse (circle (28));
 }
@@ -530,7 +579,7 @@ namespace
 {
     // Which version of the TF-4's drawings a look was made by: a change to the drawings raises it,
     // and cassettes get their looks redrawn the next time they're saved.
-    constexpr const char* artRevision = "3";   // 2: looks written blank on Windows by revision 1 are redrawn; 3: real pack sizes (Geometry.h)
+    constexpr const char* artRevision = "4";   // 2: looks written blank on Windows by revision 1 are redrawn; 3: real pack sizes (Geometry.h); 4: hollow hubs, leader clamp
     constexpr float artScale = 2.0f;   // image pixels per tenth of a mm
 
     std::string hex (juce::Colour c)
