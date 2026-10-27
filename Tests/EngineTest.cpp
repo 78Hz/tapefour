@@ -304,14 +304,16 @@ int main()
         auto first = r.run (2.5, TapeEngine::Command::play, false, 0, 0);
         r.rewindTo (0);
         auto second = r.run (2.5, TapeEngine::Command::play, false, 0, 0);
-        // (the tape's modulation noise is different on every play, as on a real one: compare where the dips are)
+        // The tape's modulation noise is different on every play, as on a real one, so compare where the
+        // dips are. A window moved only if it's clearly a dip on one play and clearly not on the other:
+        // a window that catches the edge of a dropout sits near any threshold, and noise can tip it either way.
         int dips = 0, moved = 0;
+        const double fullA = rms (first, 0.1, 2.4), fullB = rms (second, 0.1, 2.4);
         for (double t0 = 0.2; t0 < 2.4; t0 += 0.01)
         {
-            const bool a = rms (first, t0, t0 + 0.01) < 0.7 * rms (first, 0.1, 2.4);
-            const bool b = rms (second, t0, t0 + 0.01) < 0.7 * rms (second, 0.1, 2.4);
-            dips += a ? 1 : 0;
-            moved += a != b ? 1 : 0;
+            const double a = rms (first, t0, t0 + 0.01) / fullA, b = rms (second, t0, t0 + 0.01) / fullB;
+            dips += a < 0.7 ? 1 : 0;
+            moved += (a < 0.6 && b > 0.85) || (b < 0.6 && a > 0.85) ? 1 : 0;
         }
         check (dips > 2 && moved == 0, "dropouts: at the same places on every play (windows that differ)", moved, 0.0);
         r.rewindTo (0);
