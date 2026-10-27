@@ -1,4 +1,5 @@
 #include "PlayerComponent.h"
+#include "SystemVolume.h"
 
 namespace tf::pocket
 {
@@ -291,8 +292,20 @@ PlayerComponent::PlayerComponent (PlayerEngine& e, Library& l, bool touchLayout)
         engine.setNoiseReduction (! engine.getNoiseReduction());
         refreshKeys();
     };
-    volUp.onClick = [this] { engine.setVolume (engine.getVolume() + 1); volume.setValue (engine.getVolume(), juce::dontSendNotification); repaint(); };
-    volDown.onClick = [this] { engine.setVolume (engine.getVolume() - 1); volume.setValue (engine.getVolume(), juce::dontSendNotification); repaint(); };
+    // A phone has one volume, its own: these keys set it, as the side buttons do.
+    auto stepVolume = [this] (int direction)
+    {
+        if (SystemVolume::available())
+            SystemVolume::set (SystemVolume::get() + (float) direction / (float) SystemVolume::steps());
+        else
+        {
+            engine.setVolume (engine.getVolume() + direction);
+            volume.setValue (engine.getVolume(), juce::dontSendNotification);
+        }
+        repaint();
+    };
+    volUp.onClick = [stepVolume] { stepVolume (1); };
+    volDown.onClick = [stepVolume] { stepVolume (-1); };
     openFirst.onClick = [this] { chooseFile(); };
     for (auto* k : { &turn, &eject, &nr }) addChildComponent (k);
     addChildComponent (volUp);
@@ -327,17 +340,44 @@ PlayerComponent::~PlayerComponent()
 void PlayerComponent::chooseFile()
 {
     auto start = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory);
-    chooser = std::make_unique<juce::FileChooser> ("Open a cassette", start, "*.cass");
+    chooser = std::make_unique<juce::FileChooser> ("Open a cassette", start, touch ? juce::String() : juce::String ("*.cass"));
     chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-                          [safe = juce::Component::SafePointer<PlayerComponent> (this)] (const juce::FileChooser& fc)
+                          [safe = juce::Component::SafePointer<PlayerComponent> (this), isTouch = touch] (const juce::FileChooser& fc)
     {
         if (safe == nullptr) return;
-        auto f = fc.getResult();
-        if (f.existsAsFile())
+        auto url = fc.getURLResult();
+        if (url.isEmpty()) return;
+        safe->showShelf (false);
+        auto local = url.isLocalFile() ? url.getLocalFile() : juce::File();
+        if (! isTouch && local.existsAsFile())
         {
-            safe->showShelf (false);
-            safe->openCassette (f);
+            safe->openCassette (local);
+            return;
         }
+        // A phone: the cassette is copied into the player's own folder first (another app's file
+        // may only be readable for a moment), then played from there.
+        auto target = Library::cassettesFolder().getNonexistentChildFile (
+            juce::File::createLegalFileName (url.getFileName().upToLastOccurrenceOf (".", false, false)), ".cass", false);
+        if (local.isAChildOf (Library::cassettesFolder())) { safe->openCassette (local); return; }
+        safe->say ("COPYING THE CASSETTE...", 60.0);
+        juce::Thread::launch ([safe, url, target]
+        {
+            bool ok = false;
+            if (auto in = url.createInputStream (juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inAddress)))
+            {
+                juce::FileOutputStream out (target);
+                ok = out.openedOk() && out.writeFromInputStream (*in, -1) > 0;
+                out.flush();
+                ok = ok && out.getStatus().wasOk();
+            }
+            if (! ok) target.deleteFile();
+            juce::MessageManager::callAsync ([safe, target, ok]
+            {
+                if (safe == nullptr) return;
+                if (ok) safe->openCassette (target);
+                else    safe->say ("COULD NOT COPY THE CASSETTE");
+            });
+        });
     });
 }
 
@@ -534,7 +574,8 @@ void PlayerComponent::paintOverChildren (juce::Graphics& g)
         {
             g.setColour (Pal::lcdText);
             g.setFont (lf.mono (22.0f));
-            g.drawText (juce::String (engine.getVolume()), volumeArea.withSizeKeepingCentre (80, 26).translated (0, -6), juce::Justification::centred);
+            const auto shown = SystemVolume::available() ? juce::roundToInt (SystemVolume::get() * 10.0f) : engine.getVolume();
+            g.drawText (juce::String (shown), volumeArea.withSizeKeepingCentre (80, 26).translated (0, -6), juce::Justification::centred);
             g.setColour (Pal::muted);
             g.setFont (lf.cond (11.0f, true).withExtraKerningFactor (0.2f));
             g.drawText ("VOLUME", volumeArea.withSizeKeepingCentre (88, 16).translated (0, 14), juce::Justification::centred);

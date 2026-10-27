@@ -177,6 +177,41 @@ jobs:
           if-no-files-found: error
 
   # Memory errors, undefined behaviour and data races, caught in the engine and its threads.
+  ios:
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache JUCE download
+        uses: actions/cache@v4
+        with:
+          path: build-ios/_deps
+          key: juce-8.0.11-ios
+
+      - name: Configure (the pocket player only, for iPhone and iPad)
+        run: >
+          cmake -S . -B build-ios -G Xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0
+          -DTAPEFOUR_WERROR=ON -DTAPEFOUR_BUILD_NUMBER=${{ env.BUILD_NUMBER }}
+
+      - name: Build for the simulator
+        run: |
+          set -o pipefail
+          cmake --build build-ios --config Release --target TapeFourPocket -- -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO 2>&1 | tee build.log || {
+            grep -E ": (fatal )?error:|^ld: |Undefined symbols|undefined reference|error LNK|: error [A-Z]+[0-9]+" build.log | sort -u | head -10 | sed 's/^/::error::/'
+            exit 1; }
+
+      - name: Package
+        run: |
+          app=$(find build-ios -name "TF-P1 Pocket.app" -path "*iphonesimulator*" | head -1)
+          ditto -c -k --keepParent "$app" TF-P1-Pocket-ios-simulator.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TF-P1-Pocket-ios-simulator
+          path: TF-P1-Pocket-ios-simulator.zip
+          if-no-files-found: error
+
   sanitizers:
     runs-on: ubuntu-22.04
     timeout-minutes: 90

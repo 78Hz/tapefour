@@ -1,4 +1,5 @@
 #include "PlayerComponent.h"
+#include "SystemVolume.h"
 #include "../Source/CassetteComponent.h"
 
 namespace tf::pocket
@@ -71,6 +72,17 @@ public:
         auto audioError = engine->start();
         window = std::make_unique<tf::pocket::MainWindow> (*engine, *library, tf::pocket::touchLayout (commandLine));
 
+        // A phone: its own volume is the player's (the engine plays at full level under it),
+        // and cassettes shared to the player while it was closed join the others.
+        if (tf::pocket::SystemVolume::available())
+        {
+            engine->setVolume (10);
+            juce::MessageManager::callAsync ([] { tf::pocket::SystemVolume::attach(); });
+        }
+       #if JUCE_IOS || JUCE_ANDROID
+        library->takeInNewArrivals();
+       #endif
+
         // The cassette it was playing last, or one it was asked to open.
         if (! openFrom (commandLine))
         {
@@ -101,6 +113,19 @@ public:
     }
 
     void suspended() override { if (window != nullptr && window->player != nullptr) window->player->rememberPosition(); }
+
+    void resumed() override
+    {
+       #if JUCE_IOS || JUCE_ANDROID
+        // Back from the share sheet or the Files app: a cassette sent to the player is put in.
+        if (library != nullptr && window != nullptr)
+        {
+            auto arrived = library->takeInNewArrivals();
+            if (! arrived.isEmpty()) window->player->openCassette (arrived.getFirst());
+        }
+        tf::pocket::SystemVolume::attach();
+       #endif
+    }
 
 private:
     bool openFrom (const juce::String& commandLine)

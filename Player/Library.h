@@ -44,6 +44,13 @@ public:
     /** Just its look, for showing it on the shelf. */
     static CassetteArtwork artworkOf (const juce::File& cassFile, const Tape* tapeIfOpen = nullptr);
 
+    /** Phones: where the player keeps its cassettes (its Documents folder, which the Files app shows).
+        Files shared to the player arrive here, or in its Inbox inside it. */
+    static juce::File cassettesFolder();
+    /** Brings in .cass files that have arrived in the cassettes folder (and its Inbox), so they
+        show among the cassettes. Returns the new ones, newest first. */
+    juce::Array<juce::File> takeInNewArrivals();
+
     static constexpr int maxRemembered = 24;
 
 private:

@@ -147,4 +147,35 @@ OpenedCassette Library::open (const juce::File& cassFile) const
     e.lastPlayed = juce::Time::currentTimeMillis();
     return o;
 }
+juce::File Library::cassettesFolder()
+{
+    return juce::File::getSpecialLocation (juce::File::userDocumentsDirectory);
+}
+
+juce::Array<juce::File> Library::takeInNewArrivals()
+{
+    auto folder = cassettesFolder();
+    // "Open in" and the share sheet leave a copy in Documents/Inbox: keep it with the others.
+    auto inbox = folder.getChildFile ("Inbox");
+    for (auto& f : inbox.findChildFiles (juce::File::findFiles, false, "*.cass"))
+        f.moveFileTo (folder.getNonexistentChildFile (f.getFileNameWithoutExtension(), ".cass", false));
+
+    auto known = recent();
+    juce::Array<juce::File> added;
+    for (auto& f : folder.findChildFiles (juce::File::findFiles, false, "*.cass"))
+    {
+        bool isKnown = false;
+        for (auto& e : known) isKnown = isKnown || e.file == f;
+        if (isKnown) continue;
+        auto opened = open (f);
+        if (opened.tape == nullptr) continue;
+        opened.entry.lastPlayed = f.getLastModificationTime().toMilliseconds() - 1;   // after the ones played, newest first
+        remember (opened.entry);
+        known = recent();
+        added.add (f);
+    }
+    std::sort (added.begin(), added.end(), [] (const juce::File& a, const juce::File& b)
+               { return a.getLastModificationTime() > b.getLastModificationTime(); });
+    return added;
+}
 } // namespace tf::pocket

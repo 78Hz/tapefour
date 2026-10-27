@@ -8,6 +8,13 @@ set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
 project(TapeFour VERSION 0.2.${TAPEFOUR_BUILD_NUMBER} LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
+
+# On iOS only the pocket player is built (the TF-4 is a computer's: plug-ins, audio interfaces).
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    set(TAPEFOUR_ONLY_PLAYER ON)
+else()
+    set(TAPEFOUR_ONLY_PLAYER OFF)
+endif()
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # A standalone .exe: link the MSVC runtime statically so nothing extra needs installing.
@@ -37,6 +44,7 @@ set(TAPEFOUR_CLAP_INCLUDE ${clap_SOURCE_DIR}/include)
 
 # LAME, for MP3 exports (LGPL, compatible with TAPE-FOUR's GPL): only its encoder library is built,
 # with the configuration in ThirdParty/lame/config.h. The mirror is pinned to an exact commit.
+if(NOT TAPEFOUR_ONLY_PLAYER)
 FetchContent_Declare(lame
     GIT_REPOSITORY https://github.com/rbrito/deprecated-lame-mirror.git
     GIT_TAG af984672a95bb0eedc9f3193604e269c97cca162
@@ -53,6 +61,7 @@ target_compile_definitions(mp3lame PRIVATE HAVE_CONFIG_H)
 set_target_properties(mp3lame PROPERTIES C_STANDARD 99 POSITION_INDEPENDENT_CODE ON)
 if(NOT MSVC)
     target_compile_options(mp3lame PRIVATE -w)   # not our code: its warnings aren't ours to fix
+endif()
 endif()
 
 # Sanitizer builds for CI: -DTAPEFOUR_SANITIZE=address or thread
@@ -102,6 +111,7 @@ target_compile_features(tapeformats PUBLIC cxx_std_17)
 target_compile_options(tapeformats PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
 target_link_libraries(tapeformats PRIVATE juce::juce_recommended_warning_flags)
 
+if(NOT TAPEFOUR_ONLY_PLAYER)
 juce_add_gui_app(TapeFour
     PRODUCT_NAME "TapeFour"
     COMPANY_NAME "78Hz"
@@ -165,15 +175,39 @@ target_link_libraries(TapeFour
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags)
 
+endif() # NOT TAPEFOUR_ONLY_PLAYER
+
 # TF-P1 Pocket: a player for .cass files (Player/), from the same tape engine and format library.
 option(TAPEFOUR_PLAYER "Build the pocket player too" ON)
 if(TAPEFOUR_PLAYER)
+    if(TAPEFOUR_ONLY_PLAYER)
+        # iOS: .cass is a document type of its own (UTI), files shared to the player land in its
+        # Documents folder (visible in the Files app), and it plays with the screen locked.
+        set(pocketPlatformOptions
+            PLIST_TO_MERGE [[<plist><dict>
+              <key>UTExportedTypeDeclarations</key><array><dict>
+                <key>UTTypeIdentifier</key><string>com.78hz.cass</string>
+                <key>UTTypeDescription</key><string>TAPE-FOUR cassette</string>
+                <key>UTTypeConformsTo</key><array><string>public.data</string><string>public.archive</string></array>
+                <key>UTTypeTagSpecification</key><dict><key>public.filename-extension</key><array><string>cass</string></array></dict>
+              </dict></array>
+              <key>CFBundleDocumentTypes</key><array><dict>
+                <key>CFBundleTypeName</key><string>TAPE-FOUR cassette</string>
+                <key>CFBundleTypeRole</key><string>Viewer</string>
+                <key>LSHandlerRank</key><string>Owner</string>
+                <key>LSItemContentTypes</key><array><string>com.78hz.cass</string></array>
+              </dict></array>
+              <key>LSSupportsOpeningDocumentsInPlace</key><false/>
+            </dict></plist>]])
+    else()
+        set(pocketPlatformOptions DOCUMENT_EXTENSIONS cass)
+    endif()
     juce_add_gui_app(TapeFourPocket
         PRODUCT_NAME "TF-P1 Pocket"
         COMPANY_NAME "78Hz"
         BUNDLE_ID "com.78hz.tapefour.pocket"
         VERSION ${PROJECT_VERSION}
-        DOCUMENT_EXTENSIONS cass
+        ${pocketPlatformOptions}
         STATUS_BAR_HIDDEN TRUE
         REQUIRES_FULL_SCREEN TRUE
         IPHONE_SCREEN_ORIENTATIONS UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
@@ -186,6 +220,8 @@ if(TAPEFOUR_PLAYER)
         Player/PlayerEngine.cpp
         Player/PlayerComponent.cpp
         Player/Library.cpp
+        Player/SystemVolume.cpp
+        $<$<STREQUAL:${CMAKE_SYSTEM_NAME},iOS>:Player/SystemVolume_ios.mm>
         Source/Tape.cpp
         Source/TapeEngine.cpp
         Source/LookView.cpp
@@ -196,6 +232,9 @@ if(TAPEFOUR_PLAYER)
         JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:TapeFourPocket,JUCE_PRODUCT_NAME>"
         JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:TapeFourPocket,JUCE_VERSION>")
     target_compile_options(TapeFourPocket PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    if(TAPEFOUR_ONLY_PLAYER)
+        target_link_libraries(TapeFourPocket PRIVATE "-framework MediaPlayer" "-framework AVFoundation")
+    endif()
     target_link_libraries(TapeFourPocket
         PRIVATE
             TapeFourFonts
@@ -223,7 +262,7 @@ endif()
 
 # Headless checks: cmake -DTAPEFOUR_TESTS=ON, then run FormatTest, EngineTest, MixerTest and ScanTest.
 option(TAPEFOUR_TESTS "Build the test programs" OFF)
-if(TAPEFOUR_TESTS)
+if(TAPEFOUR_TESTS AND NOT TAPEFOUR_ONLY_PLAYER)
     function(tapefour_test name)
         juce_add_console_app(${name} PRODUCT_NAME "${name}")
         target_sources(${name} PRIVATE ${ARGN})
