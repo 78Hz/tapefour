@@ -272,6 +272,9 @@ if(TAPEFOUR_TESTS AND NOT TAPEFOUR_ONLY_PLAYER)
         target_include_directories(${name} PRIVATE ${TAPEFOUR_CLAP_INCLUDE})
         target_link_libraries(${name} PRIVATE tapeformats mp3lame juce::juce_audio_utils juce::juce_dsp
             PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+        # The tests keep many decks (about 70 KB each) in one main(); Windows gives a program 1 MB
+        # of stack, and MSVC doesn't always share it between scopes.
+        target_link_options(${name} PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/STACK:16777216>)
     endfunction()
 
     # The format library on its own, without JUCE.

@@ -331,7 +331,8 @@ int main()
         {
             t->turnOver (false);
             t->position = 0.0;
-            TapeEngine eng;
+            auto engine = std::make_unique<TapeEngine>();   // on the heap: main() already holds many decks
+            auto& eng = *engine;
             eng.prepare (sr, bs);
             eng.setReadOnly (true);
             eng.params.nrOn = false;
