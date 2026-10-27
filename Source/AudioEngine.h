@@ -255,6 +255,11 @@ private:
 
     juce::PropertiesFile& props;
     tfmt::DeckDescription machineBase;   // what the atomics don't hold: identity, capabilities, condition name
+public:
+    /** The mixer's own noise (the machine's electronics, .deck "electronics"): dB re 0 VU, unweighted. */
+    std::atomic<float> channelNoiseDb { -76.0f }, busNoiseDb { -90.0f };
+private:
+    Noise busRngL { 0x6b43a9b5u }, busRngR { 0x1b873593u };
     std::string lastSavedMachine;
 
     juce::SpinLock tapeLock;

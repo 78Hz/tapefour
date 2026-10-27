@@ -52,6 +52,7 @@ private:
     int side = 0;
     double fraction = 0.0;
     float angleL = 0.0f, angleR = 0.0f;
+    float stepL = 0.0f, stepR = 0.0f;   // how far each hub turned since the last frame: winding blurs it
 
     // the images at the size they're drawn
     juce::Image back, front, hub;

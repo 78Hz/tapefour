@@ -66,7 +66,7 @@ private:
     float fraction = 0.0f, fullPackUnits = 440.0f;
     double lastPos = -1.0;
     const Tape* lastTape = nullptr;
-    float angleL = 0.0f, angleR = 0.0f;
+    float angleL = 0.0f, angleR = 0.0f, stepL = 0.0f, stepR = 0.0f;
     bool hasTape = false;
     int model = defaultTapeModel, minutes = 30, side = 0;
     const char* sideLetter() const noexcept { return side == 0 ? "A" : "B"; }

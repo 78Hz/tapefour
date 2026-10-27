@@ -174,6 +174,18 @@ int main()
             same = same && slurp (folder / pathFromUtf8 (name)) == slurp (out / pathFromUtf8 (name));
         check (same && ! fs::exists (out / "session.xml"), "cassette: every file comes back byte for byte");
 
+        // Exported rewound (a master tape): the copy's state says it's at the start; the folder's doesn't change.
+        auto rewoundCass = root / "rewound.cass";
+        const double start = -150000.0;
+        CassetteState before, after;
+        readState (folder, before, err);
+        auto rewoundOut = root / "rewound";
+        check (packCassette (folder, rewoundCass, err, &start) && unpackCassette (rewoundCass, rewoundOut, err)
+                   && readState (rewoundOut, after, err) && sameNumber (after.position, start),
+               "cassette: packed rewound, its state is at the start of the tape");
+        CassetteState still;
+        check (readState (folder, still, err) && sameNumber (still.position, before.position), "cassette: ... and the cassette it came from is where it was");
+
         // A cassette whose description is damaged is refused before anything is unpacked.
         auto bad = root / "bad";
         fs::create_directories (bad);
@@ -195,6 +207,11 @@ int main()
         d.speedsIps = { 1.875, 3.75 };
         d.applyCondition ("worn");
         d.honoursTapeCondition = false;
+        d.transport.windSecondsC60 = 95.0;
+        d.cue.levelDb = -20.0;
+        d.counter.kind = "realtime";
+        d.electronics.channelNoiseDb = -72.0;
+        d.electronics.busNoiseDb = -88.0;
         std::string err;
         auto file = root / "tf4.deck";
         check (writeDeck (file, d, err), "deck: written");
@@ -203,6 +220,9 @@ int main()
                    && sameNumber (back.heads.cutoffHz, d.heads.cutoffHz) && back.condition == "worn" && ! back.honoursTapeCondition
                    && back.speedsIps == d.speedsIps && back.nrSystems == d.nrSystems,
                "deck: reads back");
+        check (sameNumber (back.transport.windSecondsC60, 95.0) && sameNumber (back.cue.levelDb, -20.0) && back.counter.kind == "realtime"
+                   && sameNumber (back.electronics.channelNoiseDb, -72.0) && sameNumber (back.electronics.busNoiseDb, -88.0),
+               "deck: its wind time, cue, counter and electronics' noise read back");
         spit (file, "{\"format\":\"deck\",\"version\":1,\"transport\":{\"wowPct\":900}}");
         check (readDeck (file, back, err) && back.transport.wowPct <= 5.0, "deck: impossible values are kept to what a machine can be");
     }

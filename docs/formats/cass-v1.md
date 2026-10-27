@@ -111,7 +111,24 @@ Readers must keep members they don't know when they rewrite the file.
 
 - **writeProtect**: a tab broken out. A deck must not record on that side. A 4-track
   cassette is recorded through side A's tab.
-- **position**: where the tape is wound to, in cells along it.
+- **position**: where the tape is wound to, in cells along it from the start of side A's
+  recordable tape. A cassette has a clear leader at each end (see Leaders), so a fully rewound
+  cassette is at `-leader₀` and one wound to the end at `cellsPerTrack + leader₁`.
+
+## Leaders
+
+Each end of the tape is a clear leader a few seconds long: no oxide, so nothing records on it
+and it doesn't hiss. Their lengths aren't stored; every reader works them out from the
+cassette's `id`, so a cassette has the same leaders wherever it is played:
+
+```
+h = 2166136261
+for each byte b of the id (UTF-8):  h = (h xor b) * 16777619          (all mod 2^32)
+h = (h xor ((end + 1) * 0x9e3779b9)) * 16777619;  h = h xor (h >> 15)
+leader seconds = 3 + 3 * (h mod 10000) / 9999                          (end 0: before side A, 1: after it)
+```
+
+Cells of leader are seconds × `cellRate`.
 - **summary**: how far it is recorded and on how many tracks, so a list of cassettes needn't
   read every map. It can always be worked out again from the maps.
 
@@ -126,10 +143,18 @@ no hiss, and is laid out by tape position, not time.
 
 | Byte | Meaning |
 | --- | --- |
-| 0 | Flags. Bit 0: recorded. Bit 1: NR-encoded. Bits 2–3: tape switch position it was recorded at + 1 (1 normal, 2 chrome, 3 metal; 0 unknown). Bits 4–6: NR system + 1 (1 2:1 compander, 2 sliding band B, 3 sliding band C; 0 unknown). Bit 7: reserved, 0. |
+| 0 | Flags. Bit 0: recorded. Bit 1: NR-encoded. Bits 2–3: tape switch position it was recorded at + 1 (1 normal, 2 chrome, 3 metal; 0 unknown). Bits 4–6: NR system + 1 (1 the 2:1 compander, as dbx type II; 2 B-type, as Dolby B; 3 C-type, as Dolby C; 0 unknown): what the audio was encoded with, to be decoded with the same (see below). Bit 7: reserved, 0. |
 | 1 | Recorder: index into `recorders`, from 1. 0: unknown. |
 | 2–3 | Speed it was recorded at, relative to the reference speed × 1000, little-endian (1000 = 1⅞ ips, 2000 = 3¾ ips, varispeed included). |
 | 4–5 | The day it was recorded: days since 2000-01-01 (UTC), little-endian. 0: unknown. Print-through grows from here. |
+
+**Noise reduction.** Encoded stretches hold what the encoder put on tape, at the level where a
+sine at Dolby level (200 nWb/m) has a peak of 0.2512 × the 16-bit full scale × `fluxScale`.
+The systems are defined as the published ones: B-type is Dolby B (its encode response is Dolby
+Laboratories' average encoder table, the Signetics NE645/646 data sheet), C-type is Dolby C
+(the Philips TEA0665's record-mode characteristics), and the 2:1 compander is dbx type II.
+`Source/NoiseReduction.{h,cpp}` is the reference encoder and decoder; `docs/noise-reduction.md`
+gives the sources and how closely it matches them.
 
 ## wear.bin
 
@@ -164,7 +189,7 @@ A player draws five layers, back to front:
   "layers": { "back": "art/back.png", "front": { "A": "art/front-a.png", "B": "art/front-b.png" },
               "hub": { "image": "art/hub.png", "size": 224 } },
   "reels": [ { "x": 292, "y": 300 }, { "x": 712, "y": 300 } ],
-  "pack": { "minDiameter": 216, "fullDiameter": 440, "inner": "#3a2618ff", "outer": "#160c06ff",
+  "pack": { "minDiameter": 220, "fullDiameter": 473, "inner": "#3a2618ff", "outer": "#160c06ff",
             "rings": { "colour": "#ffffff0b", "width": 2, "spacing": 26, "inset": 10, "stop": 104 } },
   "tape": { "colour": "#2c1a0eff", "width": 4,
             "guides": [ { "x": 118, "y": 586 }, { "x": 886, "y": 586 } ], "wrapRadius": 30 },
@@ -181,8 +206,11 @@ A player draws five layers, back to front:
   Informative; a writer uses it to know when to redraw its own looks. **labelText**: the label's
   writing as it appears on the front images.
 - **pack**: the tape wound on each hub is a disc centred on its reel. With a fraction `f` of the
-  tape on a hub (`1 − f` on the other; at the start of a side it is all on the left), its diameter
-  is `√(min² + (full² − min²) · f)`, so the tape's area is kept. It is filled with a radial
+  tape on a hub (`1 − f` on the other; at the start of a side it is all on the left, leader and
+  all), its diameter is `√(min² + (full² − min²) · f)`, so the tape's area is kept. `min` is the
+  hub's winding surface; `full` is every millimetre of this cassette's tape, leaders included,
+  wound on it: for its length L (mm) and thickness t (mm), `√(min² + 4 L t / π)`. The TF-4 uses
+  16 µm tape for a C-46 or C-60, 11 µm for a C-90. It is filled with a radial
   gradient from `inner` at the centre to `outer` at the edge. Rings of `rings.colour`,
   `rings.width` wide, are drawn every `rings.spacing` from `inset` inside the edge down to `stop`.
   Colours are `#rrggbbaa`.
@@ -190,7 +218,9 @@ A player draws five layers, back to front:
   that touches both the pack and the nearest guide (circles of radius `wrapRadius`), runs round
   the underside of each guide, and straight between their bottoms.
 - **hubs** turn anticlockwise as the tape moves from left to right (playing), each by the
-  length of tape that passed divided by its own pack's radius (at 1⅞ ips, 47.6 mm a second).
+  length of tape that passed divided by its own pack's radius (at 1⅞ ips, 47.6 mm a second):
+  the smaller pack turns faster. Winding, they turn faster than a screen can show, and a player
+  should blur them rather than let them strobe.
 - **Side B** up: draw the same layers with `front.B`. (A cassette turned over shows its other
   face; the shell's moulding is symmetrical, and its print and label are the ones on that face.)
 - A reader keeps members it doesn't know when it rewrites the file. Image names must lie

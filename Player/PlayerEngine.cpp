@@ -29,6 +29,9 @@ void PlayerEngine::setPocketMachine (TapeEngine::Machine& m)
     m.cutoffHz = 14000.0f;
     m.crosstalkDb = -60.0f;
     m.honoursTapeCondition = true;
+    m.windSecondsC60 = 110.0f;   // a portable's small motor winds a little slower than a deck
+    m.cueLevelDb = -18.0f;
+    m.cueSpacingUm = 3.0f;
 }
 
 juce::String PlayerEngine::start()
@@ -71,7 +74,7 @@ std::unique_ptr<Tape> PlayerEngine::load (std::unique_ptr<Tape> t, int sideUp, d
         engine.params.nrType = nr >= 0 ? nr : 1;
     }
     engine.setTape (tape.get(), false);
-    const auto at = tape != nullptr ? juce::jlimit (0.0, (double) tape->getLengthCells(), where) : 0.0;
+    const auto at = tape != nullptr ? juce::jlimit (tape->startOfTape(), tape->endOfTape(), where) : 0.0;
     engine.seek (at);
     position = at;
     return old;
@@ -98,7 +101,7 @@ void PlayerEngine::turnOver()
     side = 1 - side;
     tape->turnOver (side == 1);
     engine.setTape (tape.get(), false);
-    const auto at = juce::jlimit (0.0, len, len - pos);   // side B's start is side A's end
+    const auto at = juce::jlimit (tape->startOfTape(), tape->endOfTape(), len - pos);   // the same place, seen from the other end
     engine.seek (at);
     position = at;
 }
@@ -111,7 +114,7 @@ double PlayerEngine::getPosition() const noexcept
 double PlayerEngine::getFraction() const noexcept
 {
     if (tape == nullptr) return 0.0;
-    return juce::jlimit (0.0, 1.0, position.load() / (double) tape->getLengthCells());
+    return tape->rightFraction (position.load());
 }
 
 void PlayerEngine::setVolume (int v) noexcept
@@ -158,13 +161,17 @@ void PlayerEngine::audioDeviceIOCallbackWithContext (const float* const*, int, f
     engine.endBlock();
     position = engine.getPosition();
 
-    // One stereo head: the deck's tracks 1 and 2 are left and right.
+    // One stereo head: the deck's tracks 1 and 2 are left and right, with the playback amplifier's
+    // own noise under them (before the volume, as in a portable's preamp).
     smoothedGain.setTargetValue (gain.load());
+    const auto hum = electronicsNoise.load();
     for (int i = 0; i < n; ++i)
     {
         const auto g = smoothedGain.getNextValue();
-        if (numOut > 0 && out[0] != nullptr) out[0][i] = outs[0][(size_t) i] * g;
-        if (numOut > 1 && out[1] != nullptr) out[1][i] = outs[1][(size_t) i] * g;
+        const auto l = outs[0][(size_t) i] + hum * 1.7320508f * noiseL.next();
+        const auto r = outs[1][(size_t) i] + hum * 1.7320508f * noiseR.next();
+        if (numOut > 0 && out[0] != nullptr) out[0][i] = l * g;
+        if (numOut > 1 && out[1] != nullptr) out[1][i] = r * g;
     }
 }
 } // namespace tf::pocket

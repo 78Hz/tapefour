@@ -124,6 +124,7 @@ juce_add_gui_app(TapeFour
 set(TAPEFOUR_ENGINE_SOURCES
     Source/Tape.cpp
     Source/TapeEngine.cpp
+    Source/NoiseReduction.cpp
     Source/TapeWriter.cpp
     Source/Blocks.cpp
     Source/MidiHub.cpp
@@ -225,6 +226,7 @@ if(TAPEFOUR_PLAYER)
         $<$<STREQUAL:${CMAKE_SYSTEM_NAME},iOS>:Player/SystemVolume_ios.mm>
         Source/Tape.cpp
         Source/TapeEngine.cpp
+        Source/NoiseReduction.cpp
         Source/LookView.cpp
         Source/CassetteComponent.cpp
         Source/DeckLookAndFeel.cpp)
@@ -277,17 +279,22 @@ if(TAPEFOUR_TESTS AND NOT TAPEFOUR_ONLY_PLAYER)
         target_link_options(${name} PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/STACK:16777216>)
     endfunction()
 
+    # The noise reduction models on their own, measured against the published responses.
+    add_executable(NoiseReductionTest Tests/NoiseReductionTest.cpp Source/NoiseReduction.cpp)
+    target_link_libraries(NoiseReductionTest PRIVATE juce::juce_recommended_warning_flags)
+    set_target_properties(NoiseReductionTest PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/NoiseReductionTest_artefacts/$<CONFIG>)
+
     # The format library on its own, without JUCE.
     add_executable(FormatTest Tests/FormatTest.cpp)
     target_link_libraries(FormatTest PRIVATE tapeformats juce::juce_recommended_warning_flags)
     set_target_properties(FormatTest PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/FormatTest_artefacts/$<CONFIG>)
 
-    tapefour_test(EngineTest Tests/EngineTest.cpp Source/Tape.cpp Source/TapeEngine.cpp)
+    tapefour_test(EngineTest Tests/EngineTest.cpp Source/Tape.cpp Source/TapeEngine.cpp Source/NoiseReduction.cpp)
     tapefour_test(MixerTest Tests/MixerTest.cpp ${TAPEFOUR_ENGINE_SOURCES})
     tapefour_test(ScanTest Tests/ScanTest.cpp Source/PluginScan.cpp Source/ClapFormat.cpp)
     if(TAPEFOUR_PLAYER)
         tapefour_test(PlayerTest Tests/PlayerTest.cpp Player/PlayerEngine.cpp Player/Library.cpp
-                      Source/Tape.cpp Source/TapeEngine.cpp Source/LookView.cpp Source/CassetteComponent.cpp Source/DeckLookAndFeel.cpp)
+                      Source/Tape.cpp Source/TapeEngine.cpp Source/NoiseReduction.cpp Source/LookView.cpp Source/CassetteComponent.cpp Source/DeckLookAndFeel.cpp)
         target_link_libraries(PlayerTest PRIVATE TapeFourFonts)
     endif()
 

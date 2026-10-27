@@ -520,17 +520,32 @@ std::vector<std::string> cassetteFiles (const fs::path& folder, const CassetteIn
     return present;
 }
 
-bool packCassette (const fs::path& folder, const fs::path& cassFile, std::string& error)
+bool packCassette (const fs::path& folder, const fs::path& cassFile, std::string& error, const double* rewindTo)
 {
     CassetteInfo info;
     if (! readManifest (folder, info, error)) return false;
+
+    // Rewound: the copy goes out with its tape wound back to the start.
+    std::string rewoundState;
+    if (rewindTo != nullptr)
+    {
+        CassetteState st;
+        if (! readState (folder, st, error)) return false;
+        st.position = *rewindTo;
+        rewoundState = toJson (st).dump();
+    }
 
     auto tmp = cassFile;
     tmp += ".tmp";
     {
         ZipWriter zip (tmp);
         for (auto& name : cassetteFiles (folder, info))
-            zip.addFile (name, folder / pathFromUtf8 (name));
+        {
+            if (rewindTo != nullptr && name == CassFiles::state)
+                zip.addData (name, rewoundState.data(), rewoundState.size());
+            else
+                zip.addFile (name, folder / pathFromUtf8 (name));
+        }
         if (! zip.finish()) { error = zip.error(); std::error_code ec; fs::remove (tmp, ec); return false; }
     }
     std::error_code ec;

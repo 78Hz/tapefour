@@ -31,6 +31,9 @@ jobs:
       - name: Test the cassette and deck formats
         run: build/FormatTest_artefacts/Release/FormatTest.exe
 
+      - name: Test the noise reduction against the published responses
+        run: build/NoiseReductionTest_artefacts/Release/NoiseReductionTest.exe
+
       - name: Test the tape engine
         run: build/EngineTest_artefacts/Release/EngineTest.exe
 
@@ -91,6 +94,9 @@ jobs:
       - name: Test the cassette and deck formats
         run: build/FormatTest_artefacts/Release/FormatTest
 
+      - name: Test the noise reduction against the published responses
+        run: build/NoiseReductionTest_artefacts/Release/NoiseReductionTest
+
       - name: Test the tape engine
         run: xvfb-run -a build/EngineTest_artefacts/Release/EngineTest
 
@@ -145,6 +151,9 @@ jobs:
 
       - name: Test the cassette and deck formats
         run: build/FormatTest_artefacts/Release/FormatTest
+
+      - name: Test the noise reduction against the published responses
+        run: build/NoiseReductionTest_artefacts/Release/NoiseReductionTest
 
       - name: Test the tape engine
         run: build/EngineTest_artefacts/Release/EngineTest
@@ -299,7 +308,7 @@ jobs:
       - name: Build the tests
         run: |
           set -o pipefail
-          cmake --build build --parallel --target FormatTest EngineTest MixerTest PlayerTest 2>&1 | tee build.log || {
+          cmake --build build --parallel --target FormatTest NoiseReductionTest EngineTest MixerTest PlayerTest 2>&1 | tee build.log || {
             # Compile errors as annotations, so they show on the run's page without the log.
             grep -E ": (fatal )?error:|^ld: |Undefined symbols|undefined reference|error LNK|: error [A-Z]+[0-9]+" build.log | sort -u | head -10 | sed 's/^/::error::/'
             exit 1; }
@@ -311,6 +320,7 @@ jobs:
           TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1:suppressions=${{ github.workspace }}/Tests/tsan.supp
         run: |
           build/FormatTest_artefacts/RelWithDebInfo/FormatTest
+          build/NoiseReductionTest_artefacts/RelWithDebInfo/NoiseReductionTest
           xvfb-run -a build/EngineTest_artefacts/RelWithDebInfo/EngineTest
           xvfb-run -a build/MixerTest_artefacts/RelWithDebInfo/MixerTest
           xvfb-run -a build/PlayerTest_artefacts/RelWithDebInfo/PlayerTest

@@ -15,6 +15,7 @@ struct CassetteEntry
     int side = 0;
     double position = 0;       // cells from the start of the side facing up
     double lengthCells = 0;
+    double fraction = 0;       // how much of the tape is on the right-hand spool (for drawing it)
     juce::int64 lastPlayed = 0;   // ms since 1970
 };
 

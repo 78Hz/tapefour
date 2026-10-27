@@ -115,9 +115,13 @@ void LookView::setPlayed (double f, double tapeSecondsMoved)
         // anticlockwise as the tape runs from left to right.
         auto moved = (float) (tapeSecondsMoved * 476.0);
         auto rL = (float) tfmt::packDiameter (art.look, 1.0 - f) * 0.5f, rR = (float) tfmt::packDiameter (art.look, f) * 0.5f;
-        angleL = std::fmod (angleL - moved / rL, juce::MathConstants<float>::twoPi);
-        angleR = std::fmod (angleR - moved / rR, juce::MathConstants<float>::twoPi);
+        stepL = -moved / rL;
+        stepR = -moved / rR;
+        angleL = std::fmod (angleL + stepL, juce::MathConstants<float>::twoPi);
+        angleR = std::fmod (angleR + stepR, juce::MathConstants<float>::twoPi);
     }
+    else
+        stepL = stepR = 0.0f;
     if (juce::exactlyEqual (f, fraction) && juce::exactlyEqual (tapeSecondsMoved, 0.0)) return;
     fraction = f;
     repaint();
@@ -208,11 +212,22 @@ void LookView::paint (juce::Graphics& g)
     for (int i = 0; i < 2; ++i)
     {
         auto c = reels[i];
-        auto t = juce::AffineTransform::scale (hubPx / (float) hub.getWidth())
-                     .translated (-hubPx * 0.5f, -hubPx * 0.5f)
-                     .rotated (i == 0 ? angleL : angleR)
-                     .translated (c.x, c.y);
-        g.drawImageTransformed (hub, t);
+        const auto angle = i == 0 ? angleL : angleR, step = i == 0 ? stepL : stepR;
+        // Winding, a hub turns too far between frames to be seen: the eye sees a blur, not a
+        // wheel stopping or running backwards. Draw it at the angles it passed through, averaged.
+        const auto spread = std::min (std::abs (step), juce::MathConstants<float>::twoPi);
+        const int copies = spread < 0.12f ? 1 : juce::jlimit (2, 16, (int) std::ceil (spread / 0.08f));
+        for (int n = 0; n < copies; ++n)
+        {
+            const auto a = angle - step * (copies > 1 ? (float) n / (float) (copies - 1) : 0.0f) * (spread / std::max (1.0e-6f, std::abs (step)));
+            auto t = juce::AffineTransform::scale (hubPx / (float) hub.getWidth())
+                         .translated (-hubPx * 0.5f, -hubPx * 0.5f)
+                         .rotated (a)
+                         .translated (c.x, c.y);
+            g.setOpacity (1.0f / (float) (n + 1));   // each new copy weighs the same as those before it
+            g.drawImageTransformed (hub, t);
+        }
+        g.setOpacity (1.0f);
     }
 
     // 5. everything in front

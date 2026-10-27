@@ -70,7 +70,8 @@ void ChannelStrip::process (const float* tape, const float* live, float* out, in
                 liveMix = liveTarget > liveMix ? std::min (liveTarget, liveMix + liveStep) : std::max (liveTarget, liveMix - liveStep);
 
             // The trim only acts on the live input; the tape comes back at the level it was recorded.
-            const auto x = tape[k] * (1.0f - liveMix) + live[k] * liveMix * (trim0 + (trim1 - trim0) * f);
+            auto x = tape[k] * (1.0f - liveMix) + live[k] * liveMix * (trim0 + (trim1 - trim0) * f);
+            if (c.noiseRms > 0.0f) x += c.noiseRms * 1.7320508f * noise.next();   // uniform noise: RMS 1/sqrt 3
             out[k] = eq[2].process (eq[1].process (eq[0].process (x))) * (fad0 + (fad1 - fad0) * f);
         }
         trimGain = trim1;

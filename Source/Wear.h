@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include "Geometry.h"
 
 namespace tf::Wear
 {
@@ -50,7 +51,7 @@ inline float printThroughDb (float yearsSinceRecorded) noexcept
     start outermost (rewound for storage): from a full pack's circumference down to the hub's. */
 inline double turnCells (double fractionAlong, float fullPackMm, int cellsPerSecond) noexcept
 {
-    constexpr double hubRadiusMm = 11.0, speedMmPerSecond = 47.625;   // 1 7/8 ips
+    constexpr double hubRadiusMm = Geometry::hubRadiusMm, speedMmPerSecond = Geometry::speedMmPerSecond;
     const double outer = std::max (hubRadiusMm + 1.0, (double) fullPackMm * 0.5);
     const double r = std::sqrt (outer * outer - (outer * outer - hubRadiusMm * hubRadiusMm) * std::clamp (fractionAlong, 0.0, 1.0));
     return 2.0 * 3.14159265358979 * r / speedMmPerSecond * cellsPerSecond;

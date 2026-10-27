@@ -76,11 +76,21 @@ Tape::Tape (int typeIndex, int modelIndex, const tfmt::Condition& c)
     recorders = { tf4DeckId };
     currentRecorder = 1;
     seed = fnv1a (id);
+    placeLeaders();
+    position = -leader[0];   // a new cassette comes rewound, its leader across the heads
     madeDay = tfmt::dayNumberOf (str (createdIso));
     setCondition (c);
 }
 
 Tape::Tape (const tfmt::CassetteInfo& info) : Tape (info, true) {}
+
+void Tape::placeLeaders() noexcept
+{
+    const auto utf8 = id.toStdString();
+    for (int e = 0; e < 2; ++e)
+        leader[e] = Geometry::leaderSeconds (utf8.c_str(), e) * cellRate;
+    fullPack = (float) Geometry::fullPackDiameterMm (typeInfo.minutes, (leader[0] + leader[1]) / cellRate);
+}
 
 Tape::Tape (const tfmt::CassetteInfo& info, bool withTracks)
 {
@@ -92,7 +102,7 @@ Tape::Tape (const tfmt::CassetteInfo& info, bool withTracks)
     {
         lengthName = "C-" + std::to_string (info.minutesPerSide * 2);
         typeInfo.name = lengthName.c_str();
-        typeInfo.fullPackMm = juce::jlimit (34.0f, 56.0f, 40.0f + (float) (info.minutesPerSide - 23) * (8.0f / 22.0f));
+        typeInfo.fullPackMm = (float) Geometry::fullPackDiameterMm (info.minutesPerSide, 9.0);
     }
 
     // The formulation: one of ours, or the numbers it brings with it.
@@ -146,6 +156,7 @@ Tape::Tape (const tfmt::CassetteInfo& info, bool withTracks)
     recorders = info.recorders;
     unknownManifest = info.unknown;
     seed = fnv1a (id);
+    placeLeaders();
     madeDay = tfmt::dayNumberOf (info.created);
     setCondition (info.condition);
 }
@@ -249,7 +260,7 @@ std::unique_ptr<Tape> Tape::openPacked (const juce::File& cassFile, juce::String
         }
     }
     for (int sec = 0; sec < tape->numSeconds; ++sec) tape->passesAt (sec) = p.wear[(size_t) sec];
-    tape->position = juce::jlimit (0.0, (double) tape->lengthCells, p.state.position);
+    tape->position = juce::jlimit (-tape->leader[0], (double) tape->lengthCells + tape->leader[1], p.state.position);
     tape->protectA = p.state.protectA;
     tape->protectB = p.state.protectB;
     tape->dataDirty = false;
@@ -529,10 +540,8 @@ static void readSession (Tape& tape, const juce::File& folder)
     {
         if (auto* td = x->getChildByName ("TAPE_DECK"))
         {
-            // It was left in the deck side B up: turned before the counter, which counts as the deck does
-            // (and, kept reading the same number when the tape was turned, can lie off either end of it).
+            // It was left in the deck side B up. (The counter is the machine's: it isn't kept with the tape.)
             tape.turnOver (td->getBoolAttribute ("sideB", false));
-            tape.counterZero = juce::jlimit (-(double) tape.getLengthCells(), 2.0 * (double) tape.getLengthCells(), td->getDoubleAttribute ("counterZero"));
         }
         tape.session = std::move (x);
     }
@@ -578,7 +587,7 @@ std::unique_ptr<Tape> Tape::loadCassette (const juce::File& folder, bool playing
     tfmt::CassetteState st;
     if (tfmt::readState (pathOf (folder), st, err))
     {
-        tape->position = juce::jlimit (0.0, (double) tape->lengthCells, st.position);
+        tape->position = juce::jlimit (-tape->leader[0], (double) tape->lengthCells + tape->leader[1], st.position);
         tape->protectA = st.protectA;
         tape->protectB = st.protectB;
         tape->unknownState = st.unknown;
@@ -664,9 +673,9 @@ std::unique_ptr<Tape> Tape::loadLegacy (const juce::File& folder)
 
     tape->id          = xml->getStringAttribute ("id", tape->id);
     tape->seed        = fnv1a (tape->id);
+    tape->placeLeaders();
     tape->name        = xml->getStringAttribute ("name");
-    tape->position    = juce::jlimit (0.0, (double) tape->lengthCells, xml->getDoubleAttribute ("position"));
-    tape->counterZero = juce::jlimit (0.0, (double) tape->lengthCells, xml->getDoubleAttribute ("counterZero"));
+    tape->position    = juce::jlimit (-tape->leader[0], (double) tape->lengthCells + tape->leader[1], xml->getDoubleAttribute ("position"));
     tape->madeBy      = "TAPE-FOUR (before the cassette format)";
     {
         // "27 OCT 2026" -> ISO; the time of day wasn't kept.
@@ -736,14 +745,9 @@ std::unique_ptr<Tape> Tape::loadLegacy (const juce::File& folder)
         }
     }
 
-    // The session: the old deck file, with the counter's zero now kept in it.
+    // The session: the old deck file.
     if (deckXml != nullptr)
-    {
-        auto* td = deckXml->getChildByName ("TAPE_DECK");
-        if (td == nullptr) td = deckXml->createNewChildElement ("TAPE_DECK");
-        td->setAttribute ("counterZero", tape->counterZero.load());
         tape->session = std::move (deckXml);
-    }
 
     // Convert: the cassette's files, then the old ones kept aside (the track audio is the same).
     tape->dataDirty = false;

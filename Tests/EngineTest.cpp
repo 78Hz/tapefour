@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include "../Source/TapeEngine.h"
 #include "../Source/Wear.h"
+#include "../Source/Geometry.h"
 #include "Cassette.h"
 #include <cstdio>
 #include <complex>
@@ -38,6 +39,7 @@ struct Rig
         auto& m = eng.machine;
         m.wowPct = 0; m.flutterPct = 0; m.driftPct = 0; m.cutoffHz = 20000.0f; m.crosstalkDb = -120.0f;
         eng.setHissForTests (false);
+        tape.position = 0.0;   // past the leader: the measurements start where the oxide does
         eng.setTape (&tape);
     }
 
@@ -106,27 +108,58 @@ double tone (const std::vector<float>& v, double hz, double from, double to)
 }
 
 // A-weighted RMS, written out from IEC 61672 pole frequencies independently of the engine's own.
+// A-weighted RMS of v between two times, from its spectrum (IEC 61672's A-curve, exactly):
+// averaged periodograms of Hann-windowed blocks.
 double aWeighted (const std::vector<float>& v, double from, double to)
 {
-    auto f = [] (double hz) { return std::exp (-juce::MathConstants<double>::twoPi * hz / sr); };
-    // four poles at 20.6 Hz (2), 107.7, 737.9 as one-pole high-passes; two at 12194 Hz as one-pole low-passes
-    double hpA[4] { f (20.6), f (20.6), f (107.7), f (737.9) }, lpA = f (12194.0);
-    double xs[4] {}, ys[4] {}, l1 = 0, l2 = 0;
-    auto run = [&] (double x)
+    constexpr int N = 8192;
+    auto ra = [] (double x)
     {
-        for (int k = 0; k < 4; ++k) { auto y = hpA[k] * (ys[k] + x - xs[k]); xs[k] = x; ys[k] = y; x = y; }
-        l1 = x * (1 - lpA) + l1 * lpA; l2 = l1 * (1 - lpA) + l2 * lpA;
-        return l2;
+        const auto f2 = x * x;
+        return 12194.0 * 12194.0 * f2 * f2 / ((f2 + 20.6 * 20.6) * std::sqrt ((f2 + 107.7 * 107.7) * (f2 + 737.9 * 737.9)) * (f2 + 12194.0 * 12194.0));
     };
-    // gain at 1 kHz, to normalise
-    double g1 = 0; { double s2 = 0; for (int i = 0; i < (int) sr * 2; ++i) { auto y = run (std::sin (juce::MathConstants<double>::twoPi * 1000.0 * i / sr)); if (i > sr) s2 += y * y; } g1 = std::sqrt (s2 / sr) * std::sqrt (2.0); }
-    for (auto& x : xs) x = 0;
-    for (auto& y : ys) y = 0;
-    l1 = l2 = 0;
-    auto a = (size_t) (from * sr), b = std::min (v.size(), (size_t) (to * sr));
-    double s2 = 0; size_t n = 0;
-    for (size_t i = 0; i < b; ++i) { auto y = run (v[i]); if (i >= a) { s2 += y * y; ++n; } }
-    return std::sqrt (s2 / (double) std::max<size_t> (1, n)) / g1;
+    const auto a0 = (size_t) (from * sr), a1 = std::min (v.size(), (size_t) (to * sr));
+    std::vector<std::complex<double>> buf (N);
+    std::vector<double> win (N);
+    double wsum2 = 0;
+    for (int i = 0; i < N; ++i) { win[(size_t) i] = 0.5 - 0.5 * std::cos (juce::MathConstants<double>::twoPi * i / N); wsum2 += win[(size_t) i] * win[(size_t) i]; }
+    double total = 0;
+    int blocks = 0;
+    for (size_t start = a0; start + N <= a1; start += N / 2)
+    {
+        for (int i = 0; i < N; ++i) buf[(size_t) i] = v[start + (size_t) i] * win[(size_t) i];
+        // radix-2 FFT
+        for (int i = 1, j = 0; i < N; ++i)
+        {
+            int bit = N >> 1;
+            for (; j & bit; bit >>= 1) j ^= bit;
+            j ^= bit;
+            if (i < j) std::swap (buf[(size_t) i], buf[(size_t) j]);
+        }
+        for (int len = 2; len <= N; len <<= 1)
+        {
+            const auto w = std::polar (1.0, -juce::MathConstants<double>::twoPi / len);
+            for (int i = 0; i < N; i += len)
+            {
+                std::complex<double> wk (1.0);
+                for (int k = 0; k < len / 2; ++k, wk *= w)
+                {
+                    auto u = buf[(size_t) (i + k)], t = wk * buf[(size_t) (i + k + len / 2)];
+                    buf[(size_t) (i + k)] = u + t;
+                    buf[(size_t) (i + k + len / 2)] = u - t;
+                }
+            }
+        }
+        double p = 0;
+        for (int k = 1; k < N / 2; ++k)
+        {
+            const auto g = ra (k * sr / N) / ra (1000.0);
+            p += 2.0 * std::norm (buf[(size_t) k]) * g * g;
+        }
+        total += p / (N * wsum2);
+        ++blocks;
+    }
+    return std::sqrt (total / std::max (1, blocks));
 }
 } // namespace
 
@@ -216,15 +249,16 @@ int main()
         renderWear (juce::File (juce::String (dir)));
         return 0;
     }
-    {   // 0. The split into cassette and machine changed nothing it shouldn't have. These numbers were
-        //    recorded and played by the engine before the split, with its old defaults (hiss 0.55, wow 0.30,
-        //    flutter 0.25, drive 0.5, HF loss 0.20, crosstalk 0.30, drift 0.20, NR on, no dropouts). The same
-        //    settings, as they convert, must give the same sound.
-        static const double before[] { 457.5322862, 492.060268, 492.0634275, 492.4476368, 493.1673327, 491.6123144,
-                                       491.6096707, 490.965613, 491.3987192, 463.57769, 7.865097508e-09, 7.598422481e-09,
-                                       8.935458353e-09, 1.080143634e-08, 6.399276531e-09, 8.220858832e-09, 8.95409076e-09,
-                                       6.984399025e-09, 1.011320478e-08, 8.652631648e-09 };
-        Rig r;
+    {   // 0. Old settings convert to the same sound. These numbers are what the engine gives for the old
+        //    defaults (hiss 0.55, wow 0.30, flutter 0.25, drive 0.5, HF loss 0.20, crosstalk 0.30, drift 0.20,
+        //    NR on, no dropouts), set as the conversion sets them. They were taken again when the noise
+        //    reduction became the published designs and the hiss became the tape's flux noise (both change
+        //    the sound on purpose); the conversion itself hasn't changed. TAPEFOUR_PRINT_SIGNATURE prints them.
+        static const double before[] { 135.9133203, 459.1762088, 505.6677513, 509.4223141, 509.3534057, 508.0284143,
+                                       508.3333211, 507.178749, 507.5792281, 478.0421973, 6.511719619e-09, 6.458637835e-09,
+                                       6.548582075e-09, 7.025006404e-09, 6.600791396e-09, 6.77043772e-09, 6.762751011e-09,
+                                       6.760902855e-09, 6.540731284e-09, 6.581459366e-09 };
+        Rig r;   // (the first engine this program makes: its noise starts from the same seed every run)
         tfmt::Condition c;
         c.hissDb = (0.55 - 0.5) * 24.0;   // the old HISS control
         r.tape.setCondition (c);
@@ -234,6 +268,8 @@ int main()
         m.cutoffHz = (float) (20000.0 * std::pow (0.25, 0.20)); m.crosstalkDb = -80.0f + 0.30f * 50.0f;
         r.eng.params.nrOn = true;
         auto now = characterSignature (r);
+        if (std::getenv ("TAPEFOUR_PRINT_SIGNATURE") != nullptr)
+            for (auto v : now) std::printf ("%.10g, ", v);
         double worst = 0;
         for (size_t k = 0; k < now.size(); ++k)
             worst = std::max (worst, std::abs (now[k] - before[k]) / before[k]);
@@ -281,9 +317,8 @@ int main()
         check (t != nullptr && std::abs (t->getCondition().hissDb - 6.0) < 1e-6 && std::abs (t->getCondition().dropoutsPerMinute - 14.7) < 1e-6
                    && t->getCondition().grade == "chewed",
                "legacy: its old hiss and dropouts become the cassette's condition", t != nullptr ? t->getCondition().dropoutsPerMinute : -1, 14.7);
-        check (t != nullptr && std::abs (t->counterZero.load() - 64000.0) < 1e-6 && t->session != nullptr
-                   && std::abs (t->session->getChildByName ("TAPE_DECK")->getDoubleAttribute ("counterZero") - 64000.0) < 1e-6,
-               "legacy: the old deck file becomes the session, with the counter's zero", 1, 1);
+        check (t != nullptr && t->session != nullptr && t->session->getChildByName ("TAPE_DECK") != nullptr,
+               "legacy: the old deck file becomes the session", 1, 1);
         check (dir.getChildFile (tfmt::CassFiles::manifest).existsAsFile() && dir.getChildFile ("session.xml").existsAsFile()
                    && dir.getChildFile ("tape-v2.xml.bak").existsAsFile() && ! dir.getChildFile ("tape.xml").existsAsFile(),
                "legacy: converted in place, the old files kept aside", 1, 1);
@@ -410,12 +445,11 @@ int main()
         r.tape.session = std::make_unique<juce::XmlElement> ("DECK");
         auto* td = r.tape.session->createNewChildElement ("TAPE_DECK");
         td->setAttribute ("sideB", true);
-        td->setAttribute ("counterZero", -100.0);
         r.tape.sessionNeedsWriting = true;
         const auto deckPos = r.tape.position.load();
         r.tape.save (dir);
         auto back = Tape::load (dir);
-        check (back != nullptr && back->isTurnedOver() && std::abs (back->position.load() - deckPos) < 1.0 && std::abs (back->counterZero.load() + 100.0) < 1e-6,
+        check (back != nullptr && back->isTurnedOver() && std::abs (back->position.load() - deckPos) < 1.0,
                "turning over: saved side B up, it loads side B up, where it was", back != nullptr ? back->position.load() / cellRate : -1, deckPos / cellRate);
         check (back != nullptr && back->isRecorded (0, back->blockAt ((double) len - 5.5 * cellRate)),
                "turning over: and plays side B's recording on track 1 again", 1, 1);
@@ -475,8 +509,9 @@ int main()
             Rig r;
             r.eng.params.nrOn = true;
             r.eng.params.nrType = type;
-            // quiet and bright, so every type of compander has work to do
-            r.run (2.0, TapeEngine::Command::rec, true, 5000.0, 0.01f);
+            // quiet, in the band every type works on (and where the tape's own response is flat, so
+            // the decoders have no treble error of the tape's to enlarge)
+            r.run (2.0, TapeEngine::Command::rec, true, 2000.0, 0.01f);
             r.rewindTo (0);
             auto out = r.run (2.0, TapeEngine::Command::play, false, 0, 0);
             auto lvl = db (rms (out, 0.5, 1.5) / (0.01 / std::sqrt (2.0)));
@@ -631,9 +666,9 @@ int main()
         check (tenYears > aYear + 2.0 && tenYears < -48.0, "age: after ten years a little more, still faint", tenYears, -51.9);
     }
 
-    {   // 7. end of tape stops the transport
+    {   // 7. the end of the tape (the end of the leader after it) stops the transport
         Rig r;
-        r.rewindTo ((double) r.tape.getLengthCells() - cellRate * 0.5);
+        r.rewindTo (r.tape.endOfTape() - cellRate * 0.5);
         r.run (1.0, TapeEngine::Command::play, false, 0, 0);
         check (r.eng.getMode() == Mode::stop && r.eng.takeEndOfTapeFlag(), "end of tape stops and flags", (int) r.eng.getMode(), 0);
     }
@@ -825,6 +860,120 @@ int main()
         gapRms = std::sqrt (gapRms / (cellRate * 0.25));
         check (maxStep < tone * 1.6f, "punch in/out: no step bigger than the tone's own", maxStep, tone);
         check (gapRms < 0.005, "punch: the punched-in stretch holds the new (silent) take", gapRms, 0.0);
+    }
+
+    {   // 12. Leaders: a few seconds at each end, the same for a cassette wherever it goes, no oxide on them.
+        Tape a (1, defaultTapeModel, tfmt::Condition()), b (1, defaultTapeModel, tfmt::Condition());
+        const auto la = a.leaderCells (0) / cellRate, lb = b.leaderCells (0) / cellRate, la1 = a.leaderCells (1) / cellRate;
+        check (la >= 3.0 && la <= 6.0 && la1 >= 3.0 && la1 <= 6.0, "leader: 3 to 6 seconds at each end", la, 4.5);
+        check (std::abs (la - lb) > 1.0e-6 || std::abs (la1 - b.leaderCells (1) / cellRate) > 1.0e-6, "leader: different from cassette to cassette", la - lb, 0.1);
+        check (std::abs (a.position.load() + a.leaderCells (0)) < 1.0e-6, "leader: a new cassette comes rewound, onto its leader", a.position.load() / cellRate, -la);
+        const auto expect = Geometry::leaderSeconds (a.id.toStdString().c_str(), 0);
+        check (std::abs (la - expect) < 1.0e-9, "leader: from the cassette's id (Geometry::leaderSeconds)", la, expect);
+
+        Rig r;
+        r.rewindTo (r.tape.startOfTape());
+        r.eng.setHissForTests (true);
+        auto out = r.run (2.0, TapeEngine::Command::rec, true, 1000.0, 0.2f);
+        check (! r.tape.isRecorded (0, 0) && std::abs (rms (out, 0.5, 1.9)) < 1.0e-6, "leader: nothing records on it, and it has no hiss", rms (out, 0.5, 1.9), 0.0);
+        auto later = r.run (r.tape.leaderCells (0) / cellRate, TapeEngine::Command::play, false, 0, 0);
+        auto onOxide = r.run (1.0, TapeEngine::Command::play, false, 0, 0);
+        check (rms (onOxide, 0.2, 0.9) > 1.0e-6, "leader: past it, the tape hisses", rms (onOxide, 0.2, 0.9), 1.0e-4);
+    }
+
+    {   // 13. Pack sizes: thinner tape in the longer cassettes, so a C-60 and a C-90 are nearly as full.
+        const auto c46 = Geometry::fullPackDiameterMm (23, 9.0), c60 = Geometry::fullPackDiameterMm (30, 9.0), c90 = Geometry::fullPackDiameterMm (45, 9.0);
+        check (c46 > 41.0 && c46 < 44.0 && c60 > 46.0 && c60 < 48.5 && std::abs (c90 - c60) < 1.5, "packs: C-46 about 43 mm, C-60 and C-90 about 47 mm", c60, 47.3);
+        check (std::abs (Geometry::packRadiusMm (0.5, c60) - std::sqrt ((11.0 * 11.0 + (c60 * c60 / 4.0)) / 2.0)) < 1.0e-9,
+               "packs: halfway, each pack holds half the tape's area", Geometry::packRadiusMm (0.5, c60), std::sqrt ((121.0 + c60 * c60 / 4.0) / 2.0));
+    }
+
+    {   // 14. Fast wind: the take-up spindle is driven, so the tape speeds up as its pack grows.
+        Rig r;
+        r.eng.machine.windSecondsC60 = 120.0f;
+        r.rewindTo (r.tape.startOfTape());
+        bool armed[numTracks] {};
+        r.eng.command (TapeEngine::Command::ff);
+        double t = 0, early = 0, late = 0;
+        while (r.eng.getMode() == Mode::ff || t < 0.1)
+        {
+            const auto p0 = r.eng.getPosition();
+            r.eng.beginBlock (bs, armed); r.eng.endBlock();
+            t += (double) bs / sr;
+            const auto v = (r.eng.getPosition() - p0) / bs * sr / cellRate;   // times play speed
+            if (t > 2.0 && t < 2.1) early = v;
+            if (r.tape.rightFraction (r.eng.getPosition()) > 0.97 && late <= 0.0) late = v;
+            if (t > 400) break;
+        }
+        check (std::abs (t - 120.0) < 6.0, "wind: a C-60 side winds end to end in the machine's 120 s", t, 120.0);
+        check (early > 7.0 && early < 11.0 && late > 18.0 && late < 23.0, "wind: about 9x play speed at the start, 20x at the end", late / early, 2.1);
+    }
+
+    {   // 15. Cue and review: PLAY while winding puts the head lightly on the tape.
+        Rig r;
+        for (int64_t c = 0; c < (int64_t) cellRate * 200; ++c)
+            r.tape.writeCell (0, c, 0.25f * (float) std::sin (juce::MathConstants<double>::twoPi * 100.0 * (double) c / cellRate), false, 0, 1.0f, 0);
+        r.rewindTo (cellRate * 10.0);
+        auto played = r.run (1.0, TapeEngine::Command::play, false, 0, 0);
+        r.eng.command (TapeEngine::Command::stop);
+        r.run (0.1, TapeEngine::Command::ff, false, 0, 0);
+        auto silent = r.run (1.0, TapeEngine::Command::none, false, 0, 0);
+        auto cue = r.run (1.0, TapeEngine::Command::play, false, 0, 0);
+        const auto level = db (rms (cue, 0.4, 0.95) / rms (played, 0.4, 0.95));
+        check (r.eng.isCueing() && r.eng.getMode() == Mode::ff && rms (silent, 0.2, 0.9) < 1.0e-9, "cue: PLAY while winding keeps winding, head on", rms (silent, 0.2, 0.9), 0.0);
+        check (level < -10.0 && level > -35.0, "cue: heard faintly (dB re playing)", level, -20.0);
+        r.run (0.1, TapeEngine::Command::rec, true, 0, 0);
+        check (r.eng.takeRecInCueFlag() && r.eng.getMode() == Mode::ff, "cue: REC is ignored, and says so", 1, 1);
+        r.run (0.1, TapeEngine::Command::rew, false, 0, 0);
+        check (r.eng.isCueing() && r.eng.getMode() == Mode::rew, "cue: the other direction reverses, still cueing (review)", r.eng.isCueing(), 1);
+        r.run (0.1, TapeEngine::Command::rew, false, 0, 0);
+        check (! r.eng.isCueing() && r.eng.getMode() == Mode::rew, "cue: the same direction lifts the head", r.eng.isCueing(), 0);
+        r.run (0.1, TapeEngine::Command::play, false, 0, 0);
+        r.run (0.1, TapeEngine::Command::play, false, 0, 0);
+        check (! r.eng.isCueing() && r.eng.getMode() == Mode::play, "cue: PLAY again plays", (int) r.eng.getMode(), (int) Mode::play);
+    }
+
+    {   // 16. The counter is the machine's: mechanical, driven by the take-up spindle (not linear in time).
+        Rig r;
+        r.eng.machine.counterRealtime = false;
+        r.eng.machine.countsPerTurn = 0.75f;
+        r.rewindTo (r.tape.startOfTape());
+        r.eng.resetCounter();
+        r.run (60.0, TapeEngine::Command::play, false, 0, 0);
+        const auto firstMinute = r.eng.getCounter();
+        r.rewindTo (r.tape.getLengthCells() - 120.0 * cellRate);
+        const auto before = r.eng.getCounter();
+        r.run (60.0, TapeEngine::Command::play, false, 0, 0);
+        const auto lastMinute = r.eng.getCounter() - before;
+        check (firstMinute > 1.6 * lastMinute, "counter: counts faster at the start of a side (a small take-up pack)", firstMinute / lastMinute, 2.0);
+        Tape other (1, defaultTapeModel, tfmt::Condition());
+        r.eng.setTape (&other);
+        check (std::abs (r.eng.getCounter() - (before + lastMinute)) < 1.0e-9, "counter: keeps its reading when the cassette changes", r.eng.getCounter(), before + lastMinute);
+        r.eng.setTape (&r.tape, false);
+        r.eng.machine.counterRealtime = true;
+        r.eng.resetCounter();
+        r.run (10.0, TapeEngine::Command::play, false, 0, 0);
+        check (std::abs (r.eng.getCounter() - 10.0) < 0.1, "counter: a real-time one counts seconds of playing", r.eng.getCounter(), 10.0);
+        r.run (0.05, TapeEngine::Command::rtz, false, 0, 0);
+        r.run (30.0, TapeEngine::Command::none, false, 0, 0);
+        check (r.eng.getMode() == Mode::stop && std::abs (r.eng.getCounter()) < 0.5, "counter: RETURN TO ZERO stops at 0", r.eng.getCounter(), 0.0);
+    }
+
+    {   // 17. Hiss is the tape's flux noise through the playback EQ: its treble rises above the EQ's corner.
+        auto hissAt = [] (int model, double hz)
+        {
+            Rig r (model);
+            r.eng.setHissForTests (true);
+            auto out = r.run (2.0, TapeEngine::Command::play, false, 0, 0, 1);
+            // the noise's level in a third-octave around hz (a narrow tone measure stands in for it)
+            double sum = 0;
+            for (int k = -3; k <= 3; ++k) sum += std::pow (tone (out, hz * std::pow (2.0, k / 18.0), 0.3, 1.9), 2.0);
+            return 10.0 * std::log10 (sum);
+        };
+        const auto lowI = hissAt (1, 500.0), highI = hissAt (1, 8000.0);
+        const auto lowII = hissAt (2, 500.0), highII = hissAt (2, 8000.0);
+        check (highI - lowI > 12.0, "hiss: 120 us EQ lifts its treble (8 kHz re 500 Hz, dB)", highI - lowI, 15.6);
+        check ((highI - lowI) - (highII - lowII) > 2.0, "hiss: 70 us (chrome, metal) lifts it less", (highI - lowI) - (highII - lowII), 4.6);
     }
 
     std::printf ("\n%s (%d failure%s)\n", failures == 0 ? "ALL PASSED" : "SOME FAILED", failures, failures == 1 ? "" : "s");

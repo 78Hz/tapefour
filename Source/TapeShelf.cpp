@@ -112,10 +112,10 @@ std::unique_ptr<Tape> TapeShelf::createBlank (int type, int model, const juce::S
 //==============================================================================
 static std::filesystem::path pathOf (const juce::File& f) { return tfmt::pathFromUtf8 (f.getFullPathName().toStdString()); }
 
-bool TapeShelf::exportCassette (const juce::String& id, const juce::File& target, juce::String& error)
+bool TapeShelf::exportCassette (const juce::String& id, const juce::File& target, juce::String& error, const double* rewindTo)
 {
     std::string err;
-    if (tfmt::packCassette (pathOf (folderFor (id)), pathOf (target), err))
+    if (tfmt::packCassette (pathOf (folderFor (id)), pathOf (target), err, rewindTo))
         return true;
     error = juce::String::fromUTF8 (err.c_str());
     return false;

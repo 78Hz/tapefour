@@ -170,7 +170,10 @@ bool writeTextAtomically (const std::filesystem::path& file, const std::string& 
 /** The files of a cassette in a folder, in the order they are packed: the ones that exist. */
 std::vector<std::string> cassetteFiles (const std::filesystem::path& folder, const CassetteInfo&);
 /** Packs the cassette in folder into a .cass file (written beside it, then renamed). */
-bool packCassette (const std::filesystem::path& folder, const std::filesystem::path& cassFile, std::string& error);
+/** rewindTo: if given, the packed copy's state says the tape is at this position (cells along the
+    tape: the start of the first leader is fully rewound) instead of where the folder's state has it. */
+bool packCassette (const std::filesystem::path& folder, const std::filesystem::path& cassFile, std::string& error,
+                   const double* rewindTo = nullptr);
 /** Reads the description of a packed cassette without unpacking it. */
 bool readPackedManifest (const std::filesystem::path& cassFile, CassetteInfo&, std::string& error);
 /** Unpacks a .cass file into folder (created). Only the files the format defines are unpacked. */

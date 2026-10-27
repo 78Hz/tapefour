@@ -6,116 +6,14 @@
 namespace tf
 {
 //==============================================================================
-void Compander::configure (double sampleRate, int newType, bool encoder)
-{
-    type = juce::jlimit (0, 2, newType);
-    isEncoder = encoder;
-    atk = (float) std::exp (-1.0 / (0.002 * sampleRate));
-    rel = (float) std::exp (-1.0 / (0.060 * sampleRate));
-
-    if (type == 0)
-    {
-        emphasis.setHighShelf (sampleRate, 2000.0, encoder ? 10.0 : -10.0);
-        ref = 0.1f;
-        maxBoost = 31.6f;
-    }
-    else
-    {
-        auto fc = type == 1 ? 1500.0 : 700.0;
-        lpCoef = (float) std::exp (-juce::MathConstants<double>::twoPi * fc / sampleRate);
-        ref = 0.03f;
-        maxBoost = type == 1 ? 3.16f : 10.0f;
-    }
-    reset();
-}
-
-void Compander::reset() noexcept
-{
-    env2 = ref * ref;
-    lpState = 0;
-    emphasis.reset();
-}
-
-inline float Compander::detect (float v) noexcept
-{
-    auto sq = v * v;
-    auto c = sq > env2 ? atk : rel;
-    env2 = sq + c * (env2 - sq);
-    return std::sqrt (env2) + 1.0e-9f;
-}
-
-float Compander::process (float x) noexcept
-{
-    if (type == 0)
-    {
-        if (isEncoder)
-        {
-            auto xe = emphasis.process (x);
-            auto g = juce::jlimit (1.0f / maxBoost, maxBoost, 1.0f / std::sqrt (detect (xe) / ref));
-            return xe * g;
-        }
-
-        auto g = juce::jlimit (0.001f, maxBoost, detect (x) / ref);
-        return emphasis.process (x * g);
-    }
-
-    lpState = x * (1.0f - lpCoef) + lpState * lpCoef;
-    auto hf = x - lpState;
-    auto e = detect (hf);
-
-    if (isEncoder)
-        return lpState + hf * juce::jlimit (1.0f, maxBoost, 1.0f / std::sqrt (e / ref));
-
-    return lpState + hf * juce::jlimit (1.0f / maxBoost, 1.0f, e / ref);
-}
-
-//==============================================================================
 namespace
 {
-    // The hiss generator: half white, half pink.
-    inline float hissSample (Noise& n, float* p) noexcept
-    {
-        auto w = n.next();
-        p[0] = 0.99765f * p[0] + w * 0.0990460f;
-        p[1] = 0.96300f * p[1] + w * 0.2965164f;
-        p[2] = 0.57000f * p[2] + w * 1.0526913f;
-        auto pk = (p[0] + p[1] + p[2] + w * 0.1848f) * 0.18f;
-        return 0.5f * w + 0.5f * pk;
-    }
+    // Tape noise starts as flux noise on the tape: about white along it. The playback head and EQ
+    // turn it into what you hear: the EQ that makes a recording flat (3180 us and 120 or 70 us)
+    // lifts the noise's treble at 6 dB/octave above its corner (1326 or 2274 Hz) and trims the
+    // deep bass. (The heads' own treble losses come after, as for the signal.)
+    inline float hissSample (Noise& n) noexcept { return 1.7320508f * n.next(); }
 
-    // IEC 61672 A-weighting, as a cascade, normalised to 0 dB at 1 kHz by the caller.
-    struct AWeight
-    {
-        Biquad hp20a, lp12k;
-        float a1 = 0, a2 = 0, x1 = 0, y1 = 0, x2 = 0, y2 = 0;   // two first-order high-passes
-        explicit AWeight (double sr)
-        {
-            hp20a.setHighPass (sr, 20.6, 0.5);
-            lp12k.setLowPass (sr, 12194.0, 0.5);
-            a1 = (float) std::exp (-juce::MathConstants<double>::twoPi * 107.7 / sr);
-            a2 = (float) std::exp (-juce::MathConstants<double>::twoPi * 737.9 / sr);
-        }
-        float process (float x) noexcept
-        {
-            x = hp20a.process (x);
-            auto h1 = a1 * (y1 + x - x1); x1 = x; y1 = h1;
-            auto h2 = a2 * (y2 + h1 - x2); x2 = h1; y2 = h2;
-            return lp12k.process (h2);
-        }
-    };
-
-    float aWeightedRms (double sr, const std::function<float()>& source)
-    {
-        AWeight a (sr);
-        const int n = (int) (sr * 3.0), skip = (int) (sr * 0.5);
-        double sum = 0;
-        for (int i = 0; i < n; ++i)
-        {
-            auto y = a.process (source());
-            if (i >= skip) sum += (double) y * y;
-        }
-        return (float) std::sqrt (sum / (n - skip));
-    }
 }
 
 float TapeEngine::magnitudeAt (const Biquad& b, double f, double sampleRate)
@@ -155,20 +53,49 @@ float TapeEngine::tanhThirdHarmonicPoint()
     return point;
 }
 
+void TapeEngine::setFluxNoiseEq (Biquad& b, double sampleRate, double playbackUs) noexcept
+{
+    // H(s) = s t1 / (1 + s t1) * (1 + s t2) / (1 + s tp): the playback EQ's response to a flux that's
+    // flat along the tape (t1 = 3180 us, t2 = the EQ's 120 or 70 us), with a pole past the audio band (tp)
+    // where the head's gap has long since taken the treble away.
+    const double t1 = 3180.0e-6, t2 = playbackUs * 1.0e-6;
+    const double tp = 1.0 / (juce::MathConstants<double>::twoPi * std::min (25000.0, sampleRate * 0.45));
+    const double b2 = t1 * t2, b1 = t1, b0 = 0.0;
+    const double a2 = t1 * tp, a1 = t1 + tp, a0 = 1.0;
+    const double K = 2.0 * sampleRate, K2 = K * K;
+    b.set (b2 * K2 + b1 * K + b0, 2.0 * b0 - 2.0 * b2 * K2, b2 * K2 - b1 * K + b0,
+           a2 * K2 + a1 * K + a0, 2.0 * a0 - 2.0 * a2 * K2, a2 * K2 - a1 * K + a0);
+}
+
 void TapeEngine::calibrateHiss()
 {
+    // The generator's A-weighted level through each playback EQ, so the tape's measured
+    // signal-to-noise figure (taken at its own EQ) sets the hiss.
+    // Worked out from the spectrum (white noise of unit RMS through the EQ, weighted by the
+    // IEC 61672 A-curve itself), so the whole band counts as a meter would count it.
+    auto aCurve = [] (double f)
+    {
+        auto ra = [] (double x)
+        {
+            const auto f2 = x * x;
+            return 12194.0 * 12194.0 * f2 * f2 / ((f2 + 20.6 * 20.6) * std::sqrt ((f2 + 107.7 * 107.7) * (f2 + 737.9 * 737.9)) * (f2 + 12194.0 * 12194.0));
+        };
+        return ra (f) / ra (1000.0);
+    };
     for (int eq = 0; eq < 2; ++eq)
     {
-        Noise n (12345u);
-        float p[3] {};
         Biquad shape;
-        if (eq == 1) shape.setHighShelf (sr, 2200.0, -4.7);   // 70 us playback EQ: less treble hiss than 120 us
-        auto rms = aWeightedRms (sr, [&] { return shape.process (hissSample (n, p)); });
-
-        // Normalise to the A-weighting's own gain at 1 kHz.
-        double phase = 0;
-        auto ref = aWeightedRms (sr, [&] { phase += juce::MathConstants<double>::twoPi * 1000.0 / sr; return (float) std::sin (phase); });
-        hissCal[eq] = std::max (1.0e-6f, rms / (ref * std::sqrt (2.0f)));
+        setFluxNoiseEq (shape, sr, eq == 1 ? 70.0 : 120.0);
+        const int steps = 4000;
+        const double df = sr * 0.5 / steps;
+        double power = 0.0;
+        for (int k = 0; k < steps; ++k)
+        {
+            const auto f = (k + 0.5) * df;
+            const auto h = (double) magnitudeAt (shape, f, sr) * aCurve (f);
+            power += h * h * df / (sr * 0.5);   // unit variance spread evenly to Nyquist
+        }
+        hissCal[eq] = std::max (1.0e-6f, (float) std::sqrt (power));
     }
 }
 
@@ -249,8 +176,6 @@ void TapeEngine::configureModel (const TapeModel& tm, int speedSel, int switchPo
         auto biasDb = fit (true, hiFc, 10000.0, bias.treble10k);
         biasHi[t].setHighShelf (sr, hiFc, biasDb, 0.7);
         biasHi[t].reset();
-        if (tm.eqMicroseconds == 70) hissShape[t].setHighShelf (sr, 2200.0, -4.7);
-        else                         hissShape[t] = Biquad();
     }
 
     sensGain = dbToGain (tm.sensitivity);
@@ -293,6 +218,8 @@ void TapeEngine::prepare (double sampleRate, int maxBlockSize)
     sr = sampleRate;
     maxBlock = std::max (maxBlockSize, 4096);
     posBuf.assign ((size_t) maxBlock, 0.0);
+    prevPosBuf.assign ((size_t) maxBlock, 0.0);
+    onOxide.assign ((size_t) maxBlock, 0);
     playing.assign ((size_t) maxBlock, 0);
     recording.assign ((size_t) maxBlock, 0);
     for (auto& r : raw) r.assign ((size_t) maxBlock, 0.0f);
@@ -326,7 +253,7 @@ void TapeEngine::prepare (double sampleRate, int maxBlockSize)
 void TapeEngine::setTape (Tape* t, bool newTape) noexcept
 {
     tape = t;
-    pos = t != nullptr ? t->position.load() : 0.0;
+    pos = lastBlockPos = t != nullptr ? t->position.load() : 0.0;
     for (int k = 0; k < numTracks; ++k) { dropHere[k] = dropBefore[k] = Dropout(); dropGain[k] = 1.0f; printLp[k] = 0.0f; }
     lastPassSecond = -1;
     cfgModel = nullptr;   // another cassette: its formulation is set up afresh
@@ -335,6 +262,8 @@ void TapeEngine::setTape (Tape* t, bool newTape) noexcept
     windVel = 0;
     mode = (int) Mode::stop;
     rtz = false;
+    cueing = false;
+    lastCueSecond = -1;
     for (auto& h : hasPrev) h = false;
     for (auto& c : replacedCount) c = 0;
 }
@@ -365,22 +294,37 @@ void TapeEngine::beginBlock (int n, const bool* armed) noexcept
     }
 
     auto m = (Mode) mode.load();
+    bool cue = cueing.load();
+    const bool winding = m == Mode::ff || m == Mode::rew;
     switch ((Command) pendingCommand.exchange (0))
     {
-        case Command::play: m = Mode::play; rtz = false; break;
-        case Command::stop: m = Mode::stop; rtz = false; break;
+        case Command::play:
+            // While winding, PLAY brings the head onto the moving tape (cue and review);
+            // pressed again, it plays.
+            if (winding && ! cue && ! rtz.load()) { cue = true; break; }
+            m = Mode::play; cue = false; rtz = false; break;
+        case Command::stop: m = Mode::stop; cue = false; rtz = false; break;
         case Command::rec:
+            if (winding && cue) { recInCue = true; break; }   // the record key won't go down while cueing
             if (tape->isWriteProtected()) break;   // the tab is broken out: the record key won't go down
-            if (anyArmed) { m = Mode::rec; rtz = false; }
+            if (anyArmed) { m = Mode::rec; cue = false; rtz = false; }
             else noArmWarning = true;
             break;
-        case Command::ff:   m = Mode::ff;  rtz = false; break;
-        case Command::rew:  m = Mode::rew; rtz = false; break;
+        case Command::ff:
+            // In cue: the same direction lifts the head (plain winding), the other reverses, still cueing.
+            if (cue && m == Mode::ff) cue = false;
+            if (! winding) cue = false;
+            m = Mode::ff; rtz = false; break;
+        case Command::rew:
+            if (cue && m == Mode::rew) cue = false;
+            if (! winding) cue = false;
+            m = Mode::rew; rtz = false; break;
         case Command::rtz:
-            if (pos > tape->counterZero.load() + 1.0) { m = Mode::rew; rtz = true; }
+            if (counter.load() > 0.0) { m = Mode::rew; rtz = true; cue = false; }
             break;
         case Command::none: default: break;
     }
+    if (counterReset.exchange (false)) counter = 0.0;
 
     if (m == Mode::rec && ! anyArmed)
         m = Mode::play;
@@ -413,10 +357,17 @@ void TapeEngine::beginBlock (int n, const bool* armed) noexcept
     auto wowD = machine.wowPct.load() * 0.01;
     auto flD  = (machine.flutterPct.load() + (honours ? tape->getCharacter().shellFlutterPct.load() : 0.0f)) * 0.01;
     auto drD  = machine.driftPct.load() * 0.01;
-    auto windTarget = 24.0 * cellRate / sr;
+    // Fast wind: the take-up spindle turns at about a constant speed, so the tape speeds up as its pack grows.
+    const double spindle = Geometry::windRadPerSecond (machine.windSecondsC60.load());   // rad/s
+    const double fullMm = tape->fullPackMm();
+    const double cellsPerMm = cellRate / Geometry::speedMmPerSecond;
     auto windSmooth = 1.0 - std::exp (-1.0 / (0.35 * sr));
     auto len = (double) tape->getLengthCells();
-    auto zero = tape->counterZero.load();
+    const double startPos = tape->startOfTape(), endPos = tape->endOfTape();
+    // the machine's counter, driven by the take-up spindle (or by the tape, for a real-time one)
+    const bool realtimeCounter = machine.counterRealtime.load();
+    const double countsPerRadian = machine.countsPerTurn.load() / juce::MathConstants<double>::twoPi;
+    double count = counter.load();
 
     const double inc[4] { 0.55 / sr, 1.3 / sr, 6.3 / sr, 11.7 / sr };
     blockHasPlayback = blockHasRecording = false;
@@ -448,36 +399,69 @@ void TapeEngine::beginBlock (int n, const bool* armed) noexcept
         }
         else
         {
-            auto target = m == Mode::ff ? windTarget : (m == Mode::rew ? -windTarget : 0.0);
+            double target = 0.0;
+            if (m == Mode::ff || m == Mode::rew)
+            {
+                const auto f = tape->rightFraction (pos);
+                const auto rMm = Geometry::packRadiusMm (m == Mode::ff ? f : 1.0 - f, fullMm);
+                target = (m == Mode::ff ? 1.0 : -1.0) * spindle * rMm * cellsPerMm / sr;
+            }
             windVel += (target - windVel) * windSmooth;
             if (m == Mode::stop) windVel = 0;
             pos += windVel;
-            playing[(size_t) i] = 0;
+            playing[(size_t) i] = cue && m != Mode::stop ? 1 : 0;
             recording[(size_t) i] = 0;
         }
+        prevPosBuf[(size_t) i] = i > 0 ? posBuf[(size_t) i - 1] : lastBlockPos;
 
-        if (pos >= len)
+        // the ends of the tape: the leaders run out against the hubs
+        if (pos >= endPos)
         {
-            pos = len;
-            if (m != Mode::stop) { m = Mode::stop; endOfTape = true; }
+            pos = endPos;
+            if (m != Mode::stop) { m = Mode::stop; endOfTape = true; cue = false; }
         }
-        if (pos <= 0.0)
+        if (pos <= startPos)
         {
-            pos = 0.0;
-            if (m == Mode::rew) m = Mode::stop;
+            pos = startPos;
+            if (m == Mode::rew) { m = Mode::stop; cue = false; }
         }
-        if (rtz.load() && m == Mode::rew && pos <= zero)
+
+        // the counter
+        const auto moved = pos - (i > 0 ? posBuf[(size_t) i - 1] : lastBlockPos);
+        if (std::abs (moved) > 0.0)
         {
-            pos = zero;
+            if (realtimeCounter)
+                count += moved / (cellRate * speedSel);
+            else
+                count += moved / cellsPerMm / Geometry::packRadiusMm (tape->rightFraction (pos), fullMm) * countsPerRadian;
+        }
+        if (rtz.load() && m == Mode::rew && count <= 0.0)
+        {
             m = Mode::stop;
             rtz = false;
         }
 
         posBuf[(size_t) i] = pos;
+        onOxide[(size_t) i] = pos >= 0.0 && pos < len ? 1 : 0;
     }
+    lastBlockPos = pos;
+    counter = count;
 
-    if (m == Mode::stop) windVel = 0;
+    if (m == Mode::stop) { windVel = 0; cue = false; }
     mode = (int) m;
+    cueing = cue;
+    blockCue = cue && (m == Mode::ff || m == Mode::rew);
+    if (blockCue)
+    {
+        // The head lightly on the moving tape: down by the cue level, and the gap between them
+        // costs treble by recorded wavelength (spacing loss, 54.6 d / lambda dB), which at winding
+        // speed falls on high output frequencies: about -3 dB at 3 v / (54.6 d).
+        const auto vMs = std::abs (windVel) * sr / cellsPerMm * 0.001;
+        const auto d = std::max (0.1, (double) machine.cueSpacingUm.load()) * 1.0e-6;
+        const auto f3 = std::clamp (3.0 * vMs / (54.6 * d), 200.0, sr * 0.45);
+        cueLpCoef = (float) std::exp (-juce::MathConstants<double>::twoPi * f3 / sr);
+        cueGain = dbToGain (machine.cueLevelDb.load());
+    }
 
     // Every second of tape that goes past the heads in play or record is a pass (fast winding lifts it clear).
     if (! readOnly && (m == Mode::play || m == Mode::rec))
@@ -495,6 +479,21 @@ void TapeEngine::beginBlock (int n, const bool* armed) noexcept
     {
         lastPassSecond = -1;
     }
+
+    // Cueing, the head touches the tape lightly: a quarter of a pass for every second it passes.
+    if (! readOnly && blockCue)
+    {
+        const auto sec = (int64_t) std::floor (pos / cellRate);
+        if (sec != lastCueSecond && lastCueSecond >= 0)
+        {
+            const auto step = sec > lastCueSecond ? 1 : -1;
+            for (auto s = lastCueSecond + step; s != sec + step; s += step)
+                if (++cueCrossings % 4 == 0) tape->addPass (s);
+        }
+        lastCueSecond = sec;
+    }
+    else
+        lastCueSecond = -1;
 }
 
 void TapeEngine::readAll (float* const* out, int n) noexcept
@@ -504,8 +503,24 @@ void TapeEngine::readAll (float* const* out, int n) noexcept
     for (int t = 0; t < numTracks; ++t)
     {
         auto* r = raw[t].data();
-        for (int i = 0; i < n; ++i)
-            r[i] = (tape != nullptr && playing[(size_t) i]) ? tape->readInterpolated (t, posBuf[(size_t) i]) : 0.0f;
+        if (blockCue && tape != nullptr)
+        {
+            // Winding past the head: each sample hears every cell that went by since the last,
+            // averaged (what a head integrates over; it keeps the fast tape from aliasing).
+            for (int i = 0; i < n; ++i)
+            {
+                const auto a = prevPosBuf[(size_t) i], b = posBuf[(size_t) i];
+                const auto span = std::abs (b - a);
+                const int steps = juce::jlimit (1, 64, (int) std::ceil (span));
+                float sum = 0.0f;
+                for (int k = 0; k < steps; ++k)
+                    sum += tape->readInterpolated (t, a + (b - a) * ((double) k + 0.5) / steps);
+                r[i] = sum / (float) steps;
+            }
+        }
+        else
+            for (int i = 0; i < n; ++i)
+                r[i] = (tape != nullptr && playing[(size_t) i]) ? tape->readInterpolated (t, posBuf[(size_t) i]) : 0.0f;
     }
 
     // Character settings for this block
@@ -538,7 +553,7 @@ void TapeEngine::readAll (float* const* out, int n) noexcept
         // Print-through: each recording has slowly copied itself onto the turns either side of it.
         // The turn ahead is heard as a faint pre-echo, the one behind as a post-echo.
         const auto len = (double) tape->getLengthCells();
-        turn = Wear::turnCells (tape->physicalPos (p0) / len, tape->getTypeInfo().fullPackMm, cellRate);
+        turn = Wear::turnCells (tape->physicalPos (p0) / len, tape->fullPackMm(), cellRate);
         const auto today = tape->getToday();
         for (int t = 0; t < numTracks; ++t)
         {
@@ -578,18 +593,16 @@ void TapeEngine::readAll (float* const* out, int n) noexcept
     const auto modGain = modDepth * dbToGain (condModDb + wearModDb);
     auto nrOn = params.nrOn.load();
 
-    // Playback EQ: the switch picks 120 or 70 us. Hiss follows the tape's own formulation,
-    // the recording follows the position it was recorded at.
+    // Playback EQ: the switch picks 120 or 70 us. The tape's noise goes through it as it is
+    // (its level was measured at the tape's own EQ); the recording is set against the EQ it was
+    // recorded at.
     auto sw = juce::jlimit (0, 2, params.tapeSwitch.load());
     auto eqUs = [] (int position) { return position == 0 ? 120 : 70; };
     const int playUs = eqUs (sw);
+    if (playUs != hissEqKey)
     {
-        auto key = tm->eqMicroseconds * 1000 + playUs;
-        if (key != hissEqKey)
-        {
-            for (auto& b : hissEq) setEqMismatch (b, sr, tm->eqMicroseconds, playUs);
-            hissEqKey = key;
-        }
+        for (auto& b : hissShape) setFluxNoiseEq (b, sr, playUs);
+        hissEqKey = playUs;
     }
 
     for (int t = 0; t < numTracks; ++t)
@@ -648,14 +661,21 @@ void TapeEngine::readAll (float* const* out, int n) noexcept
                 for (auto* d : { &dropHere[t], &dropBefore[t] })
                     if (p >= d->start && p < d->end) dropTarget = std::min (dropTarget, d->depth);
             }
+            // the tape's own noise, where there's oxide (a leader has none); a dropout loses it with the signal
+            if (hissGain > 0.0f)
+            {
+                const auto h = hissShape[t].process (hissSample (hissNoise[t]));
+                if (onOxide[(size_t) i]) v += hissGain * h;
+            }
+
             dropGain[t] += (dropTarget - dropGain[t]) * 0.01f;
             v *= dropGain[t];
 
-            // hiss: half white, half pink
-            if (hissGain > 0.0f)
+            // cueing: the head rides lightly on the winding tape
+            if (blockCue)
             {
-                auto h = hissShape[t].process (hissSample (hissNoise[t], pink[t]));
-                v += hissGain * (tm->eqMicroseconds != playUs ? hissEq[t].process (h) : h);
+                cueLp[t] = v + cueLpCoef * (cueLp[t] - v);
+                v = cueLp[t] * cueGain;
             }
 
             v = hfLoss[t][1].process (hfLoss[t][0].process (v));

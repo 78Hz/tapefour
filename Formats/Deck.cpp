@@ -54,6 +54,16 @@ Json toJson (const DeckDescription& d)
     tr.set ("flutterPct", d.transport.flutterPct);
     tr.set ("driftPct", d.transport.driftPct);
     tr.set ("speedErrorPct", d.transport.speedErrorPct);
+    tr.set ("windSecondsC60", d.transport.windSecondsC60);
+    auto& cue = j.set ("cue");
+    cue.set ("levelDb", d.cue.levelDb);
+    cue.set ("spacingUm", d.cue.spacingUm);
+    auto& counter = j.set ("counter");
+    counter.set ("kind", d.counter.kind);
+    if (d.counter.kind == "mechanical") counter.set ("countsPerTurn", d.counter.countsPerTurn);
+    auto& el = j.set ("electronics");
+    el.set ("channelNoiseDb", d.electronics.channelNoiseDb);
+    el.set ("busNoiseDb", d.electronics.busNoiseDb);
     auto& hd = j.set ("heads");
     hd.set ("cutoffHz", d.heads.cutoffHz);
     hd.set ("crosstalkDb", d.heads.crosstalkDb);
@@ -99,6 +109,13 @@ bool fromJson (const Json& j, DeckDescription& d, std::string& error)
     d.transport.flutterPct = tr["flutterPct"].number (d.transport.flutterPct);
     d.transport.driftPct = tr["driftPct"].number (d.transport.driftPct);
     d.transport.speedErrorPct = tr["speedErrorPct"].number (0.0);
+    d.transport.windSecondsC60 = tr["windSecondsC60"].number (d.transport.windSecondsC60);
+    d.cue.levelDb = j["cue"]["levelDb"].number (d.cue.levelDb);
+    d.cue.spacingUm = j["cue"]["spacingUm"].number (d.cue.spacingUm);
+    d.counter.kind = j["counter"]["kind"].string (d.counter.kind) == "realtime" ? "realtime" : "mechanical";
+    d.counter.countsPerTurn = j["counter"]["countsPerTurn"].number (d.counter.countsPerTurn);
+    d.electronics.channelNoiseDb = j["electronics"]["channelNoiseDb"].number (d.electronics.channelNoiseDb);
+    d.electronics.busNoiseDb = j["electronics"]["busNoiseDb"].number (d.electronics.busNoiseDb);
     const auto& hd = j["heads"];
     d.heads.cutoffHz = hd["cutoffHz"].number (d.heads.cutoffHz);
     d.heads.crosstalkDb = hd["crosstalkDb"].number (d.heads.crosstalkDb);
@@ -109,7 +126,8 @@ bool fromJson (const Json& j, DeckDescription& d, std::string& error)
     auto leftovers = Json::object();
     for (auto& [k, v] : j.members())
         if (k != "format" && k != "version" && k != "id" && k != "name" && k != "maker" && k != "kind"
-            && k != "capabilities" && k != "transport" && k != "heads" && k != "condition" && k != "honoursTapeCondition")
+            && k != "capabilities" && k != "transport" && k != "heads" && k != "condition" && k != "honoursTapeCondition"
+            && k != "cue" && k != "counter" && k != "electronics")
             leftovers.set (k) = v;
     d.unknown = leftovers;
 
@@ -122,6 +140,12 @@ bool fromJson (const Json& j, DeckDescription& d, std::string& error)
     d.heads.cutoffHz = clampTo (d.heads.cutoffHz, 1000.0, 30000.0);
     d.heads.crosstalkDb = clampTo (d.heads.crosstalkDb, -120.0, -20.0);
     d.heads.azimuthErrorMinutes = clampTo (d.heads.azimuthErrorMinutes, -120.0, 120.0);
+    d.transport.windSecondsC60 = clampTo (d.transport.windSecondsC60, 20.0, 600.0);
+    d.cue.levelDb = clampTo (d.cue.levelDb, -60.0, 0.0);
+    d.cue.spacingUm = clampTo (d.cue.spacingUm, 0.0, 50.0);
+    d.counter.countsPerTurn = clampTo (d.counter.countsPerTurn, 0.05, 10.0);
+    d.electronics.channelNoiseDb = clampTo (d.electronics.channelNoiseDb, -140.0, -30.0);
+    d.electronics.busNoiseDb = clampTo (d.electronics.busNoiseDb, -140.0, -30.0);
     return true;
 }
 

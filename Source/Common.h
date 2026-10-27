@@ -30,9 +30,10 @@ inline constexpr int cellRate = 32000;
 inline constexpr int blockCells = 3200;   // metadata resolution: 0.1 s of tape
 
 struct TapeTypeInfo { const char* name; int minutes; float fullPackMm; };
-inline constexpr TapeTypeInfo tapeTypes[] { { "C-46", 23, 40.0f },
-                                            { "C-60", 30, 44.0f },
-                                            { "C-90", 45, 48.0f } };
+// fullPackMm: nominal, with average leaders (each cassette's own is Tape::fullPackMm(), Geometry.h).
+inline constexpr TapeTypeInfo tapeTypes[] { { "C-46", 23, 42.8f },
+                                            { "C-60", 30, 47.3f },
+                                            { "C-90", 45, 47.9f } };
 inline constexpr int numTapeTypes = 3;
 
 /**

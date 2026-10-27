@@ -20,7 +20,7 @@ recalled when the tape goes in. (TAPE·FOUR versions before the cassette format 
   </TRACK>
   …
   <MASTER fader="0.8" phones="0.7"/>
-  <TAPE_DECK speed="1" pitchPct="0" nr="1" nrType="0" sat="0.5" counterZero="0"/>
+  <TAPE_DECK speed="1" pitchPct="0" nr="1" nrType="0" sat="0.5"/>
 </DECK>
 ```
 
@@ -28,9 +28,11 @@ recalled when the tape goes in. (TAPE·FOUR versions before the cassette format 
   which MIDI controller plays it; its chain of blocks.
 - **MASTER**: the master fader and the phones level.
 - **TAPE_DECK**: the operator's controls on the TF-4: tape speed (1 or 2: 1⅞ or 3¾ ips), pitch,
-  noise reduction on or off and its type, tape drive (record level calibration), and the tape
-  counter's zero. The machine itself (wow, flutter, heads) is in `TF-4.deck`; the cassette's
-  condition is in the cassette.
+  noise reduction on or off and its type, tape drive (record level calibration), and `sideB`
+  when the cassette was left in the deck turned over. The machine itself (wow, flutter, heads,
+  its counter) is in `TF-4.deck`, and the counter's reading in the settings; the cassette's
+  condition is in the cassette. (Older sessions' `counterZero` is ignored: the counter belongs to
+  the machine.)
 
 Version 5 is the first with the cassette format: wow, flutter, drift, head response,
 crosstalk, hiss and dropouts left the session. Earlier sessions still load; those values

@@ -39,6 +39,10 @@ public:
 
     void setNoiseReduction (bool on) noexcept { engine.params.nrOn = on; }
     bool getNoiseReduction() const noexcept   { return engine.params.nrOn.load(); }
+    /** PLAY pressed while winding: cue (forward) or review. */
+    bool isCueing() const noexcept            { return engine.isCueing(); }
+    /** For the tests: no amplifier noise. */
+    void setElectronicsNoiseForTests (bool on) noexcept { electronicsNoise = on ? tapeRefPeak / 1.41421356f * 5.6234e-5f : 0.0f; }
     /** The noise reduction the cassette was recorded with, which the player decodes with:
         0 the 2:1 compander, 1 B, 2 C (B if the cassette doesn't say). */
     int getNoiseReductionType() const noexcept { return engine.params.nrType.load(); }
@@ -70,6 +74,9 @@ private:
     float* outPtrs[numTracks] {};
     int maxBlock = 0;
     double sampleRate = 48000.0;
+    // The playback amplifier's own noise: -85 dB re 0 VU (an estimate for a portable's preamp).
+    std::atomic<float> electronicsNoise { tapeRefPeak / 1.41421356f * 5.6234e-5f };
+    Noise noiseL { 0x85ebca6bu }, noiseR { 0xc2b2ae35u };
 
     JUCE_DECLARE_NON_COPYABLE (PlayerEngine)
 };

@@ -80,7 +80,8 @@ DeckComponent::DeckComponent (AudioEngine& e, juce::PropertiesFile& settings)
     rtzBtn.textSize = 11.0f;
     resetBtn.onClick = [this]
     {
-        if (auto* t = engine.getTape()) { t->counterZero = t->position.load(); t->markMetaChanged(); }
+        // The counter is the machine's: it resets whatever is in the deck, or with nothing in it.
+        engine.tapeEngine.resetCounter();
     };
     rtzBtn.onClick = [this] { transport (TapeEngine::Command::rtz); };
     rtzBtn.setTooltip ("Return to zero: rewinds to where the counter reads 000");
@@ -336,9 +337,12 @@ void DeckComponent::paint (juce::Graphics& g)
     g.setColour (Pal::darker);
     g.fillRoundedRectangle (counter.toFloat(), 4.0f);
     auto digits = counter.reduced (5);
-    for (int i = 0; i < 3; ++i)
+    // three wheels for a mechanical counter; minutes and seconds for a real-time one
+    const int n = juce::jmax (1, counterText.length());
+    const int w = (digits.getWidth() - (n - 1) * 2) / n;
+    for (int i = 0; i < n; ++i)
     {
-        auto d = digits.removeFromLeft (34).toFloat();
+        auto d = digits.removeFromLeft (w).toFloat();
         digits.removeFromLeft (2);
         g.setGradientFill (juce::ColourGradient (juce::Colour (0xff1f1e1c), d.getX(), d.getY(),
                                                  juce::Colour (0xff1f1e1c), d.getX(), d.getBottom(), false));
@@ -346,7 +350,7 @@ void DeckComponent::paint (juce::Graphics& g)
         g.setColour (juce::Colour (0xff2c2b28));
         g.fillRect (d.withHeight (d.getHeight() * 0.5f).withY (d.getCentreY() - d.getHeight() * 0.25f));
         g.setColour (juce::Colour (0xfff2eee4));
-        g.setFont (lf.mono (34.0f));
+        g.setFont (lf.mono (n > 3 ? 26.0f : 34.0f));
         g.drawText (counterText.substring (i, i + 1), d, juce::Justification::centred);
         g.setColour (juce::Colours::black.withAlpha (0.5f));
         g.drawHorizontalLine ((int) d.getCentreY(), d.getX(), d.getRight());
@@ -435,12 +439,22 @@ void DeckComponent::timerCallback()
     if (engine.tapeEngine.takeEndOfTapeFlag()) say ("END OF TAPE", 4.0);
     if (engine.tapeEngine.takeNoArmFlag())     say ("ARM A TRACK FIRST");
 
-    // counter
-    if (tape != nullptr)
+    if (engine.tapeEngine.takeRecInCueFlag()) say ("NOT WHILE CUEING");
+
+    // the machine's counter (it reads whether or not a cassette is in)
     {
-        auto c = (int) std::floor ((pos - tape->counterZero.load()) / cellRate / 2.0);
-        c = ((c % 1000) + 1000) % 1000;
-        counterText = juce::String (c).paddedLeft ('0', 3);
+        const auto v = engine.tapeEngine.getCounter();
+        if (engine.tapeEngine.machine.counterRealtime.load())
+        {
+            auto s = (int) std::floor (std::abs (v));
+            counterText = (v < 0 ? "-" : "") + juce::String (s / 60 % 100) + ":" + juce::String (s % 60).paddedLeft ('0', 2);
+        }
+        else
+        {
+            auto c = (int) std::floor (v);
+            c = ((c % 1000) + 1000) % 1000;   // the wheels roll round below 000 to 999
+            counterText = juce::String (c).paddedLeft ('0', 3);
+        }
     }
 
     // status display
@@ -459,8 +473,8 @@ void DeckComponent::timerCallback()
             text = "REC " + spd + " TRK " + armedList.joinIntoString ("+");
             break;
         }
-        case Mode::ff:  text = "FAST FORWARD"; break;
-        case Mode::rew: text = engine.tapeEngine.isReturningToZero() ? "RETURN TO ZERO" : "REWIND"; break;
+        case Mode::ff:  text = engine.tapeEngine.isCueing() ? "CUE" : "FAST FORWARD"; break;
+        case Mode::rew: text = engine.tapeEngine.isReturningToZero() ? "RETURN TO ZERO" : engine.tapeEngine.isCueing() ? "REVIEW" : "REWIND"; break;
     }
     // A mixdown shows on the status display while it runs, and while it waits for PLAY.
     juce::String mixSub;
@@ -474,7 +488,7 @@ void DeckComponent::timerCallback()
             mixSub = md.clippedAtSeconds() >= 0.0 ? "CLIPPED AT " + formatTime (md.clippedAtSeconds()) + " - LOWER MASTER"
                    : md.settings.direct() ? utf ("\xe2\x86\x92 ") + exportFormats.describe()
                    : utf ("\xe2\x86\x92 MASTER SIDE ") + (md.settings.side == 0 ? "A " : "B ")
-                         + formatTime (md.sideUsedSeconds (md.settings.side) + md.takeSeconds() + (md.takes.empty() ? MasterDeck::leaderSeconds : MasterDeck::gapSeconds))
+                         + formatTime (md.sideUsedSeconds (md.settings.side) + md.takeSeconds() + (md.takes.empty() ? MasterDeck::leadInSeconds : MasterDeck::gapSeconds))
                          + " " + exportFormats.describe();
         }
         else if (st == MasterDeck::State::finishing)
@@ -498,7 +512,8 @@ void DeckComponent::timerCallback()
                : tape != nullptr && engine.tapeEngine.params.tapeSwitch.load() != tape->naturalPosition()
                      ? juce::String (engine.tapeEngine.params.tapeSwitch.load() < tape->naturalPosition() ? "BIAS LOW: " : "BIAS HIGH: ")
                            + iecTypeName (tape->naturalPosition()) + " TAPE AT " + positionName (engine.tapeEngine.params.tapeSwitch.load())
-                 : tape != nullptr ? "REMAIN " + formatTime (((double) tape->getLengthCells() - pos) / cellRate / std::max (0.1f, nominal))
+                 : tape != nullptr && pos < 0.0 ? juce::String ("LEADER")
+                 : tape != nullptr ? "REMAIN " + formatTime (std::max (0.0, (double) tape->getLengthCells() - pos) / cellRate / std::max (0.1f, nominal))
                                  : juce::String ("NO TAPE");
     status.repaintIfChanged();
 
@@ -1127,9 +1142,11 @@ void DeckComponent::exportMasterCassette()
         d.writer.saveTape (*tape);
         d.ensureArt (*tape);
         auto id = tape->id;
+        // A master tape goes out rewound: whoever plays it first starts at the beginning of side A.
+        const auto rewound = -tape->leaderCells (0);
         auto error = std::make_shared<juce::String>();
         auto ok = std::make_shared<bool> (false);
-        d.writer.enqueue ([id, target, error, ok] { *ok = TapeShelf::exportCassette (id, target, *error); },
+        d.writer.enqueue ([id, target, error, ok, rewound] { *ok = TapeShelf::exportCassette (id, target, *error, &rewound); },
                           [safe, target, error, ok]
                           {
                               if (safe != nullptr)

@@ -36,7 +36,20 @@ struct DeckDescription
     std::string tapeSwitch = "manual";    // manual or auto (reads the cassette's sensing holes)
 
     // How well it does it
-    struct Transport { double wowPct = 0.15, flutterPct = 0.075, driftPct = 0.2, speedErrorPct = 0.0; } transport;
+    struct Transport
+    {
+        double wowPct = 0.15, flutterPct = 0.075, driftPct = 0.2, speedErrorPct = 0.0;
+        double windSecondsC60 = 120.0;   // fast wind of one side of a C-60, end to end (the take-up spindle is driven)
+    } transport;
+    /** Cue and review (PLAY pressed while winding): the head touches the tape lightly. */
+    struct Cue { double levelDb = -18.0, spacingUm = 3.0; } cue;
+    /** The tape counter: part of the machine, not the cassette. mechanical: three digits driven by
+        the take-up spindle (countsPerTurn counts per turn), so not linear in time; realtime: minutes and seconds. */
+    struct Counter { std::string kind = "mechanical"; double countsPerTurn = 0.75; } counter;
+    /** The electronics' own noise, dB re the nominal level (0 VU), unweighted 20 Hz-20 kHz: each
+        channel's, at its fader's nominal position (it follows the fader and the pan), and the
+        mix bus's and outputs' (it doesn't). */
+    struct Electronics { double channelNoiseDb = -76.0, busNoiseDb = -90.0; } electronics;
     struct Heads { double cutoffHz = 15157.0, crosstalkDb = -65.0, azimuthErrorMinutes = 0.0; } heads;
     std::string condition = "serviced";   // new, serviced, worn, neglected, or custom (set by hand)
     /** Off: every cassette plays as if new (its formulation still counts, its wear and age don't). */

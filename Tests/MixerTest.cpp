@@ -68,13 +68,17 @@ struct Rig
         props = std::make_unique<juce::PropertiesFile> (propsFile, juce::PropertiesFile::Options());
         engine = std::make_unique<AudioEngine> (*props);
         engine->deviceManager.removeAudioCallback (engine.get());   // we drive it ourselves
-        engine->swapTape (std::make_unique<Tape> (1, defaultTapeModel, tfmt::Condition()));   // a perfect cassette...
+        auto blank = std::make_unique<Tape> (1, defaultTapeModel, tfmt::Condition());          // a perfect cassette...
+        blank->position = 0.0;                                                                  // (wound past its leader)
+        engine->swapTape (std::move (blank));
         engine->audioDeviceAboutToStart (&device);
         auto& p = engine->tapeEngine.params;
         p.sat = 0; p.nrOn = false;
         auto& mc = engine->tapeEngine.machine;                                                 // ...on a perfect machine
         mc.wowPct = 0; mc.flutterPct = 0; mc.driftPct = 0; mc.cutoffHz = 20000.0f; mc.crosstalkDb = -120.0f;
         engine->tapeEngine.setHissForTests (false);
+        engine->channelNoiseDb = -140.0f;   // and silent electronics: each test hears only what it measures
+        engine->busNoiseDb = -140.0f;
         for (auto& t : engine->track) { t.fader = 0.75f; t.gain = 1.0f / 3.0f; t.pan = 0; t.armed = false; }
     }
 
@@ -637,14 +641,13 @@ int main()
         auto& me = *rt.engine;
         auto& tape = *me.getTape();
         tape.position = 20.0 * cellRate;
-        tape.counterZero = 10.0 * cellRate;   // the counter reads 005 (it counts every two seconds)
         me.tapeEngine.setTape (&tape, false);
-        const auto reading = tape.position.load() - tape.counterZero.load();
+        me.tapeEngine.setCounter (123.0);   // the machine's counter, wherever it got to
         const bool turned = me.turnTapeOver (true) && tape.isTurnedOver();
         check (turned, "turn over: the deck turns its cassette over when stopped", turned ? 1 : 0, 1);
-        check (std::abs ((tape.position.load() - tape.counterZero.load()) - reading) < 1e-6
+        check (std::abs (me.tapeEngine.getCounter() - 123.0) < 1e-9
                    && std::abs (me.tapeEngine.getPosition() - ((double) tape.getLengthCells() - 20.0 * cellRate)) < 1e-6,
-               "turn over: the counter reads the same, the transport is at the same place on the tape", (tape.position.load() - tape.counterZero.load()) / cellRate, reading / cellRate);
+               "turn over: the machine's counter doesn't move, the transport is at the same place on the tape", me.tapeEngine.getCounter(), 123.0);
         auto deck = me.createDeckState();
         auto* td = deck->getChildByName ("TAPE_DECK");
         check (td != nullptr && td->getBoolAttribute ("sideB"), "turn over: the session remembers side B is up", td != nullptr && td->getBoolAttribute ("sideB"), 1);
@@ -873,9 +876,9 @@ int main()
         auto first = take;
         file = first.files.isEmpty() ? std::vector<float>() : readStereo (first.files[0]);
         const auto heardTone = tone (heard, 500.0, 0.5, 1.5), fileTone = tone (file, 500.0, 0.5, 1.5);
-        check (first.number == 2 && first.side == 0 && std::abs (first.start - MasterDeck::leaderSeconds * cellRate) < 1.0
+        check (first.number == 2 && first.side == 0 && std::abs (first.start - MasterDeck::leadInSeconds * cellRate) < 1.0
                    && std::abs (first.length / cellRate - 2.0) < 0.05 && std::abs ((double) file.size() / sr - 2.0) < 0.05,
-               "mixdown on tape: after the leader on side A, as long as it played", first.start / cellRate, MasterDeck::leaderSeconds);
+               "mixdown on tape: after the lead-in on side A, as long as it played", first.start / cellRate, MasterDeck::leadInSeconds);
         check (std::abs (db (fileTone / heardTone)) < 1.5, "mixdown on tape: the files hold it played back off the tape (level, dB)", db (fileTone / heardTone), 0.0);
         auto* master = md.getTape();
         check (master->isRecorded (0, 30) && master->isRecorded (1, 30) && ! master->isRecorded (2, 30) && ! master->isRecorded (0, 5),
@@ -894,7 +897,7 @@ int main()
         m.run (1.0);
         finishTake();
         auto sideB = take;
-        check (sideB.side == 1 && std::abs (sideB.start - MasterDeck::leaderSeconds * cellRate) < 1.0 && master->isRecorded (2, 25) && master->isRecorded (3, 25),
+        check (sideB.side == 1 && std::abs (sideB.start - MasterDeck::leadInSeconds * cellRate) < 1.0 && master->isRecorded (2, 25) && master->isRecorded (3, 25),
                "mixdown on tape: turned over, side B from its own start", sideB.side, 1);
 
         // Listening to a take: the master tape plays it back in place of the mix.
@@ -1598,6 +1601,30 @@ int main()
                && c2.size() == 1 && c2[0].role == BlockRole::external && c2[0].channel == 3 && c2[0].returnInput == 0
                && me.track[3].feed.load() == (int) AudioEngine::Feed::bounce && me.track[3].bounceMask.load() == 3,
                "old decks: instrument, audio in, hardware synth and bounce become chains", 1, 1);
+    }
+
+    // ---- The machine's electronics: each channel's noise follows its fader and pan; the bus's doesn't ----
+    {
+        auto noiseDb = [] (int open, float panTo, float channelDb, float busDb)
+        {
+            Rig nr;
+            nr.engine->channelNoiseDb = channelDb;
+            nr.engine->busNoiseDb = busDb;
+            for (int t = 0; t < numTracks; ++t) { nr.engine->track[t].mute = t >= open; nr.engine->track[t].pan = panTo; }
+            auto out = nr.run (1.5);   // the left output
+            double p = 0;
+            for (size_t i = out.size() / 3; i < out.size(); ++i) p += (double) out[i] * out[i];
+            p /= (double) (out.size() - out.size() / 3);
+            const double vu = tapeRefPeak / std::sqrt (2.0);
+            return 10.0 * std::log10 (p / (vu * vu));
+        };
+        const auto one = noiseDb (1, 0.0f, -76.0f, -140.0f), four = noiseDb (4, 0.0f, -76.0f, -140.0f);
+        check (std::abs (one - (-79.0)) < 1.0, "electronics: one channel at nominal, -76 dB re 0 VU (half in each side)", one, -79.0);
+        check (std::abs ((four - one) - 6.0) < 1.0, "electronics: four channels open, 6 dB more (the 424's 76 and 70 dB)", four - one, 6.0);
+        const auto right = noiseDb (1, 1.0f, -76.0f, -140.0f);
+        check (right < -110.0, "electronics: a channel's noise pans with it (hard right: none on the left)", right, -140.0);
+        const auto bus = noiseDb (0, 0.0f, -76.0f, -90.0f);
+        check (std::abs (bus - (-90.0)) < 1.0, "electronics: the bus's own, whatever the channels do", bus, -90.0);
     }
 
     std::printf ("\n%s (%d failure%s)\n", failures == 0 ? "ALL PASSED" : "SOME FAILED", failures, failures == 1 ? "" : "s");

@@ -62,11 +62,8 @@ std::unique_ptr<juce::XmlElement> AudioEngine::createDeckState (bool freshPlugin
     x->setAttribute ("nr", tp.nrOn.load());
     x->setAttribute ("nrType", tp.nrType.load());
     x->setAttribute ("sat", tp.sat.load());
-    if (tape != nullptr)
-    {
-        x->setAttribute ("counterZero", tape->counterZero.load());
-        if (tape->isTurnedOver()) x->setAttribute ("sideB", true);   // left in the deck side B up
-    }
+    if (tape != nullptr && tape->isTurnedOver())
+        x->setAttribute ("sideB", true);   // left in the deck side B up
     return deck;
 }
 
@@ -205,8 +202,7 @@ void AudioEngine::applyDeckState (const juce::XmlElement& deck)
         tp.sat         = (float) x->getDoubleAttribute ("sat", 0.40);
         // Sessions before version 5 also held the machine's and the cassette's character; the machine
         // took its own from the settings once (restoreMachine), and each cassette from its old deck file.
-        if (tape != nullptr && x->hasAttribute ("counterZero"))
-            tape->counterZero = juce::jlimit (-(double) tape->getLengthCells(), 2.0 * (double) tape->getLengthCells(), x->getDoubleAttribute ("counterZero"));
+        // (Their counterZero is ignored: the counter is the machine's now.)
     }
 
     if (onDeckStateApplied) onDeckStateApplied();
@@ -267,6 +263,13 @@ tfmt::DeckDescription AudioEngine::factoryMachine()
     d.nrSystems = { "compander-2to1", "sliding-b", "sliding-c" };
     d.tapeSwitch = "manual";
     d.applyCondition ("serviced");
+    // TASCAM 424's published figures: "120 sec. (approx.) with C-60"; mixer S/N, line in to line out,
+    // 76 dB with one input and 70 dB with four (20 Hz-20 kHz): each channel's noise, the bus's well below.
+    d.transport.windSecondsC60 = 120.0;
+    d.counter.kind = "mechanical";
+    d.counter.countsPerTurn = 0.75;
+    d.electronics.channelNoiseDb = -76.0;
+    d.electronics.busNoiseDb = -90.0;
     return d;
 }
 
@@ -288,6 +291,13 @@ tfmt::DeckDescription AudioEngine::getMachine() const
     d.heads.cutoffHz = std::round ((double) m.cutoffHz.load());
     d.heads.crosstalkDb = clean (m.crosstalkDb.load());
     d.honoursTapeCondition = m.honoursTapeCondition.load();
+    d.transport.windSecondsC60 = clean (m.windSecondsC60.load());
+    d.cue.levelDb = clean (m.cueLevelDb.load());
+    d.cue.spacingUm = clean (m.cueSpacingUm.load());
+    d.counter.kind = m.counterRealtime.load() ? "realtime" : "mechanical";
+    d.counter.countsPerTurn = clean (m.countsPerTurn.load());
+    d.electronics.channelNoiseDb = clean (channelNoiseDb.load());
+    d.electronics.busNoiseDb = clean (busNoiseDb.load());
     return d;
 }
 
@@ -302,6 +312,13 @@ void AudioEngine::setMachine (const tfmt::DeckDescription& d)
     m.cutoffHz = (float) d.heads.cutoffHz;
     m.crosstalkDb = (float) d.heads.crosstalkDb;
     m.honoursTapeCondition = d.honoursTapeCondition;
+    m.windSecondsC60 = (float) d.transport.windSecondsC60;
+    m.cueLevelDb = (float) d.cue.levelDb;
+    m.cueSpacingUm = (float) d.cue.spacingUm;
+    m.counterRealtime = d.counter.kind == "realtime";
+    m.countsPerTurn = (float) d.counter.countsPerTurn;
+    channelNoiseDb = (float) d.electronics.channelNoiseDb;
+    busNoiseDb = (float) d.electronics.busNoiseDb;
 }
 
 void AudioEngine::restoreMachine (const juce::XmlElement* legacyDeck)
@@ -345,6 +362,8 @@ void AudioEngine::saveMachine()
         tfmt::writeDeck (tfmt::pathFromUtf8 (f.getFullPathName().toStdString()), masterDeck.getMachine(), err);
     }
     props.setValue ("masterDeck", masterDeck.settings.toXml().get());
+    // The counter's reading is the machine's, like its wheels: kept through power-off.
+    props.setValue ("counter", std::round (tapeEngine.getCounter() * 1000.0) / 1000.0);
 
     auto d = getMachine();
     auto text = tfmt::toJson (d).dump();
@@ -360,6 +379,7 @@ void AudioEngine::restoreAll()
     auto deck = props.getXmlValue ("deck");
     restoreHardware (hw.get(), deck.get());
     restoreMachine (deck.get());
+    tapeEngine.setCounter (props.getDoubleValue ("counter", 0.0));
     {
         auto m = props.getXmlValue ("masterDeck");
         masterDeck.settings = MasterSettings::fromXml (m.get());

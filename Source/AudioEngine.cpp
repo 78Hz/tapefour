@@ -269,9 +269,8 @@ bool AudioEngine::turnTapeOver (bool sideBUp)
     const juce::SpinLock::ScopedLockType sl (tapeLock);
     if (tape == nullptr || tapeEngine.getMode() != Mode::stop) return false;
     if (tape->isTurnedOver() == sideBUp) return true;
-    const auto reading = tape->position.load() - tape->counterZero.load();
+    // (The counter is the machine's: turning the cassette over doesn't move it.)
     tape->turnOver (sideBUp);
-    tape->counterZero = tape->position.load() - reading;
     tapeEngine.setTape (tape.get(), false);   // picks up the turned position; leaves the switch alone
     return true;
 }
@@ -1022,11 +1021,15 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputs, 
         for (auto& v : tapeOut) std::fill_n (v.begin(), n, 0.0f);
     }
 
+    // The electronics' own noise (the machine's .deck): re 0 VU, a sine of Dolby level's peak.
+    const auto vuRms = tapeRefPeak / std::sqrt (2.0f);
+    auto noiseOf = [vuRms] (float db) { return db > -139.0f ? vuRms * dbToGain (db) : 0.0f; };   // -140: none (the tests)
+    const auto chNoise = noiseOf (channelNoiseDb.load()), busNoise = noiseOf (busNoiseDb.load());
     auto controls = [&] (int t) -> ChannelStrip::Controls
     {
         auto& p = track[t];
         return { -20.0f + 60.0f * p.gain.load(), p.low.load(), p.mid.load(), (float) midFreqHz (p.midFreq.load()),
-                 p.high.load(), faderGain (p.fader.load()), p.pan.load(), armed[t] };
+                 p.high.load(), faderGain (p.fader.load()), p.pan.load(), armed[t], chNoise };
     };
 
     // A chain is only heard while its track is armed, or fading back to tape after. Otherwise it's
@@ -1109,8 +1112,9 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputs, 
     for (int i = 0; i < n; ++i)
     {
         auto g = lastMaster + (mg - lastMaster) * (float) i / (float) n;
-        masterL[(size_t) i] = mixL[(size_t) i] * g;
-        masterR[(size_t) i] = mixR[(size_t) i] * g;
+        // the mix bus and outputs: their own noise, the same whatever the faders and pans do
+        masterL[(size_t) i] = mixL[(size_t) i] * g + busNoise * 1.7320508f * busRngL.next();
+        masterR[(size_t) i] = mixR[(size_t) i] * g + busNoise * 1.7320508f * busRngR.next();
     }
     lastMaster = mg;
     const auto deckMode = tapeEngine.getMode();

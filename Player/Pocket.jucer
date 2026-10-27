@@ -28,6 +28,7 @@
     <GROUP id="pkEng" name="Engine">
       <FILE id="pkf020" name="Tape.cpp" compile="1" resource="0" file="../Source/Tape.cpp"/>
       <FILE id="pkf021" name="TapeEngine.cpp" compile="1" resource="0" file="../Source/TapeEngine.cpp"/>
+      <FILE id="pkf025" name="NoiseReduction.cpp" compile="1" resource="0" file="../Source/NoiseReduction.cpp"/>
       <FILE id="pkf022" name="LookView.cpp" compile="1" resource="0" file="../Source/LookView.cpp"/>
       <FILE id="pkf023" name="CassetteComponent.cpp" compile="1" resource="0" file="../Source/CassetteComponent.cpp"/>
       <FILE id="pkf024" name="DeckLookAndFeel.cpp" compile="1" resource="0" file="../Source/DeckLookAndFeel.cpp"/>

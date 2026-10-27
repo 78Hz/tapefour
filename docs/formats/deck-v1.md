@@ -24,8 +24,11 @@ TAPE·FOUR keeps its own machine as `TF-4.deck` beside its settings.
     "nrSystems": [ "compander-2to1", "sliding-b", "sliding-c" ],
     "tapeSwitch": "manual"
   },
-  "transport": { "wowPct": 0.15, "flutterPct": 0.075, "driftPct": 0.2, "speedErrorPct": 0 },
+  "transport": { "wowPct": 0.15, "flutterPct": 0.075, "driftPct": 0.2, "speedErrorPct": 0, "windSecondsC60": 120 },
   "heads": { "cutoffHz": 15157, "crosstalkDb": -65, "azimuthErrorMinutes": 0 },
+  "cue": { "levelDb": -18, "spacingUm": 3 },
+  "counter": { "kind": "mechanical", "countsPerTurn": 0.75 },
+  "electronics": { "channelNoiseDb": -76, "busNoiseDb": -90 },
   "condition": "serviced",
   "honoursTapeCondition": true
 }
@@ -41,7 +44,8 @@ TAPE·FOUR keeps its own machine as `TF-4.deck` beside its settings.
 - **records**: false for a player.
 - **heads**: 2 (one head records and plays) or 3 (separate heads: it can play what it has just
   recorded).
-- **speedsIps**, **nrSystems**, **tapeSwitch** (`manual`, or `auto` from the cassette's sensing
+- **speedsIps**, **nrSystems** (`compander-2to1`: dbx type II; `sliding-b`: Dolby B;
+  `sliding-c`: Dolby C), **tapeSwitch** (`manual`, or `auto` from the cassette's sensing
   holes).
 
 ## How well it does it
@@ -53,13 +57,28 @@ TAPE·FOUR keeps its own machine as `TF-4.deck` beside its settings.
   picks up; `azimuthErrorMinutes`, the head's alignment in minutes of arc against a
   cassette recorded by a perfectly aligned deck. (TAPE·FOUR's own machine is aligned, so it
   doesn't apply this yet.)
+- **transport.windSecondsC60**: fast wind, end to end, of one side of a C-60. The take-up
+  spindle is driven at about a constant speed, so the tape speeds up as its pack grows (about
+  9 times playing speed at the start of a C-60, 20 times at the end).
+- **cue**: cue and review (PLAY while winding): the head rides lightly on the tape, `levelDb`
+  down, `spacingUm` off it (spacing loss, 54.6 d / λ dB).
+- **counter**: the tape counter is the machine's. `mechanical`: three digits driven by the
+  take-up spindle, `countsPerTurn` counts per turn, so not linear in time and different from
+  one machine to another; `realtime`: minutes and seconds of playing time. It keeps counting
+  when cassettes are changed or turned over.
+- **electronics**: the machine's own noise, dB re its nominal level (0 VU), unweighted 20 Hz to
+  20 kHz. `channelNoiseDb`: each mixer channel's, with its fader at the nominal mark (it follows
+  the fader and the pan); `busNoiseDb`: the mix bus's and outputs', the same whatever the faders do.
+  TASCAM's 424 measures 76 dB S/N line in to line out with one input open and 70 dB with four.
 - **condition**: `new`, `serviced`, `worn` or `neglected`, or `custom` when set by hand. A name
   for the numbers above; the numbers are what count.
 - **honoursTapeCondition**: false plays every cassette as if new: its formulation counts, its
   starting condition, wear and age don't.
 
 Values outside what a machine can be are limited when read (wow and flutter to 5%, cutoff to
-1–30 kHz, crosstalk to −120…−20 dB).
+1–30 kHz, crosstalk to −120…−20 dB, wind 20–600 s, cue −60…0 dB, noise −140…−30 dB).
+`cue`, `counter`, `electronics` and `windSecondsC60` were added within version 1: a deck file
+without them gets the values above.
 
 ## Versions
 

@@ -19,6 +19,7 @@ public:
     {
         float trimDb, low, mid, midFreqHz, high, fader, pan;
         bool live;   // armed: hear the input instead of the tape
+        float noiseRms = 0.0f;   // the strip's own electronics: noise added at its input, before EQ and fader
     };
 
     void prepare (double sampleRate) noexcept;
@@ -45,5 +46,8 @@ private:
     float smoothCoef = 0.1f, liveStep = 0.001f;
     float liveMix = 0.0f, trimGain = 1.0f, faderGain = 0.0f, lastGainL = 0.0f, lastGainR = 0.0f;
     bool first = true;
+    // each strip's own noise source: independent of the others, as separate circuits are
+    static uint32_t nextSeed() noexcept { static std::atomic<uint32_t> n { 0 }; return 0x2545f491u + 0x9e3779b9u * ++n; }
+    Noise noise { nextSeed() };
 };
 } // namespace tf

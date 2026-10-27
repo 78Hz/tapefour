@@ -478,6 +478,25 @@ public:
                  auto db = TapeEngine::driveDb ((float) v);
                  return "0 VU " + juce::String (db > 0.05f ? "+" : "") + juce::String (db, 1) + " dB";
              });
+        // The electronics and the motor: part of the machine, kept in its .deck, but not its condition.
+        add ("MIXER NOISE",  &engine.channelNoiseDb, -100.0, -60.0, 1.0, false, [] (double v)
+             { return juce::String (v, 0) + " dB PER CHANNEL"; });
+        add ("FAST WIND",    &m.windSecondsC60, 60.0, 200.0, 1.0, false, [] (double v)
+             { return juce::String (juce::roundToInt (v)) + " s PER C-60 SIDE"; });
+        controls[6]->slider.setTooltip ("The mixer's own hiss, re 0 VU, each channel at its fader's nominal position (it follows the "
+                                        "fader and the pan; the mix bus adds a little that doesn't). TASCAM's 424: -76 dB.");
+        controls[7]->slider.setTooltip ("How long the machine takes to wind one side of a C-60 end to end. The tape speeds up as "
+                                        "the take-up spool fills, as on a real deck.");
+        counterKind.addItemList ({ "Mechanical, three digits (turns of the take-up spool)", "Real time (minutes and seconds)" }, 1);
+        counterKind.setSelectedItemIndex (engine.tapeEngine.machine.counterRealtime.load() ? 1 : 0, juce::dontSendNotification);
+        counterKind.onChange = [this]
+        {
+            engine.tapeEngine.machine.counterRealtime = counterKind.getSelectedItemIndex() == 1;
+            engine.tapeEngine.resetCounter();
+            engine.saveSettings();
+        };
+        addAndMakeVisible (counterKind);
+        addAndMakeVisible (counterLabel);
         // "None" is stored as -120 dB, which the slider shows at its end.
         crosstalk().slider.onValueChange = [this]
         {
@@ -506,12 +525,12 @@ public:
         asNew.setColour (juce::ToggleButton::textColourId, Pal::muted);
         addAndMakeVisible (asNew);
 
-        nrType.addItemList ({ "2:1 compander (broadband, dbx-style)", "Sliding band B (up to 10 dB HF)", "Sliding band C (up to 20 dB HF)" }, 1);
+        nrType.addItemList ({ "2:1 compander (as dbx type II)", "B-type (as Dolby B: up to 10 dB)", "C-type (as Dolby C: up to 20 dB)" }, 1);
         nrType.setSelectedItemIndex (engine.tapeEngine.params.nrType.load(), juce::dontSendNotification);
         nrType.onChange = [this] { engine.tapeEngine.params.nrType = nrType.getSelectedItemIndex(); };
         for (auto* c : std::initializer_list<juce::Component*> { &nrType, &nrLabel, &presetLabel })
             addAndMakeVisible (c);
-        for (auto* l : { &nrLabel, &presetLabel })
+        for (auto* l : { &nrLabel, &presetLabel, &counterLabel })
         {
             l->setFont (DeckLookAndFeel::get().cond (17.0f));
             l->setColour (juce::Label::textColourId, Pal::muted);
@@ -562,6 +581,9 @@ public:
                     r.removeFromTop (22), juce::Justification::centredLeft);
     }
 
+    std::function<void()> onPreferredHeightChanged;
+    int preferredHeight() const { return 16 + 30 + 16 + (int) controls.size() * 40 + 4 + 28 + 10 + 30 + 8 + 30 + 18 + 134 + 16; }
+
     void resized() override
     {
         auto r = getLocalBounds().reduced (16);
@@ -584,6 +606,10 @@ public:
         auto l1 = r.removeFromTop (30);
         nrLabel.setBounds (l1.removeFromLeft (150));
         nrType.setBounds (l1.withWidth (360));
+        r.removeFromTop (8);
+        auto l2 = r.removeFromTop (30);
+        counterLabel.setBounds (l2.removeFromLeft (150));
+        counterKind.setBounds (l2.withWidth (420));
         r.removeFromTop (18);
         tapeInfo = r.removeFromTop (134);
     }
@@ -661,7 +687,8 @@ private:
     juce::OwnedArray<juce::TextButton> presets;
     juce::ToggleButton asNew { "Play every cassette as new (ignore its condition)" };
     juce::ComboBox nrType;
-    juce::Label nrLabel { {}, "Noise reduction" }, presetLabel { {}, "Machine" };
+    juce::Label nrLabel { {}, "Noise reduction" }, presetLabel { {}, "Machine" }, counterLabel { {}, "Counter" };
+    juce::ComboBox counterKind;
     juce::Rectangle<int> tapeInfo;
     juce::String shownTape;
     bool applyingPreset = false;
@@ -759,7 +786,7 @@ SetupWindow::SetupWindow (AudioEngine& engineRef, juce::PropertiesFile& settings
     tabs->setTabBarDepth (48);
     tabs->addTab ("AUDIO", Pal::panel, new Scrolling<AudioPanel> (engineRef), true);
     tabs->addTab ("MIDI & DECK", Pal::panel, new Scrolling<MidiPanel> (engineRef), true);
-    tabs->addTab ("DECK", Pal::panel, new DeckPanel (engineRef), true);
+    tabs->addTab ("DECK", Pal::panel, new Scrolling<DeckPanel> (engineRef), true);
     tabs->addTab ("PLUG-INS", Pal::panel, new InstrumentsPanel (engineRef, settings), true);
     setContentNonOwned (tabs.get(), false);
     setResizable (true, false);

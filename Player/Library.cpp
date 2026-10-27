@@ -20,6 +20,7 @@ namespace
         x->setAttribute ("side", e.side);
         x->setAttribute ("position", e.position);
         x->setAttribute ("length", e.lengthCells);
+    x->setAttribute ("fraction", e.fraction);
         x->setAttribute ("lastPlayed", juce::String (e.lastPlayed));
         return x;
     }
@@ -37,6 +38,7 @@ namespace
         e.side = x.getIntAttribute ("side") == 1 ? 1 : 0;
         e.position = x.getDoubleAttribute ("position");
         e.lengthCells = x.getDoubleAttribute ("length");
+    e.fraction = juce::jlimit (0.0, 1.0, x.getDoubleAttribute ("fraction", e.lengthCells > 0 ? e.position / e.lengthCells : 0.0));
         e.lastPlayed = x.getStringAttribute ("lastPlayed").getLargeIntValue();
         return e;
     }
@@ -141,10 +143,14 @@ OpenedCassette Library::open (const juce::File& cassFile) const
     }
     else
     {
-        // First time in this player: wherever the cassette itself says it was left, on side A.
+        // First time in this player: wherever the cassette itself says it was left (a master tape
+        // from the TF-4 comes rewound), on side A.
         e.side = 0;
         e.position = t.position.load();
     }
+    t.turnOver (e.side == 1);
+    e.fraction = t.rightFraction (e.position);
+    t.turnOver (false);
     e.lastPlayed = juce::Time::currentTimeMillis();
     return o;
 }

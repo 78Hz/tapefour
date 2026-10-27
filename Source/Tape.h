@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Common.h"
+#include "Geometry.h"
 #include "../Formats/Cassette.h"
 
 namespace tf
@@ -65,6 +66,26 @@ public:
         return layout == tfmt::Layout::stereoTwoSides ? (track + 2) % numTracks : numTracks - 1 - track;
     }
     double physicalPos (double pos) const noexcept { return isTurnedOver() ? (double) lengthCells - pos : pos; }
+
+    /** The clear leaders at the two ends of the tape itself (cells of travel): end 0 is before
+        side A's start, end 1 after its end. A few seconds each, different for every cassette
+        (from its id, Geometry::leaderSeconds), and the same wherever it's played. Nothing can be
+        recorded on a leader, and it carries no hiss: it has no oxide. */
+    double leaderCells (int end) const noexcept  { return leader[end & 1]; }
+    /** The leader before and after the recordable tape as the deck sees it (turned over swaps them).
+        The deck's position runs from -leadBefore() (fully rewound) to length + leadAfter(). */
+    double leadBefore() const noexcept { return isTurnedOver() ? leader[1] : leader[0]; }
+    double leadAfter() const noexcept  { return isTurnedOver() ? leader[0] : leader[1]; }
+    double startOfTape() const noexcept { return -leadBefore(); }
+    double endOfTape() const noexcept   { return (double) lengthCells + leadAfter(); }
+    /** How much of the whole tape, leaders included, is on the right-hand spool at this position (0..1). */
+    double rightFraction (double pos) const noexcept
+    {
+        const auto total = (double) lengthCells + leader[0] + leader[1];
+        return total > 0.0 ? std::clamp ((pos + leadBefore()) / total, 0.0, 1.0) : 0.0;
+    }
+    /** The pack's diameter (mm) with all of this cassette's tape on one hub (Geometry.h). */
+    float fullPackMm() const noexcept { return fullPack; }
     /** The tab of the side facing up is broken out (a stereo cassette in the TF-4: either side's). */
     bool isWriteProtected() const noexcept
     {
@@ -145,8 +166,7 @@ public:
     double usedSeconds() const;
     int tracksUsed() const;
 
-    std::atomic<double> position { 0.0 };   // in cells
-    std::atomic<double> counterZero { 0.0 };   // the deck's counter memory (kept in the session)
+    std::atomic<double> position { 0.0 };   // in cells, as the deck sees it; -leadBefore() is fully rewound
     std::atomic<bool> protectA { false }, protectB { false };   // write-protect tabs broken out
 
     // ---- the cassette's description (message thread) ----
@@ -226,6 +246,9 @@ private:
     std::vector<std::string> recorders;
     std::atomic<uint8_t> currentRecorder { 0 };
     uint64_t seed = 0;
+    double leader[2] { 3.0 * cellRate, 3.0 * cellRate };
+    float fullPack = 47.0f;
+    void placeLeaders() noexcept;
     tfmt::Layout layout = tfmt::Layout::fourTrackOneWay;
     std::string madeBy;
     tfmt::Json unknownManifest, unknownState;   // members from newer versions, kept on rewrite

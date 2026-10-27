@@ -1,33 +1,13 @@
 #pragma once
 
 #include "Tape.h"
+#include "NoiseReduction.h"
 
 namespace tf
 {
-/**
-    Noise reduction, as encode/decode pairs. What goes on tape is encoded;
-    playback decodes. If the switch doesn't match how the tape was recorded,
-    you hear exactly the kind of wrongness a real deck gives you.
-
-    type 0: 2:1 broadband compander with pre/de-emphasis (dbx-style)
-    type 1: single sliding band, up to 10 dB of HF lift (B-style)
-    type 2: deeper sliding band, up to 20 dB of HF lift (C-style)
-*/
-class Compander
-{
-public:
-    void configure (double sampleRate, int type, bool encoder);
-    float process (float x) noexcept;
-    void reset() noexcept;
-
-private:
-    inline float detect (float v) noexcept;
-
-    int type = 0;
-    bool isEncoder = true;
-    Biquad emphasis;
-    float env2 = 0, lpState = 0, lpCoef = 0, atk = 0, rel = 0, ref = 0.1f, maxBoost = 31.6f;
-};
+// Noise reduction (encode on record, decode on playback): NoiseReduction.h, modelled on the
+// published B and C designs and the 2:1 compander. If the switch doesn't match how the tape was
+// recorded, you hear exactly the kind of wrongness a real deck gives you.
 
 class TapeEngine
 {
@@ -55,6 +35,15 @@ public:
         std::atomic<float> crosstalkDb { -65.0f };     // each neighbouring track, as the head picks it up; -120 = none
         /** Off: every cassette plays as if new (its formulation counts; its condition, wear and age don't). */
         std::atomic<bool>  honoursTapeCondition { true };
+        /** Fast wind: seconds for one side of a C-60. The take-up spindle is driven, so the tape
+            speeds up as the take-up pack grows (Geometry::windRadPerSecond). */
+        std::atomic<float> windSecondsC60 { 120.0f };
+        /** Cue and review: how far down the lightly touching head is, and how far off the tape it rides. */
+        std::atomic<float> cueLevelDb { -18.0f }, cueSpacingUm { 3.0f };
+        /** The counter: false a mechanical one, countsPerTurn counts per turn of the take-up spindle;
+            true a real-time one (seconds of playing time). */
+        std::atomic<bool>  counterRealtime { false };
+        std::atomic<float> countsPerTurn { 0.75f };
     };
 
     Params params;
@@ -68,7 +57,7 @@ public:
         or wear it. Set before use. */
     void setReadOnly (bool on) noexcept { readOnly = on; }
     /** For a read-only engine: where on the tape to start playing. */
-    void seek (double cells) noexcept   { pos = cells; }
+    void seek (double cells) noexcept   { pos = lastBlockPos = cells; }
     /** Where the engine's head is (cells): for the thread that runs it. */
     double getPosition() const noexcept { return pos; }
 
@@ -78,6 +67,14 @@ public:
     void command (Command c) noexcept         { pendingCommand.store ((int) c); }
     Mode getMode() const noexcept             { return (Mode) mode.load(); }
     bool isReturningToZero() const noexcept   { return rtz.load(); }
+    /** PLAY pressed while winding: the head rides lightly on the moving tape. */
+    bool isCueing() const noexcept            { return cueing.load(); }
+    bool takeRecInCueFlag() noexcept          { return recInCue.exchange (false); }
+    /** The machine's counter: counts (mechanical) or seconds (real time), from where it was last reset.
+        It belongs to the machine: it keeps its reading when cassettes are changed or turned over. */
+    double getCounter() const noexcept        { return counter.load(); }
+    void resetCounter() noexcept              { counterReset = true; }
+    void setCounter (double v) noexcept       { counter = v; }
     bool takeEndOfTapeFlag() noexcept         { return endOfTape.exchange (false); }
     bool takeNoArmFlag() noexcept             { return noArmWarning.exchange (false); }
     float getNominalSpeed() const noexcept    { return nominalSpeed.load(); }   // incl. pitch, rel. to 1 7/8
@@ -114,6 +111,8 @@ public:
     static BiasEffect biasEffect (int tapeIecType, int switchPos) noexcept;
     /** First-order filter for playing tape recorded with one EQ time constant through another. */
     static void setEqMismatch (Biquad& b, double sampleRate, double recordedUs, double playbackUs) noexcept;
+    /** The playback EQ's response to tape noise (flux that's flat along the tape). */
+    static void setFluxNoiseEq (Biquad& b, double sampleRate, double playbackUs) noexcept;
 
 private:
     double sr = 48000.0;
@@ -126,10 +125,18 @@ private:
 
     std::atomic<int> pendingCommand { 0 }, mode { 0 };
     std::atomic<bool> rtz { false }, endOfTape { false }, noArmWarning { false };
+    std::atomic<bool> cueing { false }, recInCue { false }, counterReset { false };
+    std::atomic<double> counter { 0.0 };
+    bool blockCue = false;
+    float cueGain = 1.0f, cueLpCoef = 0.0f, cueLp[numTracks] {};
+    std::vector<double> prevPosBuf;
+    std::vector<uint8_t> onOxide;
+    int64_t lastCueSecond = -1;
+    uint32_t cueCrossings = 0;
     std::atomic<float> nominalSpeed { 1.0f };
     double pitchGlide = 1.0;              // audio thread: the varispeed motor, easing to the knob
 
-    double pos = 0.0, windVel = 0.0;
+    double pos = 0.0, windVel = 0.0, lastBlockPos = 0.0;
     std::vector<double> posBuf;
     std::vector<uint8_t> playing, recording;
     bool blockHasPlayback = false, blockHasRecording = false;
@@ -142,12 +149,14 @@ private:
     Noise rng { 0x9e3779b9u };
 
     // per-track playback colour
-    Compander decoder[numTracks], encoder[numTracks];
+    nr::NoiseReduction decoder[numTracks], encoder[numTracks];
     int companderType = -1;
     Biquad hfLoss[numTracks][2];
     Biquad antiAlias[numTracks][2];
-    float pink[numTracks][3] {};
-    Noise hissNoise[numTracks] { Noise (11u), Noise (23u), Noise (37u), Noise (51u) };
+    // Each machine's tape noise its own: decks playing at once never hiss in step.
+    static uint32_t engineSeed() noexcept { static std::atomic<uint32_t> n { 0 }; return 0x6a09e667u * ++n; }
+    const uint32_t hissSeed = engineSeed();
+    Noise hissNoise[numTracks] { Noise (hissSeed + 11u), Noise (hissSeed + 23u), Noise (hissSeed + 37u), Noise (hissSeed + 51u) };
     float dropGain[numTracks] { 1, 1, 1, 1 };
     // The cassette's dropouts are fixed places on it: worked out from its id, per block of tape.
     struct Dropout { int64_t block = -1; int track = -1; double start = 0, end = 0; float depth = 1.0f; };
@@ -182,7 +191,7 @@ private:
     bool eraseBleed = false;
     float eraseLp[numTracks] {};
     // playback EQ against what's on the tape
-    Biquad sigEq[numTracks], hissEq[numTracks];
+    Biquad sigEq[numTracks];
     int sigEqKey[numTracks] { -1, -1, -1, -1 }, hissEqKey = -1;
     float satK = 1.0f, sensGain = 1.0f, modDepth = 0.0f;
     Biquad emphLo[numTracks], emphHi[numTracks], deemphLo[numTracks], deemphHi[numTracks];

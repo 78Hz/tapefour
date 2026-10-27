@@ -108,7 +108,7 @@ public:
     bool listenInto (float* l, float* r, int n) noexcept;
 
     /** The gap between takes on a side, and the leader before the first. */
-    static constexpr double gapSeconds = 4.0, leaderSeconds = 2.0;
+    static constexpr double gapSeconds = 4.0, leadInSeconds = 2.0;   // lead-in: blank tape after the leader, before the first mix
     /** How far the playback head sits after the record head: the delay of off-tape monitoring. */
     static constexpr double headGapSeconds = 0.1;
 

@@ -31,12 +31,6 @@ namespace
         }
         return p;
     }
-
-    juce::String time (double cells)
-    {
-        auto s = juce::jmax (0, (int) (cells / cellRate));
-        return juce::String (s / 60).paddedLeft ('0', 2) + ":" + juce::String (s % 60).paddedLeft ('0', 2);
-    }
 }
 
 //==============================================================================
@@ -139,7 +133,7 @@ struct ShelfView::Tile : public juce::Component
         missing = ! e.file.existsAsFile();
         look.setArtwork (std::move (art));
         look.setSide (e.side);
-        look.setPlayed (e.lengthCells > 0 ? e.position / e.lengthCells : 0.0, 0.0);
+        look.setPlayed (e.fraction, 0.0);
         look.setInterceptsMouseClicks (false, false);
         addAndMakeVisible (look);
         setTitle (e.label.isNotEmpty() ? e.label : e.product);
@@ -173,7 +167,7 @@ struct ShelfView::Tile : public juce::Component
         g.setColour (missing ? Pal::red : Pal::lcdText);
         g.setFont (lf.mono (14.0f));
         g.drawText (missing ? juce::String ("FILE MISSING") : (current ? juce::String ("IN THE PLAYER  ") : juce::String())
-                        + (entry.side == 0 ? "A " : "B ") + time (entry.position),
+                        + (entry.side == 0 ? "SIDE A" : "SIDE B"),
                     text.removeFromTop (18), juce::Justification::centredLeft, true);
     }
 
@@ -424,6 +418,7 @@ void PlayerComponent::rememberPosition()
     if (! haveCassette || engine.getTape() == nullptr) return;
     current.side = engine.getSide();
     current.position = engine.getPosition();
+    current.fraction = engine.getFraction();
     current.lastPlayed = juce::Time::currentTimeMillis();
     library.remember (current);
 }
@@ -450,13 +445,16 @@ void PlayerComponent::say (const juce::String& m, double seconds)
 
 juce::String PlayerComponent::counterText() const
 {
-    return juce::String (engine.getSide() == 0 ? "A " : "B ") + time (engine.getPosition());
+    // A portable has no counter: you see where you are from the spools. It shows which side is up.
+    const auto mode = engine.getMode();
+    if (engine.isCueing()) return mode == Mode::rew ? "REVIEW" : "CUE";
+    return engine.getSide() == 0 ? "SIDE A" : "SIDE B";
 }
 
 void PlayerComponent::refreshKeys()
 {
     const auto mode = engine.getMode();
-    play.setOn (mode == Mode::play);
+    play.setOn (mode == Mode::play || engine.isCueing());
     ff.setOn (mode == Mode::ff);
     rew.setOn (mode == Mode::rew);
     static const char* systems[] { "NR 2:1", "NR B", "NR C" };

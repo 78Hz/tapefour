@@ -8,7 +8,7 @@ namespace
     // All geometry in tenths of a millimetre: the shell is 1004 x 638.
     constexpr float shellW = 1004.0f, shellH = 638.0f;
     constexpr float hubR = 104.0f;                     // 21 mm hub
-    constexpr float minPackD = 216.0f;                 // leader wound on an empty hub
+    constexpr float minPackD = (float) (Geometry::hubDiameterMm * 10.0);   // the hub's winding surface (Geometry.h)
     constexpr float cy = 300.0f, lx = 292.0f, rx = 712.0f;
     constexpr float guideY = 586.0f, guideR = 32.0f, wrapR = 30.0f, guideLX = 118.0f, guideRX = 886.0f;
     constexpr float unitsPerTapeSecond = 476.0f;       // 47.6 mm/s
@@ -155,16 +155,18 @@ void CassetteComponent::update (const Tape* tape, double pos)
     hasTape = tape != nullptr;
     if (! hasTape) { repaint(); return; }
 
-    fullPackUnits = tape->getTypeInfo().fullPackMm * 10.0f;
-    fraction = (float) (pos / (double) tape->getLengthCells());
+    fullPackUnits = tape->fullPackMm() * 10.0f;
+    fraction = (float) tape->rightFraction (pos);
 
     if (lastPos >= 0.0)
     {
         auto moved = (float) ((pos - lastPos) / cellRate) * unitsPerTapeSecond;
         auto rL = packDiameter (1.0f - fraction) * 0.5f, rR = packDiameter (fraction) * 0.5f;
         // Tape moving left to right turns both spools anticlockwise.
-        angleL -= moved / rL;
-        angleR -= moved / rR;
+        stepL = -moved / rL;
+        stepR = -moved / rR;
+        angleL += stepL;
+        angleR += stepR;
         angleL = std::fmod (angleL, juce::MathConstants<float>::twoPi);
         angleR = std::fmod (angleR, juce::MathConstants<float>::twoPi);
     }
@@ -356,8 +358,22 @@ void CassetteComponent::paintWorks (juce::Graphics& g) const
     g.setColour (st.tape);
     g.strokePath (tape, juce::PathStrokeType (4.0f, juce::PathStrokeType::curved));
 
-    drawHub (g, { lx, cy }, angleL);
-    drawHub (g, { rx, cy }, angleR);
+    // Winding, the hubs blur (drawn at the angles they passed through since the last frame).
+    auto blurred = [&] (juce::Point<float> c, float angle, float step)
+    {
+        const auto spread = std::min (std::abs (step), juce::MathConstants<float>::twoPi);
+        const int copies = spread < 0.12f ? 1 : juce::jlimit (2, 12, (int) std::ceil (spread / 0.1f));
+        if (copies == 1) { drawHub (g, c, angle); return; }
+        for (int n = 0; n < copies; ++n)
+        {
+            juce::Graphics::ScopedSaveState ss (g);
+            g.beginTransparencyLayer (1.0f / (float) (n + 1));
+            drawHub (g, c, angle - (step < 0 ? -1.0f : 1.0f) * spread * (float) n / (float) (copies - 1));
+            g.endTransparencyLayer();
+        }
+    };
+    blurred ({ lx, cy }, angleL, stepL);
+    blurred ({ rx, cy }, angleR, stepR);
 
 }
 
@@ -514,7 +530,7 @@ namespace
 {
     // Which version of the TF-4's drawings a look was made by: a change to the drawings raises it,
     // and cassettes get their looks redrawn the next time they're saved.
-    constexpr const char* artRevision = "2";   // 2: looks written blank on Windows by revision 1 are redrawn
+    constexpr const char* artRevision = "3";   // 2: looks written blank on Windows by revision 1 are redrawn; 3: real pack sizes (Geometry.h)
     constexpr float artScale = 2.0f;   // image pixels per tenth of a mm
 
     std::string hex (juce::Colour c)
@@ -539,7 +555,7 @@ namespace
 
 CassetteComponent::ArtSpec CassetteComponent::ArtSpec::of (const Tape& tape)
 {
-    return { tape.getModel(), tape.getTypeInfo().minutes, tape.getTypeInfo().fullPackMm, tape.name };
+    return { tape.getModel(), tape.getTypeInfo().minutes, tape.fullPackMm(), tape.name };
 }
 
 juce::String CassetteComponent::ArtSpec::key() const

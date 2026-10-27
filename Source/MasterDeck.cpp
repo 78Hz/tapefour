@@ -171,6 +171,10 @@ tfmt::DeckDescription MasterDeck::factoryMachine()
     d.transport.driftPct = 0.05;
     d.heads.cutoffHz = 18000.0;
     d.heads.crosstalkDb = -120.0;
+    d.transport.windSecondsC60 = 90.0;   // a stereo deck's stronger reel motors
+    d.counter.kind = "realtime";
+    d.electronics.channelNoiseDb = -140.0;   // no mixer of its own
+    d.electronics.busNoiseDb = -85.0;
     return d;
 }
 
@@ -228,6 +232,11 @@ void MasterDeck::configureEngines (int nrType)
         e->machine.cutoffHz = (float) machine.heads.cutoffHz;
         e->machine.crosstalkDb = (float) machine.heads.crosstalkDb;
         e->machine.honoursTapeCondition = machine.honoursTapeCondition;
+        e->machine.windSecondsC60 = (float) machine.transport.windSecondsC60;
+        e->machine.cueLevelDb = (float) machine.cue.levelDb;
+        e->machine.cueSpacingUm = (float) machine.cue.spacingUm;
+        e->machine.counterRealtime = machine.counter.kind == "realtime";
+        e->machine.countsPerTurn = (float) machine.counter.countsPerTurn;
         if (tape != nullptr)
         {
             e->setTape (tape.get(), false);
@@ -301,7 +310,7 @@ double MasterDeck::nextStart() const
 {
     if (tape == nullptr) return -1;
     const auto used = sideUsedSeconds (settings.side);
-    const auto start = (used > 0 ? used + gapSeconds : leaderSeconds) * cellRate;
+    const auto start = (used > 0 ? used + gapSeconds : leadInSeconds) * cellRate;
     return start < (double) tape->getLengthCells() - 5.0 * cellRate ? start : -1.0;
 }
 

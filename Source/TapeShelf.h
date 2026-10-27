@@ -32,7 +32,8 @@ struct TapeShelf
 
     // ---- .cass files (docs/formats/cass-v1.md) ----
     /** Packs a cassette on the shelf (as last saved) into a .cass file. Its session stays on the shelf. */
-    static bool exportCassette (const juce::String& id, const juce::File& target, juce::String& error);
+    /** rewindTo: the exported copy is wound to this position along the tape (see tfmt::packCassette). */
+    static bool exportCassette (const juce::String& id, const juce::File& target, juce::String& error, const double* rewindTo = nullptr);
     /** What a .cass file is, without unpacking it. */
     static bool peek (const juce::File& cassFile, tfmt::CassetteInfo& info, juce::String& error);
     /** Puts a .cass file on the shelf (replacing the copy there, if any, but keeping its session).
