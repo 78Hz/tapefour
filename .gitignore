@@ -4,3 +4,4 @@ out/
 *.user
 .DS_Store
 Player/Builds/
+Player/JuceLibraryCode/
