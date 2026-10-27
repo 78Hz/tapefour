@@ -50,6 +50,13 @@ public:
         juce::String key() const;   // changes whenever the look would
     };
     static Art renderArt (const ArtSpec&);
+    /** The same look as images, not PNG files: for drawing it straight away (a player). */
+    struct ArtImages
+    {
+        tfmt::Look look;
+        juce::Image back, frontA, frontB, hub;
+    };
+    static ArtImages drawArt (const ArtSpec&);
     /** The cassette's folder already holds its look as this version draws it, for its label as it is now. */
     static bool artIsCurrent (const ArtSpec&, const juce::File& cassetteFolder);
     /** Writes the look into the cassette's folder (art/), each file replaced whole. Any thread. */

@@ -102,15 +102,15 @@ CassetteArtwork Library::artworkOf (const juce::File& cassFile, const Tape* tape
         tape = opened.get();
     }
     if (tape == nullptr) return {};
-    auto made = CassetteComponent::renderArt (CassetteComponent::ArtSpec::of (*tape));
-    return CassetteArtwork::fromParts (made.look, [&made] (const std::string& name)
-    {
-        if (name == made.look.back)   return made.back;
-        if (name == made.look.frontA) return made.frontA;
-        if (name == made.look.frontB) return made.frontB;
-        if (name == made.look.hub)    return made.hub;
-        return juce::MemoryBlock();
-    });
+    // (Drawn straight into images: no PNG files to write and read back.)
+    auto made = CassetteComponent::drawArt (CassetteComponent::ArtSpec::of (*tape));
+    CassetteArtwork drawn;
+    drawn.look = made.look;
+    drawn.back = made.back;
+    drawn.frontA = made.frontA;
+    drawn.frontB = made.frontB;
+    drawn.hub = made.hub;
+    return drawn;
 }
 
 OpenedCassette Library::open (const juce::File& cassFile) const

@@ -547,7 +547,7 @@ juce::String CassetteComponent::ArtSpec::key() const
     return juce::String (designOf (model)) + "|" + juce::String (minutes) + "|" + juce::String (fullPackMm) + "|" + label;
 }
 
-CassetteComponent::Art CassetteComponent::renderArt (const ArtSpec& spec)
+CassetteComponent::ArtImages CassetteComponent::drawArt (const ArtSpec& spec)
 {
     CassetteComponent c;
     c.model = spec.model;
@@ -565,10 +565,10 @@ CassetteComponent::Art CassetteComponent::renderArt (const ArtSpec& spec)
             g.addTransform (juce::AffineTransform::scale (artScale));
             draw (g);
         }
-        return png (image);
+        return image;
     };
 
-    Art art;
+    ArtImages art;
     art.back = layer ([&] (juce::Graphics& g) { c.paintBack (g); });
     c.side = 0;
     art.frontA = layer ([&] (juce::Graphics& g) { c.paintFront (g, spec.label); });
@@ -584,7 +584,7 @@ CassetteComponent::Art CassetteComponent::renderArt (const ArtSpec& spec)
             g.addTransform (juce::AffineTransform::scale (artScale));
             c.drawHub (g, { hubBox * 0.5f, hubBox * 0.5f }, 0.0f);
         }
-        art.hub = png (image);
+        art.hub = image;
     }
 
     auto& l = art.look;
@@ -613,6 +613,18 @@ CassetteComponent::Art CassetteComponent::renderArt (const ArtSpec& spec)
     l.tape.guides = { { { guideLX, guideY }, { guideRX, guideY } } };
     l.tape.wrapRadius = wrapR;
     l.label = { 68, 398, 868, 80 };
+    return art;
+}
+
+CassetteComponent::Art CassetteComponent::renderArt (const ArtSpec& spec)
+{
+    auto drawn = drawArt (spec);
+    Art art;
+    art.look = drawn.look;
+    art.back = png (drawn.back);
+    art.frontA = png (drawn.frontA);
+    art.frontB = png (drawn.frontB);
+    art.hub = png (drawn.hub);
     return art;
 }
 
