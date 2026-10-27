@@ -247,7 +247,9 @@ jobs:
           set -o pipefail
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log || {
-            grep -E ": (fatal )?error:|error: |FAILURE|What went wrong" -A2 build.log | sort -u | head -10 | sed 's/^/::error::/'
+            # Each error line, and the source line under it, as annotations (the log isn't always reachable).
+            grep -E "(fatal )?error:|What went wrong|undefined reference|ld: " -A1 build.log | grep -v '^\s*|\s*[~^ ]*$' | grep -v '^--$' | head -10 | sed 's/^/::error::/'
+            grep -E "(fatal )?error:" -A3 build.log | head -60 | python3 -c "import sys; print('::error title=gradle::' + sys.stdin.read().replace('%','%25').replace('\\n','%0A'))"
             exit 1; }
 
       - name: Package

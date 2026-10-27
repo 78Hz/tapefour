@@ -1,3 +1,6 @@
+// JUCE's JNI helpers (getEnv, LocalRef, getAppContext...) are only declared when this is set first.
+#define JUCE_CORE_INCLUDE_JNI_HELPERS 1
+
 #include "Launch.h"
 
 namespace tf::pocket
