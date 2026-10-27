@@ -1,3 +1,7 @@
 # JUCE's bundled LV2 libraries (serd, sord, lilv) pass C callbacks through generic function pointers
 # (a long-standing C idiom the function check reports). Only that check, only in that code.
 function:*/LV2_SDK/*
+
+# JUCE's bundled libFLAC encoder adds offsets to a null pointer it never dereferences (upstream
+# code, harmless in practice). Only the pointer-overflow check, only in libFLAC.
+pointer-overflow:*/codecs/flac/libFLAC/*
