@@ -480,12 +480,22 @@ td:first-child { font-weight: 600; }
     <tr><td>STOP <span class="key">Space</span></td><td>Stops.</td><td>One second later the tape is saved.</td></tr>
     <tr><td>REC <span class="key">R</span></td><td>Records on every armed track.</td><td>The LED in the REC key lights. If no track is armed, the status display says <span class="lcd">ARM A TRACK FIRST</span>.</td></tr>
     <tr><td>REC while playing</td><td>Punch-in.</td><td>Recording starts at once on the armed tracks. Press PLAY to punch out and keep playing. Tape before and after the punch is untouched. The new take fades in and out over 6 ms either side, like the gap between a deck's erase and record heads, so a punch never clicks.</td></tr>
-    <tr><td>REW, F.FWD</td><td>Wind the tape.</td><td>The tape speeds up and slows down like real spools. Winding stops at either end of the tape.</td></tr>
-    <tr><td>RESET</td><td>Sets the counter to 000 where the tape is now.</td><td>Use it to mark the start of a song.</td></tr>
-    <tr><td>RTZ <span class="key">Home</span></td><td>Return to zero.</td><td>Rewinds and stops at 000. The status display reads <span class="lcd">RETURN TO ZERO</span>.</td></tr>
+    <tr><td>REW, F.FWD</td><td>Wind the tape.</td><td>The motor drives the take-up spool, so the tape starts slowly and speeds up as that spool fills: about 9 times playing speed at the start of a C-60 side and 20 times at the end. A whole C-60 side takes about two minutes. Winding stops when the leader runs out at either end.</td></tr>
+    <tr><td>PLAY while winding</td><td>Cue (forward) and review (back).</td><td>The head touches the moving tape lightly. You hear it faintly, high and fast going forward and backwards in review, so you can find a song by ear. The status display reads <span class="lcd">CUE</span> or <span class="lcd">REVIEW</span>. Press PLAY again to play from there. Press the winding key you're using to lift the head and wind silently; press the other one to reverse while still listening. REC does nothing while cueing.</td></tr>
+    <tr><td>RESET</td><td>Sets the counter to 000.</td><td>Use it to mark the start of a song.</td></tr>
+    <tr><td>RTZ <span class="key">Home</span></td><td>Return to zero.</td><td>Rewinds until the counter reads 000, and stops. The status display reads <span class="lcd">RETURN TO ZERO</span>.</td></tr>
   </tbody>
 </table>
-<p>The counter is a three-digit mechanical-style counter. Like the counters on real decks, it doesn't count seconds: it advances one count for every two seconds of tape at 1⅞ ips. Write the counter number for each song on the inlay. The status display shows the time remaining at the current speed.</p>
+<h2>The counter</h2>
+<p>The counter belongs to the deck, not to the cassette, as on a real machine:</p>
+<ul>
+  <li><strong>It counts turns of the right-hand spool, not seconds.</strong> At the start of a side that spool is small and turns quickly, so the counter runs about twice as fast as at the end. A song's counter number is only true on this deck, which is why you write it on the inlay.</li>
+  <li><strong>It keeps counting when you change the cassette or turn it over.</strong> Only RESET puts it back to 000. It also keeps its reading when you quit.</li>
+  <li><strong>You can switch to a real-time counter</strong> (minutes and seconds) in Setup → DECK. The deck's counter type is part of the machine and is saved in <span class="lcd">TF-4.deck</span>.</li>
+</ul>
+<p>The status display shows the time left on the side at the current speed, or <span class="lcd">LEADER</span> while the leader is across the head.</p>
+<h2>Leaders</h2>
+<p>Each end of a cassette is a few seconds of clear leader. It has no oxide, so nothing records on it and it doesn't hiss. A new cassette comes rewound, with the leader across the head; press PLAY or REC and the magnetic tape arrives a few seconds later, as on a real cassette. Every cassette's leaders are a little different, and stay the same wherever it's played.</p>
 <div class="note warn"><span class="tag">NO UNDO</span>Recording replaces what was on the tape under the armed tracks, from the moment you press REC until you stop or punch out. Nothing else is touched. To keep a take, record on a different track or a new tape.</div>
 
 <!-- ======================================================= 8 SIGNAL CHAINS -->
@@ -612,11 +622,12 @@ td:first-child { font-weight: 600; }
 <table>
   <thead><tr><th>Type</th><th>How it works</th><th>Hiss reduction</th><th>Character</th></tr></thead>
   <tbody>
-    <tr><td>2:1 compander</td><td>Broadband 2:1 compression on record and 1:2 expansion on playback, with fixed treble pre-emphasis (dbx-style).</td><td>The most, roughly 30 dB</td><td>Very quiet. Can "pump": hiss and grain rise and fall behind loud bass notes.</td></tr>
-    <tr><td>Sliding band B</td><td>Lifts quiet treble up to 10 dB above about 1.5 kHz.</td><td>About 10 dB</td><td>Gentle and forgiving.</td></tr>
-    <tr><td>Sliding band C</td><td>A deeper band from about 700 Hz, up to 20 dB.</td><td>About 20 dB</td><td>Quieter than B, and more sensitive to level and treble errors.</td></tr>
+    <tr><td>2:1 compander</td><td>As dbx type II, the system on most portastudios: the whole signal is compressed 2:1 on record and expanded 1:2 on playback, steered by a detector that listens mostly to the treble, with fixed treble emphasis.</td><td>The most, 30 dB and more</td><td>Very quiet between notes. Because the whole band moves, the hiss rises and falls with the music ("breathing"), most noticeably on sparse, bright parts.</td></tr>
+    <tr><td>Sliding band B</td><td>As Dolby B: quiet treble is lifted on record, starting about 500 Hz and reaching 10 dB from about 4 kHz up. As a sound gets louder the lifted band slides up above it, so loud sounds are left alone and the treble above them stays quiet.</td><td>About 10 dB, in the treble</td><td>Gentle and forgiving; little breathing.</td></tr>
+    <tr><td>Sliding band C</td><td>As Dolby C: two such stages, one working 20 dB below the other, reaching two octaves lower. Quiet sounds get up to 20 dB of lift (about 15 dB at 400 Hz). Very high treble is trimmed before recording and restored after, and loud treble is held back from the tape so it doesn't saturate.</td><td>About 20 dB, from the mid-range up</td><td>Quieter than B, and more sensitive to level and treble errors: the most demanding of a good deck and tape.</td></tr>
   </tbody>
 </table>
+<p>The three types follow the published designs: B matches Dolby Laboratories' own encoder response, and C the Dolby C test points, within a fraction of a dB. The tape's hiss is generated on the tape and passes through the decoder like the music, so you hear exactly what each system does to it.</p>
 <h2>Mismatched NR</h2>
 <p>Tape remembers whether it was recorded with NR. If you play it back with the switch the other way, the track's NR lamp flashes red. Encoded tape played without NR sounds bright and squashed, and the treble pumps. Plain tape played with NR sounds dull and lifeless.</p>
 <h2>How the tape type and noise reduction interact</h2>
@@ -643,10 +654,13 @@ td:first-child { font-weight: 600; }
     <tr><td>Heads</td><td>Treble to 4–20 kHz</td><td>Worn or misaligned heads lose treble on playback, whatever the tape. It dulls everything played back, hiss included.</td></tr>
     <tr><td>Crosstalk</td><td>None, or −100 to −40 dB</td><td>Neighbouring tracks leak into each other. You may hear it as a faint ghost of track 2 behind track 1.</td></tr>
     <tr><td>Tape drive</td><td>−6 to +6 dB (centre = 0 VU at Dolby level)</td><td>Where 0 VU lands on the tape. More drive brings saturation and treble compression earlier, the way a deck calibrated hot would. Less drive keeps it cleaner. The playback level isn't changed. Double-click to return to the centre.</td></tr>
+    <tr><td>Mixer noise</td><td>−100 to −60 dB per channel (as supplied: −76 dB)</td><td>The mixer's own hiss, as on any analogue desk. Each channel adds its own, which follows its fader and pan; the mix bus adds a little of its own that doesn't. You rarely hear it over the tape, but with noise reduction on, between notes, it's what remains. The default is TASCAM's figure for the 424.</td></tr>
+    <tr><td>Fast wind</td><td>60–200 s per C-60 side (as supplied: 120 s)</td><td>How long the machine takes to wind one side end to end.</td></tr>
     <tr><td>Noise reduction</td><td>2:1, B or C</td><td>See chapter 11.</td></tr>
+    <tr><td>Counter</td><td>Mechanical or real time</td><td>See chapter 7. Changing it resets the counter.</td></tr>
   </tbody>
 </table>
-<p>The machine presets set every control except tape drive and noise reduction:</p>
+<p>The machine presets set the mechanism and heads (the first five controls). The mixer's noise and the wind time belong to the machine too, but don't change with its condition:</p>
 <table>
   <thead><tr><th>Machine</th><th class="num">Wow</th><th class="num">Flutter</th><th class="num">Drift</th><th class="num">Heads</th><th class="num">Crosstalk</th></tr></thead>
   <tbody>
@@ -661,7 +675,7 @@ td:first-child { font-weight: 600; }
 <h2>Wear and age</h2>
 <p>Real tapes change slowly, and so do these. Nothing here is exaggerated: a tape you use for months still sounds like the same tape.</p>
 <ul>
-  <li><strong>Use.</strong> Every pass over the heads wears that stretch of tape a little, and only that stretch. After about 400 passes it has lost half a dB of treble, gained about a dB of modulation noise, and has twice the dropouts it started with. The wear slows down from there.</li>
+  <li><strong>Use.</strong> Every pass over the heads wears that stretch of tape a little, and only that stretch (cueing counts as a quarter of a pass). After about 400 passes it has lost half a dB of treble, gained about a dB of modulation noise, and has twice the dropouts it started with. The wear slows down from there.</li>
   <li><strong>Time.</strong> The oxide loses up to 0.3 dB of treble over the years.</li>
   <li><strong>Print-through.</strong> A recording very faintly magnetises the turns of tape either side of it on the reel. You hear it as a quiet pre-echo and post-echo in the silence just before and after loud sounds: about 60 dB down a few days after recording, and about 50 dB down after twenty years.</li>
 </ul>
@@ -757,7 +771,7 @@ td:first-child { font-weight: 600; }
 </ol>
 <p>The <span class="lcd">PEAK</span> readout above the master meter holds the loudest level of the mix, and the display warns if the mix clipped. Each mix goes after the last one on the current side, with a four-second gap. When a side is full the mix ends there: press <span class="ctl">SIDE</span> (or click the other side in the master deck) to turn the tape over.</p>
 <h2>Your mixes</h2>
-<p>The files go to <span class="lcd">Documents/TapeFour/Mixdowns/</span>, in a folder named after the tape, one file per format; <span class="ctl">SHOW FOLDER</span> opens it. The master deck lists every mix on the master tape and where it sits on each side. Click one to listen to it, off the master tape. <span class="ctl">SAVE SIDE AS ONE FILE</span> writes a whole side, gaps and all, as one file, and <span class="ctl">EXPORT .CASS</span> saves the master tape itself as a cassette file (chapter 4).</p>
+<p>The files go to <span class="lcd">Documents/TapeFour/Mixdowns/</span>, in a folder named after the tape, one file per format; <span class="ctl">SHOW FOLDER</span> opens it. The master deck lists every mix on the master tape and where it sits on each side. Click one to listen to it, off the master tape. <span class="ctl">SAVE SIDE AS ONE FILE</span> writes a whole side, gaps and all, as one file, and <span class="ctl">EXPORT .CASS</span> saves the master tape itself as a cassette file (chapter 4), rewound to the start of side A, so whoever plays it first starts at the beginning. That's the file to put on your phone for the TF-P1 Pocket player, which has its own guide.</p>
 
 <!-- ======================================================= 14 REFERENCE -->
 <h1><span class="num">15</span>Reference</h1>

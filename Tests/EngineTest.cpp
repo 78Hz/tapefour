@@ -941,7 +941,7 @@ int main()
         r.eng.resetCounter();
         r.run (60.0, TapeEngine::Command::play, false, 0, 0);
         const auto firstMinute = r.eng.getCounter();
-        r.rewindTo (r.tape.getLengthCells() - 120.0 * cellRate);
+        r.rewindTo ((double) r.tape.getLengthCells() - 120.0 * cellRate);
         const auto before = r.eng.getCounter();
         r.run (60.0, TapeEngine::Command::play, false, 0, 0);
         const auto lastMinute = r.eng.getCounter() - before;
