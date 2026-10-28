@@ -15,7 +15,12 @@ namespace
         return f < 0.25 ? "SOFT" : f < 0.45 ? "MEDIUM" : f < 0.6 ? "SLIGHTLY HARD" : f < 0.8 ? "HARD" : "VERY HARD";
     }
     juce::String dampingWord (double d) { return d < 0.3 ? "WEAK" : d < 0.55 ? "LIGHT" : d < 0.8 ? "FIRM" : "VERY FIRM"; }
-    double heightMm (double h) { return 0.05 + 0.6 * h; }
+    juce::String restWords (float h)
+    {
+        const double r = ep::restMm (h);
+        if (std::abs (r) < 0.005) return "LEVEL WITH THE FINGERS";
+        return juce::String (std::abs (r), 2) + (r > 0.0 ? " MM CLEAR OF THE FINGERS" : " MM INSIDE THEM");
+    }
 
     void text (juce::Graphics& g, const juce::String& s, juce::Rectangle<int> r, juce::Colour c, float size = 10.5f,
                juce::Justification j = juce::Justification::centredLeft)
@@ -287,14 +292,14 @@ void ElectricPianoPanel::build()
             placeBar (bar ("blow", "BLOW DISTANCE", [] (float v) { return juce::String (v, 3) + " IN"; }));
             placeBar (bar ("letoff", "LET-OFF", [] (float v) { return juce::String (v, 3) + " IN"; }));
             placeBar (bar ("curve", "VELOCITY CURVE", [] (float v) { return v < -0.33f ? juce::String ("HEAVIER") : v > 0.33f ? juce::String ("LIGHTER") : juce::String ("AS THE ACTION"); }));
-            note ({ area.getX(), y + 4, w, 16 }, "HARDER FELT AND A LONGER BLOW: MORE OVERTONES, AND THE REED SWINGS FURTHER THROUGH THE COMB, SO IT BARKS SOONER.");
+            note ({ area.getX(), y + 4, w, 16 }, "THE HAMMER STAYS ON THE REED ABOUT ONE CYCLE OF ITS PITCH. HARDER FELT AND A LONGER BLOW: A SHORTER, HARDER HIT, SO THE REED SWINGS FURTHER AND BARKS SOONER.");
             note ({ area.getX(), y + 22, w, 16 }, "THE FACTORY SETTINGS: A BLOW OF 1 5/64 IN, LET-OFF AT 1/8 IN (THE SERVICE MANUAL). A BIG LET-OFF LOSES THE SOFTEST NOTES.");
             break;
         }
         case 4:   // PICKUP
         {
-            placeBar (bar ("height", "REED HEIGHT", [] (float v) { return juce::String (heightMm (v), 2) + " MM ABOVE THE COMB"; }));
-            placeBar (bar ("gap", "PICKUP GAP", [] (float v) { return juce::String (v, 2) + " MM"; }));
+            placeBar (bar ("height", "REED AT REST", [] (float v) { return restWords (v); }));
+            placeBar (bar ("gap", "SIDE GAP", [] (float v) { return juce::String (v, 3) + " MM EACH SIDE"; }));
             placeBar (bar ("volts", "POLARISING", [] (float v) { return juce::String (juce::roundToInt (v)) + " V"; }));
             auto rest = area.withTop (y + 4);
             diagramArea = rest.removeFromLeft (rest.getWidth() * 2 / 5).withTrimmedRight (8);
@@ -443,7 +448,7 @@ void ElectricPianoPanel::paint (juce::Graphics& g)
                 + juce::String (shortCount) + (shortCount == 1 ? " SHORT RINGER" : " SHORT RINGERS")
                 + (shortOnes.isEmpty() ? juce::String() : " (" + shortOnes.joinIntoString (", ") + (shortCount > 3 ? juce::String (juce::CharPointer_UTF8 ("\xe2\x80\xa6")) : juce::String()) + ")"),
             "HAMMERS " + feltWord (std::min (1.0, s.felt + age.felt)) + dot + "LET-OFF " + juce::String (s.letOffInches, 3) + " IN"
-                + dot + "REED " + juce::String (heightMm (s.reedHeight), 2) + " MM ABOVE THE COMB" + dot + "GAP " + juce::String (s.gapMm, 2) + " MM"
+                + dot + "REEDS " + restWords (s.reedHeight) + dot + "SIDE GAP " + juce::String (s.gapMm, 3) + " MM"
                 + dot + juce::String (juce::roundToInt (s.volts)) + " V",
             "DAMPERS " + dampingWord (std::max (0.0, s.damping - age.damping)) + dot + tuningLine + dot + "A4 " + juce::String (ts.a4Hz, 1) + " HZ",
             "VIBRATO " + juce::String (juce::roundToInt (s.vibrato * 100.0f)) + " %" + dot + (s.rearJack ? "REAR JACK" : "SPEAKERS") + dot
@@ -548,27 +553,37 @@ void ElectricPianoPanel::paint (juce::Graphics& g)
 
     if (! diagramArea.isEmpty())
     {
-        // the reed's tip in its slot, end on: the comb's tongues either side
+        // middle C's reed between its two fingers, end on, to scale
         auto r = diagramArea;
         g.setColour (Pal::lcdRule);
         g.drawRoundedRectangle (r.toFloat().reduced (0.5f), 3.0f, 1.0f);
-        text (g, juce::CharPointer_UTF8 ("END VIEW \xc2\xb7 REED IN THE COMB"), r.reduced (8, 4).removeFromTop (14), Pal::lcdDim, 9.0f);
-        const float cx = (float) r.getCentreX(), cy = (float) r.getCentreY() + 8.0f;
-        const float scale = 70.0f;   // pixels per mm
-        const float comb = 6.0f, reedW = 34.0f, reedH = 12.0f;
+        text (g, juce::CharPointer_UTF8 ("END VIEW \xc2\xb7 MIDDLE C BETWEEN ITS FINGERS"), r.reduced (8, 4).removeFromTop (14), Pal::lcdDim, 9.0f);
+        const auto geo = ep::pickupGeometry (s, 60);
+        const auto inner = r.reduced (8, 4).withTrimmedTop (16).withTrimmedBottom (14);
+        const float swingMm = (float) ep::fullSwingMm (261.63);
+        const float spanMm = 2.0f * swingMm + (float) geo.reedThickness + 0.2f;
+        const float scale = juce::jmin (40.0f, (float) inner.getHeight() / spanMm);   // pixels per mm
+        const float cx = (float) inner.getCentreX(), mid = (float) inner.getCentreY();
+        const float reedW = 3.07f * scale, gapPx = juce::jmax (2.0f, (float) geo.sideGap * scale * 3.0f);   // the gap drawn 3x
+        const float reedH = (float) geo.reedThickness * scale, fingerH = (float) geo.fingerThickness * scale;
+        // the reed's centre at rest is mid; the fingers sit below it (above, in the bass), clear by the rest offset
+        const float reedTop = mid - reedH * 0.5f;
+        const float fingerTop = geo.below ? reedTop - (float) geo.rest * scale - fingerH : reedTop + reedH + (float) geo.rest * scale;
+        const float fingerW = juce::jmin (70.0f, ((float) inner.getWidth() - reedW) * 0.5f - gapPx - 4.0f);
+        g.saveState();
+        g.reduceClipRegion (inner);
         g.setColour (Pal::lcdDim);
-        g.fillRect (juce::Rectangle<float> (cx - reedW * 0.5f - 8.0f - 70.0f, cy - comb * 0.5f, 70.0f, comb));
-        g.fillRect (juce::Rectangle<float> (cx + reedW * 0.5f + 8.0f, cy - comb * 0.5f, 70.0f, comb));
-        const float up = (float) heightMm (s.reedHeight) * scale * 0.5f;
-        g.setColour (Pal::lcdText);
-        g.fillRect (juce::Rectangle<float> (cx - reedW * 0.5f, cy - up - reedH * 0.5f, reedW, reedH));
-        g.setColour (Pal::lcdDim.withAlpha (0.6f));
+        g.fillRect (juce::Rectangle<float> (cx - reedW * 0.5f - gapPx - fingerW, fingerTop, fingerW, fingerH));
+        g.fillRect (juce::Rectangle<float> (cx + reedW * 0.5f + gapPx, fingerTop, fingerW, fingerH));
+        // its full swing, played hard: the reed's outline at either end
+        g.setColour (Pal::lcdDim.withAlpha (0.7f));
         for (float k : { -1.0f, 1.0f })
-            g.drawHorizontalLine ((int) (cy - up + k * 30.0f), cx - reedW * 0.5f, cx + reedW * 0.5f);
-        text (g, "SWING", { (int) (cx + reedW * 0.5f + 4.0f), (int) (cy - up - 38.0f), 60, 12 }, Pal::lcdDim, 8.5f);
-        text (g, "COMB", { (int) (cx - reedW * 0.5f - 78.0f), (int) cy + 8, 70, 12 }, Pal::lcdDim, 8.5f, juce::Justification::centred);
-        text (g, "COMB", { (int) (cx + reedW * 0.5f + 8.0f), (int) cy + 8, 70, 12 }, Pal::lcdDim, 8.5f, juce::Justification::centred);
-        text (g, "REED", { (int) (cx - 30.0f), (int) (cy - up + reedH * 0.5f + 2.0f), 60, 12 }, Pal::lcdText, 8.5f, juce::Justification::centred);
+            g.drawRect (juce::Rectangle<float> (cx - reedW * 0.5f, reedTop + k * swingMm * scale, reedW, reedH), 1.0f);
+        g.setColour (Pal::lcdText);
+        g.fillRect (juce::Rectangle<float> (cx - reedW * 0.5f, reedTop, reedW, reedH));
+        g.restoreState();
+        text (g, "REED AT REST; OUTLINES: ITS SWING PLAYED HARD", r.reduced (8, 3).removeFromBottom (12), Pal::lcdDim, 8.5f);
+        text (g, "FINGER", { (int) (cx - reedW * 0.5f - gapPx - fingerW), (int) (fingerTop + fingerH + 1.0f), (int) fingerW, 11 }, Pal::lcdDim, 8.0f, juce::Justification::centred);
     }
 
     if (! traceArea.isEmpty())
@@ -577,32 +592,36 @@ void ElectricPianoPanel::paint (juce::Graphics& g)
         g.setColour (Pal::lcdRule);
         g.drawRoundedRectangle (r.toFloat().reduced (0.5f), 3.0f, 1.0f);
         r.reduce (8, 4);
-        text (g, "WHAT THE PICKUP SENDS, MIDDLE C", r.removeFromTop (14), Pal::lcdDim, 9.0f);
-        auto draw = [&] (juce::Rectangle<int> box, double amplitude, juce::Colour c, const juce::String& label)
+        text (g, "WHAT THE PICKUP SENDS, MIDDLE C (BEFORE THE NETWORK)", r.removeFromTop (14), Pal::lcdDim, 9.0f);
+        auto draw = [&] (juce::Rectangle<int> box, double amplitudeMm, juce::Colour c, const juce::String& label)
         {
             const int n = box.getWidth();
             std::vector<double> y ((size_t) n);
-            double peak = 1.0e-9;
+            double peak = 1.0e-9, lo = 1.0e9, hi = -1.0e9;
             for (int i = 0; i < n; ++i)
             {
                 const double ph = 2.0 * 3.14159265358979 * 2.5 * i / n;
-                y[(size_t) i] = ep::pickup (s, amplitude * std::sin (ph), 261.63);
-                peak = std::max (peak, std::abs (y[(size_t) i]));
+                y[(size_t) i] = ep::pickup (s, amplitudeMm * std::sin (ph), 60);
+                lo = std::min (lo, y[(size_t) i]); hi = std::max (hi, y[(size_t) i]);
             }
+            peak = std::max (1.0e-9, hi - lo);
             juce::Path p;
-            const auto plot = box.withTrimmedBottom (12).toFloat();
+            const auto plot = box.withTrimmedBottom (12).toFloat().reduced (0.0f, 2.0f);
             for (int i = 0; i < n; ++i)
             {
-                const float yy = plot.getCentreY() - (float) (y[(size_t) i] / peak) * plot.getHeight() * 0.42f;
+                const float yy = plot.getBottom() - (float) ((y[(size_t) i] - lo) / peak) * plot.getHeight();
                 if (i == 0) p.startNewSubPath (plot.getX(), yy); else p.lineTo (plot.getX() + (float) i, yy);
             }
             g.setColour (c);
             g.strokePath (p, juce::PathStrokeType (1.6f));
             text (g, label, box.removeFromBottom (12), Pal::lcdDim, 8.5f);
         };
-        auto top = r.removeFromTop (r.getHeight() / 2);
-        draw (top, 0.25, Pal::lcdText, "SOFT");
-        draw (r, 1.0, Pal::lamp, "HARD: THROUGH THE COMB, IT FOLDS OVER: THE BARK");
+        const double full = ep::fullSwingMm (261.63);
+        auto top = r.removeFromTop (r.getHeight() / 3);
+        auto midBox = r.removeFromTop (r.getHeight() / 2);
+        draw (top, full * 0.15, Pal::lcdText, "SOFT: INTO THE FINGERS AND OUT, A FUNDAMENTAL WITH ITS OCTAVE");
+        draw (midBox, full * 0.5, Pal::lcdText, "MEDIUM: THE REED FILLS THE FINGERS AND THE TOP FLATTENS");
+        draw (r, full, Pal::lamp, "HARD: RIGHT THROUGH THEM, IT FOLDS OVER: THE BARK");
     }
 }
 //==============================================================================

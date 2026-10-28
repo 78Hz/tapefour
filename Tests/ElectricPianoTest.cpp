@@ -237,11 +237,49 @@ int main()
     {
         Rig r;
         auto s = r.p.settings(); s.letOffInches = 0.25f; r.p.setSettings (s);
-        auto ghost = r.run (1.0, { { 0.0, on (60, 0.05f) } });
+        auto ghost = r.run (1.0, { { 0.0, on (60, 0.09f) } });
         Rig r2;
-        auto heard = r2.run (1.0, { { 0.0, on (60, 0.05f) } });
-        const double db = 20.0 * std::log10 (rms (ghost, 0.0, 1.0) / rms (heard, 0.0, 1.0));
-        check (db < -30.0, "piano: a big let-off: the softest notes don't reach the reed (dB re 1/8 in)", db, -40.0);
+        auto heard = r2.run (1.0, { { 0.0, on (60, 0.09f) } });
+        Rig r3;
+        auto nothing = r3.run (1.0, {});
+        const double db = 20.0 * std::log10 (rms (ghost, 0.0, 1.0) / rms (nothing, 0.0, 1.0));
+        const double heardDb = 20.0 * std::log10 (rms (heard, 0.0, 1.0) / rms (nothing, 0.0, 1.0));
+        check (std::abs (db) < 1.0 && heardDb > 6.0, "piano: a big let-off: the softest notes don't reach the reed (dB over the hiss)", db, heardDb);
+    }
+    {
+        // the hammer stays on for 3/4 to 1 cycle of the reed's pitch (Miessner)
+        const double a1 = ep::contactSeconds (55.0, 1.0, 0.5), c4 = ep::contactSeconds (261.63, 0.0, 0.5);
+        check (std::abs (a1 - 0.75 / 55.0) < 1.0e-6 && std::abs (c4 - 1.0 / 261.63) < 1.0e-6,
+               "piano: hammer contact, A1 played hard and C4 played softly (ms)", a1 * 1000.0, 13.6);
+        // the pickup: nothing at rest; it rises as the reed swings into the fingers, flattens when it fills
+        // them, and falls back once it's through
+        const auto s = ep::Processor().settings();
+        double peak = 0.0, peakAt = 0.0;
+        for (int i = 0; i <= 250; ++i)
+            if (const double v = ep::pickup (s, -0.01 * i, 60); v > peak) { peak = v; peakAt = 0.01 * i; }
+        const double atRest = ep::pickup (s, 0.0, 60), into = ep::pickup (s, -0.3, 60), through = ep::pickup (s, -2.2, 60), away = ep::pickup (s, 0.6, 60);
+        check (std::abs (atRest) < 1.0e-12 && into > 0.3 * peak && peakAt > 0.5 && peakAt < 1.0 && through < 0.1 * peak && away < 0.1 * into,
+               "piano: the pickup rises into the fingers, peaks as the reed fills them (mm), falls back through", peakAt, 0.75);
+    }
+    {
+        // the network evens the keyboard out: the bass's big swing comes out about as loud as the middle
+        auto level = [] (int key)
+        {
+            Rig r;
+            auto v = r.run (0.6, { { 0.0, on (key, 0.8f) } });
+            return 20.0 * std::log10 (rms (v, 0.1, 0.5));
+        };
+        const double a1 = level (33), c4 = level (60), c6 = level (84);
+        check (std::abs (a1 - c4) < 6.0 && std::abs (c6 - c4) < 9.0, "piano: A1, C4 and C6 come out within a few dB (A1 re C4)", a1 - c4, 0.0);
+        // and middle C stays clean until it's played hard: then it folds through its fingers
+        auto third = [] (float vel)
+        {
+            Rig r;
+            auto v = r.run (0.6, { { 0.0, on (60, vel) } });
+            return 20.0 * std::log10 (bin (v, 0.1, 0.5, 784.88) / bin (v, 0.1, 0.5, 261.63));
+        };
+        const double mf = third (0.62f), ff = third (1.0f);
+        check (mf < -20.0 && ff > -10.0, "piano: C4's third harmonic: quiet at velocity 80, strong at 127 (dB re fundamental)", mf, ff);
     }
     {
         // MPE is off as it comes: pressure changes nothing
@@ -375,6 +413,24 @@ int main()
                     writeWav (folder.getChildFile (juce::String (model == 0 ? "200" : "200A") + (vel < 0.5f ? "-soft" : "-hard") + (jack ? "-jack" : "-speakers") + ".wav"),
                               phrase (r, vel));
                 }
+        // a velocity ladder: C2, C4, C6 at MIDI velocity 40, 64, 90, 110, 127, a second each
+        for (int model = 0; model < 2; ++model)
+        {
+            Rig r;
+            auto s = r.p.settings();
+            s.model = model; s.rearJack = true; s.vibrato = 0.0f; s.humDb = -78.0f;
+            r.p.setSettings (s);
+            std::vector<std::pair<double, juce::MidiMessage>> e;
+            double t = 0.0;
+            for (int key : { 36, 60, 84 })
+                for (int vel : { 40, 64, 90, 110, 127 })
+                {
+                    e.push_back ({ t, on (key, (float) vel / 127.0f) });
+                    e.push_back ({ t + 0.9, off (key) });
+                    t += 1.1;
+                }
+            writeWav (folder.getChildFile (juce::String ("ladder-") + (model == 0 ? "200" : "200A") + ".wav"), r.run (t + 0.5, e));
+        }
         std::printf ("renders written to %s\n", dir);
     }
 

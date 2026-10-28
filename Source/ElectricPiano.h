@@ -9,15 +9,19 @@
 
       reeds     each key a steel reed: a fundamental and two higher bending modes (inharmonic), each
                 ringing down at its own rate; low reeds ring longest. Tuned to the tuning system.
-      hammers   a felt hammer hits the reed: the harder and the shorter the contact, the more of the
-                higher modes. A hammer let off too early doesn't reach the reed on the softest notes.
-      pickup    the reed's tip swings through a slot in a charged comb (160-170 V): reed and comb are
-                a capacitor, greatest when the reed is level with the comb. Its output follows the
-                capacitance, so a reed resting a little off level gives a clean fundamental when it
-                swings a little, and folds over (the bark) when it swings through the comb.
+      hammers   a hammer hits the reed from below and stays on it for about a cycle of its pitch, so
+                it barely excites the higher modes. A hammer let off too early doesn't reach the reed.
+      pickup    each reed sits between two fingers of a charged comb (about 150 V), its face level
+                with theirs, resting a paper's thickness clear. Reed and fingers are a capacitor that
+                grows with how much of the reed overlaps the fingers: a reed swinging into them gives
+                a strong fundamental and second harmonic; one that fills them flattens (clips); one
+                that swings right through folds over (the bark). Bass reeds rest below their fingers,
+                the rest above.
+      network   the comb's charging resistors and the input capacitor: below about 880 Hz the output
+                follows how fast the capacitance changes, so the bass's big swing comes out level.
       dampers   felt dampers stop the reeds when keys come up, unless the sustain pedal holds them.
-      amp       preamp (drive), vibrato (5.75 Hz, an amplitude wobble), volume, and either the power
-                amp and the two 4x8" oval speakers or the rear jack (the preamp's output); mains hum.
+      amp       preamp (drive), vibrato (5.75 Hz, the preamp's gain switched), volume, and either the
+                power amp and the two 4x8" oval speakers or the rear jack (the preamp's output); hum.
 
     One instrument, mono. It ages with playing time: reeds drift, felt hardens, reeds go short.
 */
@@ -33,8 +37,8 @@ struct Settings
     int shortRingers = 1;
     // hammers
     float felt = 0.5f, strikePoint = 0.0f, blowInches = 1.078f, letOffInches = 0.125f, velocityCurve = 0.0f;
-    // pickup
-    float reedHeight = 0.5f, gapMm = 0.5f, volts = 165.0f;
+    // pickup: reedHeight 0..1 sets where the reed rests against its fingers (restMm), gapMm the side gap
+    float reedHeight = 0.5f, gapMm = 0.064f, volts = 165.0f;
     // dampers and noises (dB)
     float damping = 0.7f, damperNoiseDb = -56.0f, actionNoiseDb = -50.0f, pedalNoiseDb = -58.0f;
     // amp
@@ -67,8 +71,27 @@ std::array<Reed, 128> reeds (const Settings&, const std::array<double, 128>& tun
 struct Ageing { double spreadCents = 0, felt = 0, damping = 0; int shortRingers = 0; };
 Ageing ageing (double hours);
 
-/** The pickup: its output for a reed tip at displacement x (in units of a full-velocity swing), for the editor's trace. */
-double pickup (const Settings&, double x, double reedHz);
+/** The pickup at one key, end on (mm): the reed's tongue, the fingers either side of it, where it rests. */
+struct PickupGeometry
+{
+    double reedThickness = 0.5, fingerThickness = 0.6;
+    double rest = 0.08;            // the reed's face clear of the fingers' face (negative: resting inside them)
+    double sideGap = 0.064;        // each side, reed to finger
+    double edge = 0.2;             // how gradually the overlap starts (the fingers' fringe, the reed bending along them)
+    bool below = true;             // the reed rests below its fingers (bass) or above (the rest)
+};
+PickupGeometry pickupGeometry (const Settings&, int key);
+double restMm (float reedHeight);  // the REED AT REST control in mm
+
+/** How far a reed's tip swings struck as hard as the action allows (mm). */
+double fullSwingMm (double reedHz);
+/** How long the hammer stays on the reed (s): about one cycle of the reed's pitch. */
+double contactSeconds (double reedHz, double hammerSpeed, double felt);
+/** The pickup's source for a reed tip at displacement x mm (positive: up, the hammer's way), before the
+    network. 0 at rest; about 1 when the reed fully overlaps a 0.5 mm finger at the standard gap. */
+double pickup (const Settings&, double xMm, int key);
+/** The comb network's corner: below it the output follows the capacitance's rate of change. */
+inline constexpr double networkCornerHz = 880.0;
 
 /** C4's ring time to -40 dB, seconds (for the REEDS readout). */
 double ringToMinus40 (const Reed&);

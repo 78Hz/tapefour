@@ -24,13 +24,29 @@ namespace
         return std::sqrt (-2.0 * std::log (u1)) * std::cos (twoPi * u2);
     }
 
-    // How far a reed's tip swings at full velocity, in the pickup's units: long low reeds swing further.
-    double swing (double hz) { return std::clamp (1.35 * std::pow (261.63 / std::max (20.0, hz), 0.35), 0.5, 2.6); }
-    // The pickup's geometry in its own units: the comb's reach, and where the reed rests.
-    double reach (const Settings& s)  { return 0.45 + (s.gapMm - 0.3) * 1.0; }
-    double height (const Settings& s) { return 0.1 + 1.1 * s.reedHeight; }
+    // ln (1 + e^z), without overflow
+    double softplus (double z) { return z > 0.0 ? z + std::log1p (std::exp (-z)) : std::log1p (std::exp (z)); }
 
-    double capacitance (double u, double w) { const double r = u / w; return 1.0 / (1.0 + r * r); }
+    // How much of a reed of thickness tr overlaps a finger band of thickness tp when its leading face is p mm
+    // past the band's near face (mm). The band's edges are smoothed over e: integrating a smoothed band
+    // over the reed's thickness gives four softplus terms. 0 far outside, min (tr, tp) inside, 0 again past it.
+    double overlap (double p, double tr, double tp, double e)
+    {
+        auto S = [e] (double z) { return e * softplus (z / e); };
+        return S (p) - S (p - tr) - S (p - tp) + S (p - tr - tp);
+    }
+
+    // The reed blanks and pickup fingers by section (reed 1 is A1). Reeds: Vintage Vibe's case study
+    // (bass tongues .020", the 200A's middle and treble tongues thickened to about .026"). Fingers: no
+    // measurement exists; thicker in the bass and treble than the thin, bendable middle (docs/electric-piano.md).
+    struct Section { double tr, tp; bool below; };
+    Section section (int key, int model)
+    {
+        const int reed = key - lowestKey + 1;
+        if (reed <= 20) return { 0.51, 1.25, true };
+        const double tr = model == 1 ? 0.66 : 0.51;
+        return reed <= 42 ? Section { tr, 0.6, false } : Section { tr, 1.3, false };
+    }
 
     // The spectrum of a half-sine force pulse of length tc (the felt's contact), at f: 1 at 0 Hz.
     double pulse (double f, double tc)
@@ -79,10 +95,10 @@ void applyCondition (Settings& s, int c)
 {
     struct C { float spread, ring; int ringers; float felt, strike, height, gap, volts, damping, damperDb, actionDb, pedalDb, humDb; };
     static const C table[] {
-        { 0.5f, 1.00f, 0, 0.35f,  0.00f, 0.50f, 0.50f, 168.0f, 0.80f, -64.0f, -58.0f, -66.0f, -92.0f },   // NEW
-        { 3.0f, 0.95f, 1, 0.50f,  0.00f, 0.52f, 0.50f, 165.0f, 0.70f, -56.0f, -50.0f, -58.0f, -78.0f },   // SERVICED
-        { 9.0f, 0.85f, 3, 0.70f,  0.15f, 0.62f, 0.62f, 158.0f, 0.50f, -48.0f, -44.0f, -52.0f, -68.0f },   // WORN
-        { 20.0f, 0.70f, 7, 0.86f, -0.20f, 0.76f, 0.78f, 145.0f, 0.30f, -42.0f, -38.0f, -46.0f, -58.0f },  // NEGLECTED
+        { 0.5f, 1.00f, 0, 0.35f,  0.00f, 0.50f, 0.064f, 168.0f, 0.80f, -64.0f, -58.0f, -66.0f, -92.0f },   // NEW
+        { 3.0f, 0.95f, 1, 0.50f,  0.00f, 0.52f, 0.064f, 165.0f, 0.70f, -56.0f, -50.0f, -58.0f, -78.0f },   // SERVICED
+        { 9.0f, 0.85f, 3, 0.70f,  0.15f, 0.40f, 0.058f, 158.0f, 0.50f, -48.0f, -44.0f, -52.0f, -68.0f },   // WORN
+        { 20.0f, 0.70f, 7, 0.86f, -0.20f, 0.27f, 0.052f, 145.0f, 0.30f, -42.0f, -38.0f, -46.0f, -58.0f },  // NEGLECTED
     };
     const auto& t = table[std::clamp (c, 0, 3)];
     s.tuningSpreadCents = t.spread; s.ringTime = t.ring; s.shortRingers = t.ringers;
@@ -131,11 +147,46 @@ std::array<Reed, 128> reeds (const Settings& s, const std::array<double, 128>& t
 
 double ringToMinus40 (const Reed& r) { return r.ringSeconds * std::log (100.0); }
 
-double pickup (const Settings& s, double x, double reedHz)
+double restMm (float reedHeight) { return 0.4 * (double) reedHeight - 0.12; }
+
+PickupGeometry pickupGeometry (const Settings& s, int key)
 {
-    const double w = reach (s), h = height (s);
-    const double u = x * swing (reedHz) + h;
-    return (capacitance (u, w) - capacitance (h, w)) * (s.volts / 165.0) / std::pow (s.gapMm / 0.5, 0.7);
+    const auto sec = section (std::clamp (key, lowestKey, highestKey), s.model);
+    PickupGeometry g;
+    g.reedThickness = sec.tr;
+    g.fingerThickness = sec.tp;
+    g.rest = restMm (s.reedHeight);
+    g.sideGap = std::max (0.02, (double) s.gapMm);
+    g.edge = 0.16 + 0.6 * g.sideGap;
+    g.below = sec.below;
+    return g;
+}
+
+double fullSwingMm (double hz)
+{
+    // OpenWurli's provisional bottom-up estimate from the hammer's impact (central values; no measurement
+    // exists): A1 3.26 mm, C4 1.19 mm, C7 0.22 mm, joined log-linearly.
+    const double lf = std::log (std::max (20.0, hz));
+    const double x0 = std::log (55.0), x1 = std::log (261.63), x2 = std::log (2093.0);
+    const double y0 = std::log (3.26), y1 = std::log (1.19), y2 = std::log (0.22);
+    return lf <= x1 ? std::exp (y0 + (lf - x0) * (y1 - y0) / (x1 - x0)) : std::exp (y1 + (lf - x1) * (y2 - y1) / (x2 - x1));
+}
+
+double contactSeconds (double hz, double speed, double felt)
+{
+    // Miessner (US 2,932,231): the hammer stays on the reed for 3/4 to 1 cycle of its fundamental, shorter
+    // the harder it's struck. Harder felt shortens it.
+    const double cycles = (0.75 + 0.25 * (1.0 - std::clamp (speed, 0.0, 1.0))) * (1.25 - 0.5 * std::clamp (felt, 0.0, 1.0));
+    return std::clamp (cycles / std::max (20.0, hz), 0.0003, 0.02);
+}
+
+double pickup (const Settings& s, double xMm, int key)
+{
+    const auto g = pickupGeometry (s, key);
+    const double sign = g.below ? 1.0 : -1.0;
+    const double atRest = overlap (-g.rest, g.reedThickness, g.fingerThickness, g.edge);
+    const double sens = (0.064 / g.sideGap) * (s.volts / 165.0) / 0.5;
+    return (overlap (sign * xMm - g.rest, g.reedThickness, g.fingerThickness, g.edge) - atRest) * sens;
 }
 
 //==============================================================================
@@ -183,6 +234,7 @@ struct Processor::Impl
     double lastReedHours = -1.0;
     juce::AudioBuffer<float> mono;
     double hpState = 0, hpPrevIn = 0, hpCoef = 0.998;
+    double netB0 = 1.0, netA1 = 0.0, netIn = 0.0, netOut = 0.0;   // the comb network (one pole at networkCornerHz)
     double vibPhase = 0, humPhase = 0;
     Biquad spkHp, spkPeak, spkLp;
     int spkModel = -1;
@@ -280,6 +332,9 @@ struct Processor::Impl
             owner.hours.store (h + numSamples / sr / 3600.0);
     }
 
+    static constexpr double plateLevel = 0.22;         // the source's scale at the preamp's input
+    static constexpr double vibratoDepthDb = 8.0;      // the gain swing at full depth (OpenWurli: about 7.9 dB)
+
     void amp (juce::AudioBuffer<float>& out, int n)
     {
         const auto& s = live;
@@ -288,20 +343,26 @@ struct Processor::Impl
         if (s.mpe && s.pressureTarget == 2) vib = std::min (1.0, vib + press * s.pressureAmount);
         if (s.mpe && s.pressureTarget == 3) drv = std::min (1.0, drv + press * s.pressureAmount);
         const double g = 1.0 + 7.0 * drv;
-        const double bias = s.model == 0 ? 0.2 : 0.12;     // the 200's preamp is the less clean
+        const double bias = 0.05;     // clips nearly symmetrically (OpenWurli's SPICE analysis: 1.21:1)
         const double norm = 1.0 / (std::pow (g, 0.6) * (1.0 - std::tanh (bias) * std::tanh (bias)));
-        const double vol = std::pow (s.volume / 10.0, 2.0) * 1.6;
+        const double vol = std::pow (s.volume / 10.0, 2.0) * 7.5;
         const double vibInc = twoPi * 5.75 / sr;
         const double humHz = s.mains60 ? 60.0 : 50.0, humInc = twoPi * humHz / sr;
         const double hum = dbToGain (s.humDb + (s.model == 0 ? 6.0 : 0.0));
         const double hiss = dbToGain (s.model == 0 ? -84.0 : -92.0);
         const double pedalGain = dbToGain (s.pedalNoiseDb);
         auto* m = mono.getWritePointer (0);
+        const auto* noises = mono.getReadPointer (1);
         auto* l = out.getWritePointer (0);
         auto* r = out.getNumChannels() > 1 ? out.getWritePointer (1) : nullptr;
         for (int i = 0; i < n; ++i)
         {
-            double x = m[i];
+            // the comb network: the reeds' summed source through one high-pass pole, then the
+            // mechanical noises (they reach the preamp by the same wire, but aren't a reed's swing)
+            const double src = m[i];
+            const double net = netB0 * (src - netIn) - netA1 * netOut;
+            netIn = src; netOut = net;
+            double x = net * plateLevel + noises[i];
             // the pedal: a felt thump through the case
             if (pedalNoiseEnv > 1.0e-5f)
             {
@@ -317,7 +378,7 @@ struct Processor::Impl
             // vibrato: the preamp's feedback switched at 5.75 Hz, between a sine and a square
             vibPhase += vibInc; if (vibPhase > twoPi) vibPhase -= twoPi;
             const double sq = std::tanh (1.6 * std::sin (vibPhase)) / std::tanh (1.6);
-            y *= 1.0 - vib * 0.45 * (1.0 + sq);
+            y *= std::pow (10.0, -vibratoDepthDb / 20.0 * vib * 0.5 * (1.0 + sq));
             y *= vol;
             if (! s.rearJack)
             {
@@ -359,28 +420,34 @@ public:
 
         double feltNow = std::clamp (s.felt + ageing (impl.owner.hoursPlayed()).felt, 0.0, 1.0);
         if (s.mpe && s.slideTarget == 1) feltNow = std::clamp (feltNow + (note.timbre.asUnsignedFloat() - 0.5) * 0.8, 0.0, 1.0);
-        const double tc = 0.0016 * (1.0 - 0.75 * feltNow) * (1.0 - 0.35 * std::min (1.0, speed));
+        // the hammer stays on the reed for about a cycle, so its force has little above the fundamental
+        const double tc = contactSeconds (reed.hz, speed, feltNow);
+        const double tcFull = contactSeconds (reed.hz, 1.0, feltNow);
 
         baseHz = reed.hz;
-        // the reed's bending modes, above the fundamental: inharmonic, set by ear (docs/electric-piano.md)
+        // the reed's bending modes, above the fundamental: a cantilever with its solder tip, between the
+        // bare beam's 6.27 and 17.55 and the heavier-tipped bass reeds' 7 and 19 (docs/electric-piano.md)
         const double reg = std::clamp ((keyNo - lowestKey) / 63.0, 0.0, 1.0);
         ratio[0] = 1.0;
-        ratio[1] = 7.0 - 0.4 * reg;
-        ratio[2] = 19.0 - 2.0 * reg;
+        ratio[1] = 7.0 - 0.6 * reg;
+        ratio[2] = 19.0 - 1.2 * reg;
         const double sp = s.strikePoint;
         const double shape[3] { 1.0, 0.55 + 0.35 * sp, 0.35 - 0.25 * sp };
-        const double upper = s.model == 1 ? 1.15 : 1.0;   // the 200A's thicker middle and upper reeds keep their overtones longer
+        const bool thickReed = keyNo - lowestKey >= 20;
+        const double upper = s.model == 1 && thickReed ? 1.15 : 1.0;   // the 200A's thicker middle and upper reeds keep their overtones longer
         tau[0] = reed.ringSeconds;
         tau[1] = std::max (0.01, reed.ringSeconds * 0.18 * upper);
         tau[2] = std::max (0.005, reed.ringSeconds * 0.06 * upper);
-        const double gains[3] { 1.0, 1.8, 2.5 };
+        // the tip's swing (mm): the full swing scaled by the hammer's speed squared (how MIDI velocity
+        // maps to hammer speed is set by ear) and by how much of the contact's force lands on the fundamental
+        const double swingMm = fullSwingMm (reed.hz) * speed * speed * pulse (baseHz, tc) / pulse (baseHz, tcFull);
         for (int k = 0; k < 3; ++k)
         {
             const double f = baseHz * ratio[k];
-            amp[k] = f < sr * 0.45 ? speed * shape[k] * pulse (f, tc) * (1.0 / ratio[k]) * gains[k] : 0.0;
+            amp[k] = f < sr * 0.45 ? swingMm * shape[k] * pulse (f, tc) / pulse (baseHz, tc) / ratio[k] : 0.0;
             re[k] = amp[k]; im[k] = 0.0;
         }
-        swingScale = swing (reed.hz);
+        geometry = pickupGeometry (s, keyNo);
         damped = false;
         setRates();
         // the action: a short knock of wood and felt as the hammer lands
@@ -416,12 +483,16 @@ public:
         double gain = 1.0;
         if (s.mpe && s.pressureTarget == 1) gain = 0.6 + 0.8 * press * s.pressureAmount;
         if (s.mpe && s.pressureTarget == 4 && press > 0.05) { pressDamp = 1.0 - press * s.pressureAmount * 0.0015; } else pressDamp = 1.0;
-        double hNow = height (s);
-        if (s.mpe && s.slideTarget == 2) hNow += (note.timbre.asUnsignedFloat() - 0.5) * 0.6;
-        const double w = reach (s);
-        const double c0 = capacitance (hNow, w);
-        const double level = 0.32 * (s.volts / 165.0) / std::pow (s.gapMm / 0.5, 0.7) * gain;
+        auto geo = geometry;
+        geo.rest = restMm (s.reedHeight);
+        if (s.mpe && s.slideTarget == 2) geo.rest += (note.timbre.asUnsignedFloat() - 0.5) * 0.3;
+        geo.sideGap = std::max (0.02, (double) s.gapMm);
+        geo.edge = 0.16 + 0.6 * geo.sideGap;
+        const double sign = geo.below ? 1.0 : -1.0;
+        const double atRest = overlap (-geo.rest, geo.reedThickness, geo.fingerThickness, geo.edge);
+        const double level = (0.064 / geo.sideGap) * (s.volts / 165.0) / 0.5 * gain;
         auto* o = out.getWritePointer (0);
+        auto* nz = out.getWritePointer (out.getNumChannels() > 1 ? 1 : 0);
         for (int i = 0; i < num; ++i)
         {
             double x = 0.0;
@@ -432,20 +503,21 @@ public:
                 re[k] = nr; im[k] = ni;
                 x += ni;
             }
-            double y = (capacitance (x * swingScale + hNow, w) - c0) * level;
+            o[start + i] += (float) ((overlap (sign * x - geo.rest, geo.reedThickness, geo.fingerThickness, geo.edge) - atRest) * level);
+            double n = 0.0;
             if (actionEnv > 1.0e-6f)
             {
                 noise1 += ((impl.rng.nextFloat() * 2.0f - 1.0f) - noise1) * 0.35f;
-                y += noise1 * actionEnv * 0.5;
+                n += noise1 * actionEnv * 0.5;
                 actionEnv *= 0.9965f;
             }
             if (damperEnv > 1.0e-6f)
             {
                 noise2 += ((impl.rng.nextFloat() * 2.0f - 1.0f) - noise2) * 0.08f;
-                y += noise2 * damperEnv * 1.5;
+                n += noise2 * damperEnv * 1.5;
                 damperEnv *= 0.9975f;
             }
-            o[start + i] += (float) y;
+            nz[start + i] += (float) n;
         }
         // finished once the reed has stopped and the noises have died
         const double a = std::abs (re[0]) + std::abs (im[0]) + std::abs (re[1]) + std::abs (im[1]);
@@ -476,7 +548,8 @@ private:
     }
 
     Processor::Impl& impl;
-    double sr = 48000.0, baseHz = 440.0, swingScale = 1.0, pressDamp = 1.0;
+    double sr = 48000.0, baseHz = 440.0, pressDamp = 1.0;
+    PickupGeometry geometry;
     double ratio[3] {}, tau[3] {}, amp[3] {}, re[3] {}, im[3] {}, cs[3] {}, sn[3] {}, dec[3] {};
     bool damped = false, counted = false;
     float actionEnv = 0.0f, damperEnv = 0.0f, noise1 = 0.0f, noise2 = 0.0f;
@@ -542,7 +615,7 @@ Processor::Processor()
     i.letoff = fl ("letoff", "Let-off", 0.0625f, 0.25f, d.letOffInches, "in");
     i.curve = fl ("curve", "Velocity curve", -1.0f, 1.0f, d.velocityCurve);
     i.heightP = fl ("height", "Reed height", 0.0f, 1.0f, d.reedHeight);
-    i.gap = fl ("gap", "Pickup gap", 0.3f, 1.2f, d.gapMm, "mm");
+    i.gap = fl ("gap", "Side gap", 0.03f, 0.2f, d.gapMm, "mm");
     i.volts = fl ("volts", "Polarising voltage", 120.0f, 170.0f, d.volts, "V");
     i.damping = fl ("damping", "Damping", 0.0f, 1.0f, d.damping);
     i.damperDb = fl ("damperNoise", "Damper noise", -90.0f, -30.0f, d.damperNoiseDb, "dB");
@@ -564,7 +637,7 @@ Processor::Processor()
     for (int v = 0; v < 15; ++v) i.synth.addVoice (new Voice (i));
     i.synth.enableLegacyMode (2);
     i.synth.setVoiceStealingEnabled (true);
-    i.mono.setSize (1, 512);
+    i.mono.setSize (2, 512);   // 0: the reeds' pickup source, 1: the action's and dampers' noise
 }
 
 Processor::~Processor() = default;
@@ -667,7 +740,11 @@ void Processor::prepareToPlay (double sampleRate, int maxBlock)
     auto& i = *impl;
     i.sr = sampleRate;
     i.synth.setCurrentPlaybackSampleRate (sampleRate);
-    i.mono.setSize (1, std::max (maxBlock, 512));
+    i.mono.setSize (2, std::max (maxBlock, 512));
+    const double w = std::tan (pi * networkCornerHz / sampleRate);
+    i.netB0 = 1.0 / (1.0 + w);
+    i.netA1 = (w - 1.0) / (1.0 + w);
+    i.netIn = i.netOut = 0.0;
     i.hpCoef = std::exp (-twoPi * 15.0 / sampleRate);
     i.spkModel = -1;
     i.haveTuning = false;
@@ -693,8 +770,8 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     }
 
     i.maxPressure = 0.0f;
-    i.mono.clear (0, 0, n);
-    juce::AudioBuffer<float> view (i.mono.getArrayOfWritePointers(), 1, n);
+    i.mono.clear (0, n);
+    juce::AudioBuffer<float> view (i.mono.getArrayOfWritePointers(), 2, n);
     i.synth.renderNextBlock (view, midi, 0, n);
     buffer.clear();
     i.amp (buffer, n);
