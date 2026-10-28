@@ -1,4 +1,5 @@
 #include "Blocks.h"
+#include "ElectricPiano.h"
 
 namespace tf
 {
@@ -133,68 +134,6 @@ private:
 };
 
 //==============================================================================
-/** Tine electric piano: two-operator FM. MPE: per-note bend, pressure adds bark and level. */
-class EPianoVoice : public juce::MPESynthesiserVoice
-{
-public:
-    void noteStarted() override
-    {
-        auto note = getCurrentlyPlayingNote();
-        vel = note.noteOnVelocity.asUnsignedFloat();
-        freq = note.getFrequencyInHertz();
-        pressure = note.pressure.asUnsignedFloat();
-        amp.setSampleRate (currentSampleRate);
-        amp.setParameters ({ 0.002f, 2.8f, 0.0f, 0.45f });
-        amp.noteOn();
-        index = 1.2 + 2.6 * vel;
-        bark = 0.6 * vel;
-        pc = pm = pb = 0;
-    }
-
-    void noteStopped (bool allowTailOff) override
-    {
-        if (allowTailOff) amp.noteOff();
-        else { amp.reset(); clearCurrentNote(); }
-    }
-
-    void notePitchbendChanged() override { freq = getCurrentlyPlayingNote().getFrequencyInHertz(); }
-    void notePressureChanged() override  { pressure = getCurrentlyPlayingNote().pressure.asUnsignedFloat(); }
-    void noteTimbreChanged() override    {}
-    void noteKeyStateChanged() override  {}
-
-    using juce::MPESynthesiserVoice::renderNextBlock;
-    void renderNextBlock (juce::AudioBuffer<float>& out, int start, int num) override
-    {
-        if (! amp.isActive()) return;
-
-        const auto sr = currentSampleRate;
-        const auto tp = juce::MathConstants<double>::twoPi;
-        const auto idxDecay = std::exp (-1.0 / (0.35 * sr)), barkDecay = std::exp (-1.0 / (0.03 * sr));
-
-        while (--num >= 0)
-        {
-            sPressure += (pressure - sPressure) * 0.002f;
-            auto mod = std::sin (tp * pm) * (index + 1.5 * sPressure) + std::sin (tp * pb) * bark;
-            auto y = (float) std::sin (tp * pc + mod) * amp.getNextSample() * (0.10f + 0.16f * vel) * (0.8f + 0.5f * sPressure);
-            pc += freq / sr; pm += freq / sr; pb += freq * 14.0 / sr;
-            pc -= std::floor (pc); pm -= std::floor (pm); pb -= std::floor (pb);
-            index *= idxDecay; bark *= barkDecay;
-
-            for (int c = out.getNumChannels(); --c >= 0;)
-                out.addSample (c, start, y);
-            ++start;
-        }
-
-        if (! amp.isActive()) clearCurrentNote();
-    }
-
-private:
-    double freq = 440, pc = 0, pm = 0, pb = 0, index = 1, bark = 0;
-    float vel = 0, pressure = 0, sPressure = 0;
-    juce::ADSR amp;
-};
-
-//==============================================================================
 /** The built-in synths, as ordinary processors so they sit in a chain like any plug-in. */
 class BuiltInSynthProcessor : public juce::AudioProcessor
 {
@@ -203,10 +142,7 @@ public:
         : juce::AudioProcessor (BusesProperties().withOutput ("Out", juce::AudioChannelSet::stereo(), true)), kind (k)
     {
         for (int i = 0; i < 15; ++i)
-        {
-            if (kind == BuiltIn::epiano) synth.addVoice (new EPianoVoice());
-            else                         synth.addVoice (new PolyVoice());
-        }
+            synth.addVoice (new PolyVoice());
         synth.enableLegacyMode (2);
         synth.setVoiceStealingEnabled (true);
     }
@@ -559,6 +495,8 @@ void ProcessorBlock::applyMpe (bool on, int bendRange) noexcept
 {
     if (auto* s = dynamic_cast<BuiltInSynthProcessor*> (processor.get()))
         s->applyMpe (on, bendRange);
+    else if (auto* e = dynamic_cast<ep::Processor*> (processor.get()))
+        e->applyMpe (on, bendRange);
 }
 
 void ProcessorBlock::process (juce::AudioBuffer<float>& stereo, int numSamples, juce::MidiBuffer& midi)
@@ -626,9 +564,15 @@ std::unique_ptr<juce::XmlElement> ProcessorBlock::saveState (bool fresh)
     switch (kind)
     {
         case Kind::builtInSynth:
+        {
             x->setAttribute ("kind", "synth");
             x->setAttribute ("which", builtInIndex);
+            juce::MemoryBlock state;
+            processor->getStateInformation (state);
+            if (state.getSize() > 0)
+                x->setAttribute ("state", state.toBase64Encoding());
             break;
+        }
 
         case Kind::builtInFx:
         {
@@ -694,7 +638,7 @@ PendingBlock::PendingBlock (std::unique_ptr<juce::XmlElement> s) : saved (std::m
 }
 
 //==============================================================================
-juce::String BuiltIn::synthName (int which) { return which == epiano ? "TF TINE PIANO" : "TF POLY SYNTH"; }
+juce::String BuiltIn::synthName (int which) { return which == epiano ? "TF ELECTRIC PIANO" : "TF POLY SYNTH"; }
 
 juce::String BuiltIn::fxName (int which)
 {
@@ -709,6 +653,8 @@ juce::String BuiltIn::fxName (int which)
 std::unique_ptr<Block> BuiltIn::createSynth (int which)
 {
     which = juce::jlimit (0, numSynths - 1, which);
+    if (which == epiano)
+        return std::make_unique<ProcessorBlock> (std::make_unique<ep::Processor>(), ProcessorBlock::Kind::builtInSynth, which);
     return std::make_unique<ProcessorBlock> (std::make_unique<BuiltInSynthProcessor> (which), ProcessorBlock::Kind::builtInSynth, which);
 }
 
@@ -724,6 +670,12 @@ std::unique_ptr<Block> BuiltIn::createFx (int which)
     return b;
 }
 
+ep::Processor* BuiltIn::electricPiano (Block* b) noexcept
+{
+    auto* pb = dynamic_cast<ProcessorBlock*> (b);
+    return pb != nullptr ? dynamic_cast<ep::Processor*> (pb->getProcessor()) : nullptr;
+}
+
 std::unique_ptr<Block> BuiltIn::restore (const juce::XmlElement& x)
 {
     std::unique_ptr<Block> b;
@@ -731,6 +683,9 @@ std::unique_ptr<Block> BuiltIn::restore (const juce::XmlElement& x)
     if (kind == "synth")
     {
         b = createSynth (x.getIntAttribute ("which"));
+        juce::MemoryBlock mb;
+        if (mb.fromBase64Encoding (x.getStringAttribute ("state")) && mb.getSize() > 0)
+            b->getProcessor()->setStateInformation (mb.getData(), (int) mb.getSize());
     }
     else if (kind == "fx")
     {

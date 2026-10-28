@@ -231,7 +231,7 @@ td:first-child { font-weight: 600; }
     <tr><td>LADSPA</td><td>Linux</td><td>The standard LADSPA folders. LADSPA plug-ins are effects only.</td></tr>
   </tbody>
 </table>
-<p>Many plug-ins come in several formats. The list in a track's chain shows each plug-in once, in the best format you have: CLAP, then VST3, then Audio Units, LV2 and LADSPA. A deck you saved keeps the format it was made with. TAPE·FOUR also has two built-in instruments, <strong>TF Poly Synth</strong> and <strong>TF Tine Piano</strong>, and three built-in effects, <strong>TF Plate</strong>, <strong>TF Spring Reverb</strong> and <strong>TF Tape Echo</strong>, so you can start without any plug-ins.</p>
+<p>Many plug-ins come in several formats. The list in a track's chain shows each plug-in once, in the best format you have: CLAP, then VST3, then Audio Units, LV2 and LADSPA. A deck you saved keeps the format it was made with. TAPE·FOUR also has two built-in instruments, <strong>TF Poly Synth</strong> and <strong>TF Electric Piano</strong>, and three built-in effects, <strong>TF Plate</strong>, <strong>TF Spring Reverb</strong> and <strong>TF Tape Echo</strong>, so you can start without any plug-ins.</p>
 <figure class="narrow"><img src="images/setup_inst.png" alt="Setup, Plug-ins tab"><figcaption><b>Setup → Plug-ins.</b> Scan once; the list is remembered.</figcaption></figure>
 <h2>Colours</h2>
 <p>In <strong>Setup → Display</strong>, choose the deck's colour theme. It changes at once and is remembered.</p>
@@ -562,15 +562,34 @@ td:first-child { font-weight: 600; }
   <thead><tr><th>Built-in</th><th>Kind</th><th>What to expect</th></tr></thead>
   <tbody>
     <tr><td>TF Poly Synth</td><td>Instrument</td><td>A warm two-oscillator analogue-style polysynth. Responds to MPE.</td></tr>
-    <tr><td>TF Tine Piano</td><td>Instrument</td><td>An electric piano with a bell-like attack. Responds to MPE.</td></tr>
+    <tr><td>TF Electric Piano</td><td>Instrument</td><td>A reed electric piano after the Wurlitzer 200 and 200A, built from its mechanism: reeds, felt hammers, the charged pickup that makes it bark, dampers, the preamp's vibrato and the little speakers. It has its own editor (below).</td></tr>
     <tr><td>TF Plate</td><td>Audio effect</td><td>A smooth, dense plate reverb with pre-delay. Size, damping and pre-delay.</td></tr>
     <tr><td>TF Spring Reverb</td><td>Audio effect</td><td>The boingy, dripping reverb of a guitar amp's spring tank.</td></tr>
     <tr><td>TF Tape Echo</td><td>Audio effect</td><td>A tape delay whose repeats darken and wobble as they fade. Time, feedback, tone and wow.</td></tr>
   </tbody>
 </table>
 
+<h2>The electric piano</h2>
+<p>Select <strong>TF Electric Piano</strong> in a chain and press <span class="ctl">EDIT</span> (or double-click it): its editor opens in the lower half of the chain, in eight tabs, the way a technician goes through the instrument. Every control can be learned (<span class="ctl">LEARN</span>) and is saved with the deck. It plays 15 notes at once, in mono, as the real piano does: place it with the track's pan.</p>
+<figure><img src="images/ep_model.png" alt="The electric piano's editor, MODEL tab"><figcaption><b>MODEL.</b> A 200A, serviced: what the piano is like now, in one box.</figcaption></figure>
+<table>
+  <thead><tr><th>Tab</th><th>What it holds</th></tr></thead>
+  <tbody>
+    <tr><td>MODEL</td><td><span class="ctl">200</span> or <span class="ctl">200A</span>: the 200's amp is noisier and its Alnico speakers smoother; the 200A's middle and upper reeds are a little thicker. A condition (<span class="ctl">NEW</span>, <span class="ctl">SERVICED</span>, <span class="ctl">WORN</span>, <span class="ctl">NEGLECTED</span>) sets the technician's controls for a piano in that state; change any of them afterwards. With <span class="ctl">AGES AS YOU PLAY</span> on, the piano wears as you play it: over hundreds of hours its reeds drift out of tune, its hammer felt hardens, its damper felt softens and reeds start to ring short. Choosing a condition starts its playing time again.</td></tr>
+    <tr><td>TUNING</td><td>Equal temperament, just intonation, Pythagorean, quarter-comma meantone, Werckmeister III, Kirnberger III and Vallotti (on any key); <span class="ctl">PER NOTE</span>, where you drag each of the 12 notes up or down in cents; <span class="ctl">EDO</span>, any number of equal steps to the octave from 5 to 72 (type it, or step it); or a Scala scale (<span class="lcd">.scl</span>) with its keyboard map (<span class="lcd">.kbm</span>). A4 from 415 to 466 Hz, and octave stretch. The reeds' own drift comes on top.</td></tr>
+    <tr><td>REEDS</td><td>How far the reeds have drifted from the tuning, how long they ring, and how many are short ringers. The chart shows all 64 (A1 to C7): how long each rings, and how far out of tune it is. Short ringers are lit.</td></tr>
+    <tr><td>HAMMERS</td><td>Felt hardness, strike point, blow distance, let-off and the velocity curve. Harder felt and a longer blow hit the reed harder, with more overtones. Too big a let-off and the softest notes don't reach the reed at all.</td></tr>
+    <tr><td>PICKUP</td><td>How high each reed sits in the charged comb, the comb's gap, and its voltage (160 to 170 V on a healthy piano). Played softly, a reed swings a little and the pickup gives a round tone; played hard, it swings right through the comb and the tone folds over: the bark. The trace shows both.</td></tr>
+    <tr><td>DAMPERS</td><td>How firmly the dampers stop a note, and the noise of the dampers, the action and the pedal. The sustain pedal is your controller's.</td></tr>
+    <tr><td>AMP</td><td>Volume, vibrato depth (at the 200A's fixed 5.75 Hz), preamp drive, mains hum (50 or 60 Hz), and the output: <span class="ctl">SPEAKERS</span>, the power amp and the two small oval speakers in the lid as the player hears them, or <span class="ctl">REAR JACK</span>, the preamp's own output.</td></tr>
+    <tr><td>PLAYING</td><td>MPE is off as it comes: the piano hears only how hard you play, like the real one. Turned on, it can follow each note's pitch bend, and pressure can raise its volume, vibrato, drive or damp the note under your finger; slide can move the hammer felt or the reed height.</td></tr>
+  </tbody>
+</table>
+<figure><img src="images/ep_tuning.png" alt="The electric piano's editor, TUNING tab"><figcaption><b>TUNING.</b> Werckmeister III in C: each note's offset from equal temperament.</figcaption></figure>
+<figure><img src="images/ep_pickup.png" alt="The electric piano's editor, PICKUP tab"><figcaption><b>PICKUP.</b> A reed in the comb, end on, and what the pickup sends when it's played softly and hard.</figcaption></figure>
+
 <h2>Hardware synths</h2>
-<figure><img src="images/chain_external.png" alt="An external instrument block selected"><figcaption><b>An external instrument</b>: a Juno-106 on a USB MIDI interface.</figcaption></figure>
+<figure><img src="images/chain_external.png" alt="An external instrument block selected"><figcaption><b>An external instrument</b>, on a USB MIDI interface.</figcaption></figure>
 <p>Tick the synth's MIDI output in Setup → MIDI &amp; Deck (you can name it there), then add it from <strong>Hardware synths</strong> in the list. Choose where its MIDI goes and on which channel (<span class="ctl">AS PLAYED</span> keeps an MPE controller's notes on their own channels), and which input its audio comes back on. Changing the route sends all-notes-off so nothing hangs; <span class="ctl">ALL NOTES OFF</span> does it by hand. Its audio is recorded in time with the tape, allowing for the round trip through the interface.</p>
 
 <h2>Bouncing</h2>

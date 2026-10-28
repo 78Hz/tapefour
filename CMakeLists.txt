@@ -128,6 +128,8 @@ set(TAPEFOUR_ENGINE_SOURCES
     Source/NoiseReduction.cpp
     Source/TapeWriter.cpp
     Source/Blocks.cpp
+    Source/ElectricPiano.cpp
+    Source/Tuning.cpp
     Source/MidiHub.cpp
     Source/MidiMapper.cpp
     Source/ChannelStrip.cpp
@@ -151,6 +153,7 @@ target_sources(TapeFour PRIVATE
     Source/PluginWindow.cpp
     Source/BlockPicker.cpp
     Source/ChainEditor.cpp
+    Source/ElectricPianoPanel.cpp
     Source/InlayCard.cpp
     Source/SetupWindow.cpp
     Source/MasterDeckCard.cpp)
@@ -297,6 +300,7 @@ if(TAPEFOUR_TESTS AND NOT TAPEFOUR_ONLY_PLAYER)
     target_link_libraries(FormatTest PRIVATE tapeformats juce::juce_recommended_warning_flags)
     set_target_properties(FormatTest PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/FormatTest_artefacts/$<CONFIG>)
 
+    tapefour_test(ElectricPianoTest Tests/ElectricPianoTest.cpp Source/ElectricPiano.cpp Source/Tuning.cpp)
     tapefour_test(EngineTest Tests/EngineTest.cpp Source/Tape.cpp Source/TapeEngine.cpp Source/NoiseReduction.cpp)
     tapefour_test(MixerTest Tests/MixerTest.cpp ${TAPEFOUR_ENGINE_SOURCES})
     tapefour_test(ScanTest Tests/ScanTest.cpp Source/PluginScan.cpp Source/ClapFormat.cpp)

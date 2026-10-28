@@ -1,6 +1,7 @@
 // Drives the whole audio path (inputs -> strips -> tape -> mix) with a fake audio device.
 #include <cstdlib>
 #include "../Source/AudioEngine.h"
+#include "../Source/ElectricPiano.h"
 #include "../Source/TapeWriter.h"
 #include "../Source/ClapFormat.h"
 #include "../Source/TapeShelf.h"
@@ -414,6 +415,9 @@ int main()
         auto& me = *m.engine;
         me.setMidiInputMpe (AudioEngine::computerKeyboardPort, true, 48);
         instrument (me, 0, BuiltIn::epiano);
+        // the electric piano hears only velocity until its own MPE is turned on
+        if (auto* ep = BuiltIn::electricPiano (me.findBlock (0, me.getChain (0)[0].id)))
+            ep->param ("mpe")->setValueNotifyingHost (1.0f);
         me.track[0].armed = true;                  // armed + stopped: you hear the instrument live
         m.run (0.1);
         me.injectMidi (juce::MidiMessage::pitchWheel (2, 8192 + 8192 * 12 / 48));
@@ -1164,11 +1168,12 @@ int main()
 
         // Two instruments layer: both play, mixed.
         me.clearChain (0);
-        me.insertBlock (0, -1, BuiltIn::createSynth (BuiltIn::epiano));
+        me.insertBlock (0, -1, BuiltIn::createSynth (BuiltIn::poly));
         auto one = rms (playA (0.4), 0.1, 0.4);
-        me.insertBlock (0, -1, BuiltIn::createSynth (BuiltIn::epiano));
+        me.insertBlock (0, -1, BuiltIn::createSynth (BuiltIn::poly));
         auto two = rms (playA (0.4), 0.1, 0.4);
-        check (two > one * 1.8 && two < one * 2.2, "chain: two instruments in a row are layered (twice the level)", two / one, 2.0);
+        // two synths, their oscillators in their own phases: between +3 dB (unrelated) and +6 dB (in step)
+        check (two > one * 1.3 && two < one * 2.1, "chain: two instruments in a row are layered (both heard)", two / one, 1.6);
 
         // An audio effect processes what reaches it; MIX blends it with the dry signal; BYPASS takes it out.
         audioIn (me, 1, 0);

@@ -42,7 +42,7 @@ juce::String ChainEditor::signature() const
     for (auto& m : engine.mapper.getMappings()) s << m.id << ".";
     for (auto& i : engine.getMidiInputs()) s << i.slot << (int) i.active << (int) i.mpe;
     for (auto& o : engine.getMidiOutputs()) s << o.slot << (int) o.active;
-    s << engine.getActiveInputNames().size() << (int) sel << selId << (int) learning;
+    s << engine.getActiveInputNames().size() << (int) sel << selId << (int) learning << (int) pianoEditing;
     return s;
 }
 
@@ -125,6 +125,7 @@ void ChainEditor::rebuild()
 
 void ChainEditor::clearPanel()
 {
+    pianoPanel.reset();
     picker.reset();
     params.reset();
     panel.clear();
@@ -239,16 +240,24 @@ void ChainEditor::buildBlockPanel (const AudioEngine::BlockInfo& b, juce::Rectan
         return;
     }
 
+    auto* blk = engine.findBlock (t, id);
+    auto* piano = BuiltIn::electricPiano (blk);
+    if (piano != nullptr && pianoEditing)
+    {
+        captions.pop_back();
+        buildPianoPanel (b, left.getUnion (area).withX (left.getX()), *piano);
+        return;
+    }
+
     captions.push_back ({ b.name.toUpperCase(), { x, y, 310, 24 }, Pal::lcdText });
     y += 24;
     captions.push_back ({ b.maker.toUpperCase() + (b.hosted ? utf (" · PLUG-IN") : juce::String()), { x, y, 310, 16 }, Pal::lcdDim });
     y += 22;
 
     std::vector<LcdChip*> buttons;
-    if (b.hasEditor)
-        buttons.push_back (chip ("EDIT", true, [this, id] { if (onEditBlock) onEditBlock (t, id); }));
+    if (b.hasEditor || piano != nullptr)
+        buttons.push_back (chip ("EDIT", true, [this, id] { editBlock (id); }));
     buttons.push_back (chip ("BYPASS", b.bypass, [this, id, by = b.bypass] { engine.setBlockBypass (t, id, ! by); }));
-    auto* blk = engine.findBlock (t, id);
     const bool hasParams = blk != nullptr && blk->getProcessor() != nullptr && ! blk->getProcessor()->getParameters().isEmpty();
     if (hasParams)
         buttons.push_back (chip ("LEARN", learning, [this] { learning = ! learning; learnParam = -1; if (! learning) engine.mapper.cancelLearn(); }));
@@ -761,7 +770,7 @@ void ChainEditor::mouseDown (const juce::MouseEvent& e)
         for (auto& bi : chain) if (bi.id == id) b = &bi;
         if (b == nullptr) return;
         juce::PopupMenu m;
-        m.addItem ("Edit", b->hasEditor, false, [this, id] { if (onEditBlock) onEditBlock (t, id); });
+        m.addItem ("Edit", b->hasEditor || BuiltIn::electricPiano (engine.findBlock (t, id)) != nullptr, false, [this, id] { editBlock (id); });
         m.addItem (b->bypass ? "Switch on" : "Bypass", [this, id, by = b->bypass] { engine.setBlockBypass (t, id, ! by); changed(); });
         m.addItem ("Remove", [this, id] { engine.removeBlock (t, id); changed(); });
         m.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (localAreaToGlobal (c.node)));
@@ -817,8 +826,9 @@ void ChainEditor::mouseUp (const juce::MouseEvent& e)
     auto& c = cells[(size_t) i];
     if (c.inputs)            { sel = Sel::inputs; selId = 0; }
     else if (c.add)          { sel = Sel::add; selId = 0; }
-    else if (c.blockId != 0) { sel = Sel::block; selId = c.blockId; }
+    else if (c.blockId != 0) { if (selId != c.blockId) pianoEditing = false; sel = Sel::block; selId = c.blockId; }
     else return;
+    if (c.blockId == 0) pianoEditing = false;
     if (learning) engine.mapper.cancelLearn();
     learning = false;
     learnParam = -1;
@@ -828,8 +838,54 @@ void ChainEditor::mouseUp (const juce::MouseEvent& e)
 void ChainEditor::mouseDoubleClick (const juce::MouseEvent& e)
 {
     auto i = cellAt (e.getPosition());
-    if (i >= 0 && cells[(size_t) i].blockId != 0 && onEditBlock)
-        onEditBlock (t, cells[(size_t) i].blockId);
+    if (i >= 0 && cells[(size_t) i].blockId != 0)
+        editBlock (cells[(size_t) i].blockId);
+}
+
+void ChainEditor::editBlock (int blockId)
+{
+    // the electric piano's editor is in the panel; plug-ins open their own windows
+    if (BuiltIn::electricPiano (engine.findBlock (t, blockId)) != nullptr)
+    {
+        sel = Sel::block;
+        selId = blockId;
+        pianoEditing = ! pianoEditing;
+        learning = false;
+        changed();
+        return;
+    }
+    if (onEditBlock) onEditBlock (t, blockId);
+}
+
+void ChainEditor::buildPianoPanel (const AudioEngine::BlockInfo& b, juce::Rectangle<int> area, ep::Processor& piano)
+{
+    const int id = b.id;
+    int index = 0;
+    for (int i = 0; i < (int) chain.size(); ++i) if (chain[(size_t) i].id == id) index = i + 1;
+    auto head = area.removeFromTop (32);
+    captions.push_back ({ utf ("SELECTED \xc2\xb7 BLOCK ") + juce::String (index) + utf (" \xc2\xb7 ") + roleName (b.role), head.withHeight (12), Pal::lcdDim });
+    captions.push_back ({ b.name.toUpperCase(), head.withTrimmedTop (12).withWidth (220), Pal::lcdText });
+    int x = head.getX() + 236;
+    for (auto* c : { chip ("EDIT", true, [this, id] { editBlock (id); }),
+                     chip ("BYPASS", b.bypass, [this, id, by = b.bypass] { engine.setBlockBypass (t, id, ! by); }),
+                     chip ("LEARN", false, [this] { pianoEditing = false; learning = true; learnParam = -1; }),
+                     chip ("REMOVE", false, [this, id] { pianoEditing = false; engine.removeBlock (t, id); }) })
+    {
+        c->setBounds (x, head.getY() + 2, c->idealWidth(), 26);
+        x += c->idealWidth() + 6;
+    }
+    auto* s = new LcdSlider ("LEVEL", -24.0, 12.0, 0.0, [] (double v) { return (v > 0 ? "+" : "") + juce::String (v, 1) + " dB"; });
+    s->setValue (b.levelDb);
+    s->onChange = [this, id] (double v) { if (auto* bb = engine.findBlock (t, id)) bb->levelDb = (float) v; };
+    panel.add (s);
+    addAndMakeVisible (s);
+    s->setBounds (head.getRight() - 250, head.getY() + 4, 250, 22);
+    area.removeFromTop (8);
+
+    pianoPanel = std::make_unique<ElectricPianoPanel> (piano, pianoTab);
+    pianoPanel->onMessage = [this] (const juce::String& m) { if (onMessage) onMessage (m); };
+    addAndMakeVisible (*pianoPanel);
+    pianoPanel->setBounds (area);
 }
 
 bool ChainEditor::keyPressed (const juce::KeyPress& k)

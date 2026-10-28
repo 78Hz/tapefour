@@ -4,6 +4,8 @@
 
 namespace tf
 {
+namespace ep { class Processor; }
+
 /**
     What a block does with the two streams that run through a track's chain:
     MIDI (from the track's controller) and audio (from its input, or silence).
@@ -183,6 +185,8 @@ namespace BuiltIn
     juce::String fxName (int which);
     std::unique_ptr<Block> createSynth (int which);
     std::unique_ptr<Block> createFx (int which);
+    /** The electric piano behind a block, or nullptr if the block is something else (for its editor). */
+    ep::Processor* electricPiano (Block*) noexcept;
     /** A block from its saved BLOCK element, if it's a built-in (nullptr for plug-ins and external synths). */
     std::unique_ptr<Block> restore (const juce::XmlElement& block);
 }

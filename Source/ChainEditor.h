@@ -1,6 +1,7 @@
 #pragma once
 
 #include "StripComponent.h"
+#include "ElectricPianoPanel.h"
 
 namespace tf
 {
@@ -67,6 +68,8 @@ private:
     void buildBlockPanel (const AudioEngine::BlockInfo&, juce::Rectangle<int> area);
     void buildExternalPanel (const AudioEngine::BlockInfo&, juce::Rectangle<int> area);
     void buildPickerPanel (juce::Rectangle<int> area, bool replacing);
+    void buildPianoPanel (const AudioEngine::BlockInfo&, juce::Rectangle<int> area, ep::Processor&);
+    void editBlock (int blockId);
     LcdChip* chip (const juce::String& text, bool chosen, std::function<void()> action, const juce::String& sub = {});
     int chipRow (int y, int x, int right, const juce::String& caption, const std::vector<LcdChip*>& chips, int chipH = 30, juce::Colour captionColour = Pal::lcdDim);
     const AudioEngine::BlockInfo* selected() const;
@@ -91,6 +94,9 @@ private:
     LcdChip closeX { "X" };
 
     bool learning = false;            // LEARN: picking a parameter of the selected block
+    bool pianoEditing = false;        // the electric piano's editor fills the lower half
+    int pianoTab = 0;
+    std::unique_ptr<ElectricPianoPanel> pianoPanel;
     int learnParam = -1;
 
     int dragId = 0, dragX = 0, dropIndex = -1;
