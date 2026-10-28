@@ -42,7 +42,7 @@ juce::String ChainEditor::signature() const
     for (auto& m : engine.mapper.getMappings()) s << m.id << ".";
     for (auto& i : engine.getMidiInputs()) s << i.slot << (int) i.active << (int) i.mpe;
     for (auto& o : engine.getMidiOutputs()) s << o.slot << (int) o.active;
-    s << engine.getActiveInputNames().size() << (int) sel << selId << (int) learning << (int) pianoEditing;
+    s << engine.getActiveInputNames().size() << (int) sel << selId << (int) learning << (int) pianoEditing << (int) presetsOpen;
     return s;
 }
 
@@ -126,6 +126,8 @@ void ChainEditor::rebuild()
 void ChainEditor::clearPanel()
 {
     pianoPanel.reset();
+    presetList.reset();
+    presetDisplay.reset();
     picker.reset();
     params.reset();
     panel.clear();
@@ -850,6 +852,7 @@ void ChainEditor::editBlock (int blockId)
         sel = Sel::block;
         selId = blockId;
         pianoEditing = ! pianoEditing;
+        presetsOpen = false;
         learning = false;
         changed();
         return;
@@ -862,9 +865,15 @@ void ChainEditor::buildPianoPanel (const AudioEngine::BlockInfo& b, juce::Rectan
     const int id = b.id;
     int index = 0;
     for (int i = 0; i < (int) chain.size(); ++i) if (chain[(size_t) i].id == id) index = i + 1;
-    auto head = area.removeFromTop (32);
+    auto head = area.removeFromTop (40);
     captions.push_back ({ utf ("SELECTED \xc2\xb7 BLOCK ") + juce::String (index) + utf (" \xc2\xb7 ") + roleName (b.role), head.withHeight (12), Pal::lcdDim });
-    captions.push_back ({ b.name.toUpperCase(), head.withTrimmedTop (12).withWidth (220), Pal::lcdText });
+    captions.back().text << utf (" \xc2\xb7 ") << b.name.toUpperCase();
+    presetDisplay = std::make_unique<PianoPresetDisplay> (piano);
+    presetDisplay->open = presetsOpen;
+    presetDisplay->onClick = [this] { presetsOpen = ! presetsOpen; changed(); };
+    addAndMakeVisible (*presetDisplay);
+    presetDisplay->setBounds (head.getX(), head.getY() + 14, 220, 26);   // level with the chips
+    head = head.withTrimmedTop (12);
     int x = head.getX() + 236;
     for (auto* c : { chip ("EDIT", true, [this, id] { editBlock (id); }),
                      chip ("BYPASS", b.bypass, [this, id, by = b.bypass] { engine.setBlockBypass (t, id, ! by); }),
@@ -880,8 +889,17 @@ void ChainEditor::buildPianoPanel (const AudioEngine::BlockInfo& b, juce::Rectan
     panel.add (s);
     addAndMakeVisible (s);
     s->setBounds (head.getRight() - 250, head.getY() + 4, 250, 22);
-    area.removeFromTop (8);
+    area.removeFromTop (4);
 
+    if (presetsOpen)
+    {
+        presetList = std::make_unique<PianoPresets> (piano);
+        presetList->onMessage = [this] (const juce::String& m) { if (onMessage) onMessage (m); };
+        presetList->onLoaded = [this] { presetsOpen = false; changed(); };
+        addAndMakeVisible (*presetList);
+        presetList->setBounds (area);
+        return;
+    }
     pianoPanel = std::make_unique<ElectricPianoPanel> (piano, pianoTab);
     pianoPanel->onMessage = [this] (const juce::String& m) { if (onMessage) onMessage (m); };
     addAndMakeVisible (*pianoPanel);

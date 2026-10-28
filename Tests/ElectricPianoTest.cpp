@@ -283,6 +283,72 @@ int main()
                    && t.scale.cents.size() == 3, "piano: its state comes back (controls, seed, Scala file)", b.settings().felt, 0.8);
     }
 
+    {
+        // presets: saved and loaded whole, the scale with them; the * ignores playing time
+        const juce::String name = "TF test " + juce::String::toHexString (juce::Random::getSystemRandom().nextInt());
+        ep::Processor a;
+        auto s = a.settings(); s.felt = 0.9f; s.model = 0; a.setSettings (s);
+        tuning::Scale sc; std::string err;
+        const std::string text = "! x\nThree\n3\n400.0\n800.0\n1200.0\n";
+        tuning::parseScala (text, sc, err);
+        a.setScale (sc, text);
+        a.param ("system")->setValueNotifyingHost (a.param ("system")->convertTo0to1 ((float) tuning::System::scala));
+        juce::String error;
+        const bool saved = ep::presets::save (a, name, error);
+        check (saved && ep::presets::fileFor (name).existsAsFile() && a.currentPreset() == name && ! a.isModified(),
+               "presets: saving writes the file and names the piano", saved, 1);
+
+        bool listed = false;
+        for (auto& e : ep::presets::list()) listed = listed || (e.name == name && e.summary.startsWith ("200"));
+        check (listed, "presets: the list has it, with its summary", listed, 1);
+
+        // a piano with no scale and different controls loads it whole
+        ep::Processor b;
+        auto x = b.toXml (true);
+        x->setAttribute ("hours", 250.0);
+        b.fromXml (*x);
+        const double hoursBefore = b.hoursPlayed();
+        const bool loaded = ep::presets::load (b, ep::presets::fileFor (name), error);
+        check (loaded && std::abs (b.settings().felt - 0.9f) < 1.0e-4f && b.settings().model == 0 && b.seed() == a.seed()
+                   && b.tuningSettings().scale.cents.size() == 3 && b.currentPreset() == name && ! b.isModified(),
+               "presets: loading brings back every control, the seed and the Scala file", b.settings().felt, 0.9);
+        check (std::abs (b.hoursPlayed() - a.hoursPlayed()) < 1.0e-9 && std::abs (hoursBefore - 250.0) < 1.0e-9,
+               "presets: loading brings back its age", b.hoursPlayed(), a.hoursPlayed());
+
+        // playing time alone doesn't make it modified; a control does
+        auto y = b.toXml (true);
+        y->setAttribute ("hours", b.hoursPlayed() + 40.0);
+        const auto keep = b.currentPreset();
+        b.fromXml (*y);
+        check (! b.isModified(), "presets: playing time doesn't mark it changed", b.isModified(), 0);
+        b.param ("felt")->setValueNotifyingHost (b.param ("felt")->convertTo0to1 (0.2f));
+        check (b.isModified(), "presets: a control does", b.isModified(), 1);
+
+        // and the name and the * survive the deck's saving
+        juce::MemoryBlock mb;
+        b.getStateInformation (mb);
+        ep::Processor c;
+        c.setStateInformation (mb.getData(), (int) mb.getSize());
+        check (c.currentPreset() == keep && c.isModified(), "presets: the name and the * are kept with the deck", c.isModified(), 1);
+
+        // a preset without a scale clears the one the piano had
+        ep::Processor plain;
+        const juce::String plainName = name + " plain";
+        ep::presets::save (plain, plainName, error);
+        ep::presets::load (c, ep::presets::fileFor (plainName), error);
+        check (c.tuningSettings().scale.cents.empty() && c.scaleDescription() == plain.scaleDescription(),
+               "presets: one with no Scala file clears the piano's", (double) c.tuningSettings().scale.cents.size(), 0);
+
+        // rename keeps what's saved; delete removes the file
+        const juce::String renamed = name + " renamed";
+        const bool r = ep::presets::rename (c, renamed, error);
+        check (r && ! ep::presets::fileFor (plainName).existsAsFile() && ep::presets::fileFor (renamed).existsAsFile() && c.currentPreset() == renamed,
+               "presets: renaming moves the file", r, 1);
+        const bool d = ep::presets::remove (c, error);
+        check (d && ! ep::presets::fileFor (renamed).existsAsFile() && c.currentPreset().isEmpty(), "presets: deleting removes it", d, 1);
+        ep::presets::fileFor (name).deleteFile();
+    }
+
     // ---------------------------------------------------------------- listening
     if (auto* dir = std::getenv ("TF_EP_RENDER"))
     {

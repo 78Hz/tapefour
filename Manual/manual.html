@@ -588,6 +588,16 @@ td:first-child { font-weight: 600; }
 <figure><img src="images/ep_tuning.png" alt="The electric piano's editor, TUNING tab"><figcaption><b>TUNING.</b> Werckmeister III in C: each note's offset from equal temperament.</figcaption></figure>
 <figure><img src="images/ep_pickup.png" alt="The electric piano's editor, PICKUP tab"><figcaption><b>PICKUP.</b> A reed in the comb, end on, and what the pickup sends when it's played softly and hard.</figcaption></figure>
 
+<h3>Presets</h3>
+<p>A preset keeps the whole piano: every control, its tuning (a Scala file and keyboard map included), its reeds as they drifted, and how long it has been played. The box at the left of the editor's header shows the preset it came from, with <span class="lcd">*</span> once you've changed a control (playing it, and the wear that comes with that, doesn't count). Click the box for your presets, in place of the tabs:</p>
+<ul>
+  <li><span class="ctl">SAVE</span> writes the piano over its preset (with none, it asks for a name). <span class="ctl">SAVE AS NEW</span> asks for a name and keeps it as another. Return saves, Esc cancels.</li>
+  <li><span class="ctl">RENAME</span> and <span class="ctl">DELETE</span> act on the current preset; deleting asks once.</li>
+  <li>Click a preset to load it. What you had is replaced, so save it first if you want it.</li>
+  <li><span class="ctl">SHOW FOLDER</span> opens <span class="lcd">Documents/TapeFour/Presets/Electric Piano</span>. Each preset is one file there, so you can copy them to another computer or share them.</li>
+</ul>
+<figure><img src="images/ep_presets.png" alt="The electric piano's presets"><figcaption><b>Presets.</b> Naming a new one; the current preset is lit.</figcaption></figure>
+
 <h2>Hardware synths</h2>
 <figure><img src="images/chain_external.png" alt="An external instrument block selected"><figcaption><b>An external instrument</b>, on a USB MIDI interface.</figcaption></figure>
 <p>Tick the synth's MIDI output in Setup → MIDI &amp; Deck (you can name it there), then add it from <strong>Hardware synths</strong> in the list. Choose where its MIDI goes and on which channel (<span class="ctl">AS PLAYED</span> keeps an MPE controller's notes on their own channels), and which input its audio comes back on. Changing the route sends all-notes-off so nothing hangs; <span class="ctl">ALL NOTES OFF</span> does it by hand. Its audio is recorded in time with the tape, allowing for the round trip through the interface.</p>

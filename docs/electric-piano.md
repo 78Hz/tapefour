@@ -69,3 +69,11 @@ EDO is N equal steps to the octave, one per key, with A4 on its key. Scala files
 format: ratios or cents, the last line the period. A keyboard map (.kbm) gives the map size, first
 and last notes, the middle note, the reference note and its frequency, the period's degree, and the
 mapping, with `x` for an unmapped key. With no map, key 60 is 1/1 and key 69 sounds at A4.
+
+## Presets
+
+A preset is a `.tfep` file (XML: a `TFEP` element with the preset's name, holding the piano's
+`EPIANO` state: every parameter, the reed seed, the condition, the playing time, and the Scala
+and keyboard-map text) in `Documents/TapeFour/Presets/Electric Piano`. Loading one replaces the
+whole piano, clearing any Scala file the preset doesn't have. The modified mark compares a hash of
+the state without its playing time, so wear from playing doesn't count as a change.

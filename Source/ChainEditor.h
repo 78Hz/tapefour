@@ -97,6 +97,9 @@ private:
     bool pianoEditing = false;        // the electric piano's editor fills the lower half
     int pianoTab = 0;
     std::unique_ptr<ElectricPianoPanel> pianoPanel;
+    std::unique_ptr<PianoPresetDisplay> presetDisplay;
+    std::unique_ptr<PianoPresets> presetList;
+    bool presetsOpen = false;         // the presets list in place of the piano's editor
     int learnParam = -1;
 
     int dragId = 0, dragX = 0, dropIndex = -1;

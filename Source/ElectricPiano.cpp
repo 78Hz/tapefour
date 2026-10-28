@@ -701,47 +701,169 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     midi.clear();
 }
 
-void Processor::getStateInformation (juce::MemoryBlock& mb)
+std::unique_ptr<juce::XmlElement> Processor::toXml (bool withAge) const
 {
-    juce::XmlElement x ("EPIANO");
-    x.setAttribute ("version", 1);
-    x.setAttribute ("seed", juce::String::toHexString ((juce::int64) reedSeed));
-    x.setAttribute ("hours", hours.load());
-    x.setAttribute ("condition", condition.load());
+    auto x = std::make_unique<juce::XmlElement> ("EPIANO");
+    x->setAttribute ("version", 1);
+    x->setAttribute ("seed", juce::String::toHexString ((juce::int64) reedSeed));
+    if (withAge) x->setAttribute ("hours", hours.load());
+    x->setAttribute ("condition", condition.load());
     for (auto* p : getParameters())
         if (auto* r = dynamic_cast<juce::RangedAudioParameter*> (p))
-            x.setAttribute (r->paramID, (double) r->convertFrom0to1 (r->getValue()));
+            x->setAttribute (r->paramID, (double) r->convertFrom0to1 (r->getValue()));
+    const juce::SpinLock::ScopedLockType sl (impl->scaleLock);
+    if (! impl->sclText.empty()) x->createNewChildElement ("SCL")->addTextElement (juce::String (impl->sclText));
+    if (! impl->kbmText.empty()) x->createNewChildElement ("KBM")->addTextElement (juce::String (impl->kbmText));
+    return x;
+}
+
+void Processor::fromXml (const juce::XmlElement& x)
+{
+    if (! x.hasTagName ("EPIANO")) return;
+    if (x.hasAttribute ("seed")) reedSeed = (uint32_t) x.getStringAttribute ("seed").getHexValue64();
+    hours = std::max (0.0, x.getDoubleAttribute ("hours", hours.load()));
+    condition = std::clamp (x.getIntAttribute ("condition", 1), 0, 3);
+    for (auto* p : getParameters())
+        if (auto* r = dynamic_cast<juce::RangedAudioParameter*> (p); r != nullptr && x.hasAttribute (r->paramID))
+            r->setValueNotifyingHost (r->convertTo0to1 ((float) x.getDoubleAttribute (r->paramID)));
+    // the tuning files: what the piano had, or none
+    tuning::Scale sc;
+    tuning::KeyboardMap m;
+    std::string err, sclText, kbmText;
+    if (auto* e = x.getChildByName ("SCL")) { sclText = e->getAllSubText().toStdString(); if (! tuning::parseScala (sclText, sc, err)) sclText.clear(); }
+    if (auto* e = x.getChildByName ("KBM")) { kbmText = e->getAllSubText().toStdString(); if (! tuning::parseKeyboardMap (kbmText, m, err)) kbmText.clear(); }
     {
         const juce::SpinLock::ScopedLockType sl (impl->scaleLock);
-        if (! impl->sclText.empty()) x.createNewChildElement ("SCL")->addTextElement (juce::String (impl->sclText));
-        if (! impl->kbmText.empty()) x.createNewChildElement ("KBM")->addTextElement (juce::String (impl->kbmText));
+        impl->scale = sclText.empty() ? tuning::Scale() : sc;
+        impl->sclText = sclText;
+        impl->kbm = kbmText.empty() ? tuning::KeyboardMap() : m;
+        impl->hasKbm = ! kbmText.empty();
+        impl->kbmText = kbmText;
     }
-    copyXmlToBinary (x, mb);
+    ++impl->scaleVersion;
+}
+
+juce::String Processor::fingerprint() const
+{
+    // the piano as it sounds, without its playing time (which changes as you play)
+    return juce::String::toHexString (toXml (false)->toString (juce::XmlElement::TextFormat().singleLine()).hashCode64());
+}
+
+void Processor::setPreset (const juce::String& name)
+{
+    presetName = name;
+    presetFingerprint = fingerprint();
+}
+
+bool Processor::isModified() const
+{
+    return presetName.isNotEmpty() && fingerprint() != presetFingerprint;
+}
+
+void Processor::getStateInformation (juce::MemoryBlock& mb)
+{
+    auto x = toXml (true);
+    x->setAttribute ("preset", presetName);
+    x->setAttribute ("presetFingerprint", presetFingerprint);
+    copyXmlToBinary (*x, mb);
 }
 
 void Processor::setStateInformation (const void* data, int size)
 {
     auto x = getXmlFromBinary (data, size);
     if (x == nullptr || ! x->hasTagName ("EPIANO")) return;
-    reedSeed = (uint32_t) x->getStringAttribute ("seed").getHexValue64();
-    hours = std::max (0.0, x->getDoubleAttribute ("hours"));
-    condition = std::clamp (x->getIntAttribute ("condition", 1), 0, 3);
-    for (auto* p : getParameters())
-        if (auto* r = dynamic_cast<juce::RangedAudioParameter*> (p); r != nullptr && x->hasAttribute (r->paramID))
-            r->setValueNotifyingHost (r->convertTo0to1 ((float) x->getDoubleAttribute (r->paramID)));
-    if (auto* s = x->getChildByName ("SCL"))
-    {
-        tuning::Scale sc;
-        std::string err;
-        const auto text = s->getAllSubText().toStdString();
-        if (tuning::parseScala (text, sc, err)) setScale (sc, text);
-    }
-    if (auto* k = x->getChildByName ("KBM"))
-    {
-        tuning::KeyboardMap m;
-        std::string err;
-        const auto text = k->getAllSubText().toStdString();
-        if (tuning::parseKeyboardMap (text, m, err)) setKeyboardMap (m, text);
-    }
+    fromXml (*x);
+    presetName = x->getStringAttribute ("preset");
+    presetFingerprint = x->getStringAttribute ("presetFingerprint");
 }
+
+//==============================================================================
+namespace presets
+{
+juce::File folder()
+{
+    return juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("TapeFour").getChildFile ("Presets").getChildFile ("Electric Piano");
+}
+
+juce::File fileFor (const juce::String& name)
+{
+    return folder().getChildFile (juce::File::createLegalFileName (name.trim()) + ".tfep");
+}
+
+std::vector<Entry> list()
+{
+    std::vector<Entry> out;
+    for (auto& f : folder().findChildFiles (juce::File::findFiles, false, "*.tfep"))
+    {
+        auto x = juce::XmlDocument::parse (f);
+        if (x == nullptr || ! x->hasTagName ("TFEP")) continue;
+        auto* p = x->getChildByName ("EPIANO");
+        if (p == nullptr) continue;
+        Entry e;
+        e.file = f;
+        e.name = x->getStringAttribute ("name", f.getFileNameWithoutExtension());
+        e.saved = f.getLastModificationTime();
+        const int sys = p->getIntAttribute ("system");
+        static const char* keys[] { "C", "C#", "D", "EB", "E", "F", "F#", "G", "AB", "A", "BB", "B" };
+        juce::String tun = tuning::systemName ((tuning::System) std::clamp (sys, 0, (int) tuning::System::numSystems - 1));
+        if (sys == (int) tuning::System::edo) tun = juce::String (p->getIntAttribute ("edo")) + "-EDO";
+        else if (sys > 0 && sys < (int) tuning::System::custom) tun << " IN " << keys[std::clamp (p->getIntAttribute ("key"), 0, 11)];
+        const juce::String dot (juce::CharPointer_UTF8 (" \xc2\xb7 "));
+        e.summary = juce::String (p->getIntAttribute ("model", 1) == 0 ? "200" : "200A") + dot + conditionName (p->getIntAttribute ("condition", 1))
+                  + dot + tun + dot + (p->getIntAttribute ("output", 1) == 1 ? "REAR JACK" : "SPEAKERS");
+        out.push_back (e);
+    }
+    std::sort (out.begin(), out.end(), [] (const Entry& a, const Entry& b) { return a.name.compareIgnoreCase (b.name) < 0; });
+    return out;
+}
+
+bool save (Processor& piano, const juce::String& name, juce::String& error)
+{
+    if (name.trim().isEmpty()) { error = "GIVE IT A NAME"; return false; }
+    const auto f = fileFor (name);
+    if (! f.getParentDirectory().createDirectory()) { error = "CAN'T MAKE THE PRESETS FOLDER"; return false; }
+    juce::XmlElement x ("TFEP");
+    x.setAttribute ("version", 1);
+    x.setAttribute ("name", name.trim());
+    x.addChildElement (piano.toXml (true).release());
+    if (! x.writeTo (f)) { error = "CAN'T WRITE " + f.getFileName().toUpperCase(); return false; }
+    piano.setPreset (name.trim());
+    return true;
+}
+
+bool load (Processor& piano, const juce::File& f, juce::String& error)
+{
+    auto x = juce::XmlDocument::parse (f);
+    auto* p = x != nullptr && x->hasTagName ("TFEP") ? x->getChildByName ("EPIANO") : nullptr;
+    if (p == nullptr) { error = "NOT AN ELECTRIC PIANO PRESET"; return false; }
+    piano.fromXml (*p);
+    piano.setPreset (x->getStringAttribute ("name", f.getFileNameWithoutExtension()));
+    return true;
+}
+
+bool rename (Processor& piano, const juce::String& newName, juce::String& error)
+{
+    const auto old = fileFor (piano.currentPreset());
+    const auto to = fileFor (newName);
+    if (newName.trim().isEmpty()) { error = "GIVE IT A NAME"; return false; }
+    if (to.existsAsFile() && to != old) { error = "THERE'S ALREADY ONE CALLED THAT"; return false; }
+    // the file keeps what was saved in it: only its name changes
+    auto x = juce::XmlDocument::parse (old);
+    if (x == nullptr || ! x->hasTagName ("TFEP")) return save (piano, newName, error);
+    x->setAttribute ("name", newName.trim());
+    if (! x->writeTo (to)) { error = "CAN'T WRITE IT"; return false; }
+    if (to != old) old.deleteFile();
+    piano.renamePreset (newName.trim());
+    return true;
+}
+
+bool remove (Processor& piano, juce::String& error)
+{
+    const auto f = fileFor (piano.currentPreset());
+    if (! f.existsAsFile()) { error = "NOTHING TO DELETE"; return false; }
+    if (! f.deleteFile()) { error = "CAN'T DELETE IT"; return false; }
+    piano.setPreset ({});
+    return true;
+}
+} // namespace presets
 } // namespace tf::ep

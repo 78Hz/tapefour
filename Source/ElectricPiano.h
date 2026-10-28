@@ -119,12 +119,24 @@ public:
     void getStateInformation (juce::MemoryBlock&) override;
     void setStateInformation (const void*, int) override;
 
+    /** The whole piano (controls, tuning files, seed, condition; its age if withAge), and back. */
+    std::unique_ptr<juce::XmlElement> toXml (bool withAge) const;
+    void fromXml (const juce::XmlElement&);
+
+    /** The preset it was loaded from or saved as ("" none), and whether it has changed since. */
+    juce::String currentPreset() const { return presetName; }
+    void setPreset (const juce::String& name);
+    bool isModified() const;
+    void renamePreset (const juce::String& name) { presetName = name; }   // keeps whether it's modified
+
     /** The parameters by id, for the editor. */
     juce::RangedAudioParameter* param (const juce::String& id) const;
 
     struct Impl;
 
 private:
+    juce::String fingerprint() const;
+    juce::String presetName, presetFingerprint;
     std::unique_ptr<Impl> impl;
     std::atomic<double> hours { 0.0 };
     std::atomic<int> condition { 1 };
@@ -132,4 +144,16 @@ private:
     std::atomic<bool> zone { false };
     std::atomic<int> zoneBend { 48 };
 };
+/** Presets: one file each (.tfep) in Documents/TapeFour/Presets/Electric Piano, the whole piano in each. */
+namespace presets
+{
+    struct Entry { juce::File file; juce::String name, summary; juce::Time saved; };
+    juce::File folder();
+    juce::File fileFor (const juce::String& name);
+    std::vector<Entry> list();
+    bool save (Processor&, const juce::String& name, juce::String& error);
+    bool load (Processor&, const juce::File&, juce::String& error);
+    bool rename (Processor&, const juce::String& newName, juce::String& error);
+    bool remove (Processor&, juce::String& error);
+}
 } // namespace tf::ep
