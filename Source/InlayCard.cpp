@@ -12,7 +12,7 @@ namespace
         auto& lf = DeckLookAndFeel::get();
         juce::AttributedString s;
         s.append ("TAPE", lf.brand (size), main);
-        s.append (utf ("\xc2\xb7"), lf.brand (size), Pal::orange);
+        s.append (utf ("\xc2\xb7"), lf.brand (size), Pal::cassetteOrange);
         s.append ("FOUR", lf.brand (size), main);
         s.setJustification (j);
         s.draw (g, r);
@@ -248,7 +248,7 @@ void InlayThumb::paintButton (juce::Graphics& g, bool over, bool)
     auto head = c.removeFromTop (30.0f);
     g.setColour (band);
     g.fillRect (head);
-    auto accent = tape != nullptr ? juce::Colour (tape->getModelInfo().accent) : Pal::orange;
+    auto accent = tape != nullptr ? juce::Colour (tape->getModelInfo().accent) : Pal::cassetteOrange;
     g.setColour (accent);
     g.fillRect (c.removeFromBottom (6.0f));
     g.setFont (lf.brand (17.0f));

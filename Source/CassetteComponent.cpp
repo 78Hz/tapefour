@@ -358,14 +358,14 @@ void CassetteComponent::drawPrint (juce::Graphics& g) const
         {
             g.setColour (rgba (26, 24, 32, 0.74f));
             g.fillRoundedRectangle (30.0f, 26.0f, 944.0f, 178.0f, 14.0f);
-            text (g, title, lf.brand (112.0f), Pal::orange, 74, 152);
+            text (g, title, lf.brand (112.0f), Pal::cassetteOrange, 74, 152);
             juce::Path rule;
             rule.startNewSubPath (300, 166); rule.lineTo (334, 88); rule.lineTo (830, 88);
             g.setColour (juce::Colour (0xffcdb57c));
             g.strokePath (rule, juce::PathStrokeType (3.0f));
             text (g, "STUDIO DYNAMIC " + utf ("\xc2\xb7") + " LOW NOISE " + utf ("\xc2\xb7") + " WIDE RANGE", lf.cond (27.0f), juce::Colour (0xffcdb57c), 350, 120, juce::Justification::left, 0.11f);
             text (g, "IEC I / TYPE I   NORMAL POSITION", lf.cond (31.0f, true), juce::Colour (0xffcdb57c), 350, 156, juce::Justification::left, 0.07f);
-            brandWord (944, 156, 46, juce::Colour (0xffece4cf), Pal::orange);
+            brandWord (944, 156, 46, juce::Colour (0xffece4cf), Pal::cassetteOrange);
             break;
         }
     }

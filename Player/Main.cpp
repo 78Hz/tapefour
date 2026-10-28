@@ -74,6 +74,7 @@ public:
 
         engine = std::make_unique<tf::pocket::PlayerEngine>();
         library = std::make_unique<tf::pocket::Library> (*settings.getUserSettings());
+        tf::Theme::apply (tf::Theme::indexOf (library->theme()));
         auto audioError = engine->start();
         window = std::make_unique<tf::pocket::MainWindow> (*engine, *library, tf::pocket::touchLayout (commandLine));
 

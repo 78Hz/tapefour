@@ -226,7 +226,7 @@ MasterDeckCard::~MasterDeckCard() = default;
 
 LedKey* MasterDeckCard::key (juce::OwnedArray<LedKey>& row, const juce::String& text, std::function<void()> click)
 {
-    auto* k = row.add (new LedKey (text, Pal::amber));
+    auto* k = row.add (new LedKey (text, Pal::lamp));
     k->textSize = 11.0f;
     k->onClick = std::move (click);
     addAndMakeVisible (k);
@@ -424,7 +424,7 @@ void MasterDeckCard::paint (juce::Graphics& g)
         {
             auto line = mapArea.withHeight (26).translated (0, side * 34);
             auto badge = line.removeFromLeft (26).toFloat().reduced (1.0f);
-            g.setColour (side == ms.side ? Pal::orange : Pal::line);
+            g.setColour (side == ms.side ? Pal::accent : Pal::line);
             g.fillRoundedRectangle (badge, 3.0f);
             g.setColour (side == ms.side ? Pal::body : Pal::cream);
             g.setFont (lf.cond (17.0f, true));

@@ -10,7 +10,7 @@ static DeckLookAndFeel* currentDeckLookAndFeel = nullptr;
 DeckLookAndFeel::DeckLookAndFeel()
     : juce::LookAndFeel_V4 (juce::LookAndFeel_V4::ColourScheme (
           Pal::panel, Pal::body, Pal::body, Pal::line, Pal::cream,
-          Pal::button, juce::Colour (0xff1a1917), Pal::orange, Pal::cream))
+          Pal::button, juce::Colour (0xff1a1917), Pal::accent, Pal::cream))
 {
     semi   = juce::Typeface::createSystemTypefaceFor (BinaryData::BarlowCondensedSemiBold_ttf, BinaryData::BarlowCondensedSemiBold_ttfSize);
     bold   = juce::Typeface::createSystemTypefaceFor (BinaryData::BarlowCondensedBold_ttf, BinaryData::BarlowCondensedBold_ttfSize);
@@ -19,7 +19,14 @@ DeckLookAndFeel::DeckLookAndFeel()
     handTf = juce::Typeface::createSystemTypefaceFor (BinaryData::CaveatVariable_ttf, BinaryData::CaveatVariable_ttfSize);
 
     currentDeckLookAndFeel = this;
+    applyPalette();
+}
 
+void DeckLookAndFeel::applyPalette()
+{
+    setColourScheme (juce::LookAndFeel_V4::ColourScheme (
+        Pal::panel, Pal::body, Pal::body, Pal::line, Pal::cream,
+        Pal::button, juce::Colour (0xff1a1917), Pal::accent, Pal::cream));
     setColour (juce::PopupMenu::backgroundColourId, Pal::cream);
     setColour (juce::PopupMenu::textColourId, juce::Colour (0xff1a1917));
     setColour (juce::PopupMenu::headerTextColourId, Pal::menuHead);
@@ -29,15 +36,107 @@ DeckLookAndFeel::DeckLookAndFeel()
     setColour (juce::TextEditor::outlineColourId, Pal::line);
     setColour (juce::ComboBox::backgroundColourId, Pal::body);
     setColour (juce::ComboBox::outlineColourId, Pal::line);
-    setColour (juce::Slider::trackColourId, Pal::orange);
+    setColour (juce::Slider::trackColourId, Pal::accent);
     setColour (juce::Slider::thumbColourId, Pal::cream);
     setColour (juce::TabbedButtonBar::tabOutlineColourId, Pal::line);
-    setColour (juce::TabbedButtonBar::frontOutlineColourId, Pal::orange);
+    setColour (juce::TabbedButtonBar::frontOutlineColourId, Pal::accent);
     setColour (juce::ListBox::backgroundColourId, Pal::body);
     setColour (juce::TableHeaderComponent::backgroundColourId, Pal::panel);
     setColour (juce::TableHeaderComponent::textColourId, Pal::cream);
-    setColour (juce::ToggleButton::tickColourId, Pal::orange);
+    setColour (juce::ToggleButton::tickColourId, Pal::accent);
 }
+
+//==============================================================================
+namespace Theme
+{
+const std::vector<Def>& all()
+{
+    static const std::vector<Def> themes {
+        { "teal", "TEAL VFD", "Teal keys, blue-green fluorescent displays",
+          0xff2fa59a, 0xff04110f, 0xff6fe6d4, 0xff3fae9e, 0xffe0c46a, 0xff1d4a45, 0xff6f93b8, 0xff4a6178, 0xff8fb0d6, 0xff1f4a44 },
+        { "cobalt", "COBALT", "Blue keys, backlit blue-white displays",
+          0xff3d7ee0, 0xff070d18, 0xff9cc8ff, 0xff6a95cc, 0xffe8b84a, 0xff1c3560, 0xff9a8fc8, 0xff4f4870, 0xffb4a8e8, 0xff263a5e },
+        { "mono", "MONO", "Cream keys, white displays",
+          0xffd9d2c0, 0xff0b0b0b, 0xfff2efe6, 0xffa8a59c, 0xffe3dccb, 0xff3a3934, 0xff8f9aa6, 0xff4a5058, 0xffaab4bf, 0xff3e3d3a },
+        { "redgreen", "RED / GREEN", "Red keys, green LCDs",
+          0xffc8372d, 0xff10160c, 0xffb4e070, 0xff84b050, 0xffe8c34a, 0xff5a1a14, 0xff6f93b8, 0xff4a6178, 0xff8fb0d6, 0xff3a4a22 },
+    };
+    return themes;
+}
+
+int indexOf (const juce::String& id)
+{
+    for (size_t i = 0; i < all().size(); ++i)
+        if (id == all()[i].id) return (int) i;
+    return 0;
+}
+
+static int currentIndex = 0;
+int current() { return currentIndex; }
+
+static void set (const Def& d)
+{
+    Pal::accent = juce::Colour (d.accent);
+    Pal::lcd = juce::Colour (d.lcd);
+    Pal::lcdText = juce::Colour (d.lcdText);
+    Pal::lcdDim = juce::Colour (d.lcdDim);
+    Pal::lamp = juce::Colour (d.lamp);
+    Pal::menuHead = juce::Colour (d.menuHead);
+    Pal::midiBlue = juce::Colour (d.midiBlue);
+    Pal::midiDim = juce::Colour (d.midiDim);
+    Pal::midiBright = juce::Colour (d.midiBright);
+    Pal::lcdRule = juce::Colour (d.lcdRule);
+}
+
+static void recolourTree (juce::Component& c, const std::function<juce::Colour (juce::Colour)>& recolour)
+{
+    // the colours set on it by ID (labels, editors, sliders...)
+    juce::Array<std::pair<int, juce::Colour>> changes;
+    auto& props = c.getProperties();
+    for (int i = 0; i < props.size(); ++i)
+    {
+        const auto name = props.getName (i).toString();
+        if (! name.startsWith ("jcclr_")) continue;
+        const auto was = juce::Colour ((juce::uint32) (int) props.getValueAt (i));
+        const auto now = recolour (was);
+        if (now != was) changes.add ({ name.substring (6).getHexValue32(), now });
+    }
+    for (auto& ch : changes)
+        c.setColour (ch.first, ch.second);
+    if (auto* ed = dynamic_cast<juce::TextEditor*> (&c); ed != nullptr && ! changes.isEmpty())
+        ed->applyColourToAllText (ed->findColour (juce::TextEditor::textColourId), true);
+    if (auto* aware = dynamic_cast<Aware*> (&c))
+        aware->themeChanged (recolour);
+    for (auto* child : c.getChildren())
+        recolourTree (*child, recolour);
+    c.repaint();
+}
+
+void apply (int index)
+{
+    index = juce::jlimit (0, (int) all().size() - 1, index);
+    const auto& from = all()[(size_t) currentIndex];
+    const auto& to = all()[(size_t) index];
+    currentIndex = index;
+    set (to);
+    if (currentDeckLookAndFeel != nullptr) currentDeckLookAndFeel->applyPalette();
+
+    // A colour that was one of the old theme's becomes the new theme's, keeping its alpha.
+    const juce::uint32 a[] { from.accent, from.lcd, from.lcdText, from.lcdDim, from.lamp, from.menuHead, from.midiBlue, from.midiDim, from.midiBright, from.lcdRule };
+    const juce::uint32 b[] { to.accent, to.lcd, to.lcdText, to.lcdDim, to.lamp, to.menuHead, to.midiBlue, to.midiDim, to.midiBright, to.lcdRule };
+    auto recolour = [&] (juce::Colour c)
+    {
+        for (size_t i = 0; i < std::size (a); ++i)
+            if ((c.getARGB() & 0xffffffu) == (a[i] & 0xffffffu))
+                return juce::Colour (b[i]).withAlpha (c.getAlpha());
+        return c;
+    };
+    auto& desktop = juce::Desktop::getInstance();
+    for (int i = 0; i < desktop.getNumComponents(); ++i)
+        if (auto* top = desktop.getComponent (i))
+            recolourTree (*top, recolour);
+}
+} // namespace Theme
 
 DeckLookAndFeel& DeckLookAndFeel::get()
 {
@@ -100,7 +199,7 @@ void DeckLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int w, 
     p.addRoundedRectangle (-1.5f, -radius + 3.0f, 3.0f, radius * 0.42f, 1.5f);
     bool accent = (bool) s.getProperties().getWithDefault ("accent", false);
     bool secondary = (bool) s.getProperties().getWithDefault ("secondary", false);
-    g.setColour (secondary ? juce::Colour (0xff8fb0d6) : accent ? Pal::orange : Pal::cream);
+    g.setColour (secondary ? juce::Colour (0xff8fb0d6) : accent ? Pal::accent : Pal::cream);
     g.fillPath (p, juce::AffineTransform::rotation (angle).translated (c));
 }
 
@@ -187,7 +286,7 @@ void DeckLookAndFeel::drawToggleButton (juce::Graphics& g, juce::ToggleButton& b
     auto r = b.getLocalBounds().toFloat();
     auto key = r.removeFromLeft (30.0f).withSizeKeepingCentre (30.0f, std::min (26.0f, r.getHeight()));
     paintKey (g, key, over, down, alpha);
-    paintLed (g, { key.getCentreX(), key.getCentreY() - 1.0f + (down ? 2.0f : 0.0f) }, b.getToggleState(), Pal::amber);
+    paintLed (g, { key.getCentreX(), key.getCentreY() - 1.0f + (down ? 2.0f : 0.0f) }, b.getToggleState(), Pal::lamp);
     if (b.getButtonText().isNotEmpty())
     {
         g.setColour (Pal::cream.withMultipliedAlpha (alpha));
@@ -202,7 +301,7 @@ void DeckLookAndFeel::drawTickBox (juce::Graphics& g, juce::Component&, float x,
     // Lists of channels and the like: the same LED key, sized to the row.
     auto key = juce::Rectangle<float> (x, y, w, h).withSizeKeepingCentre (std::max (w, h * 1.2f), h);
     paintKey (g, key, over, down, enabled ? 1.0f : 0.45f);
-    paintLed (g, { key.getCentreX(), key.getCentreY() - 1.0f }, ticked, Pal::amber, std::max (5.0f, h * 0.32f));
+    paintLed (g, { key.getCentreX(), key.getCentreY() - 1.0f }, ticked, Pal::lamp, std::max (5.0f, h * 0.32f));
 }
 
 int DeckLookAndFeel::getTabButtonBestWidth (juce::TabBarButton& b, int)
@@ -215,7 +314,7 @@ void DeckLookAndFeel::drawTabButton (juce::TabBarButton& b, juce::Graphics& g, b
     auto r = b.getLocalBounds().toFloat().reduced (4.0f, 6.0f);
     paintKey (g, r, over, down);
     auto face = r.withTrimmedBottom (3.0f).translated (0, down ? 2.0f : 0.0f);
-    paintLed (g, { face.getX() + 15.0f, face.getCentreY() }, b.isFrontTab(), Pal::amber);
+    paintLed (g, { face.getX() + 15.0f, face.getCentreY() }, b.isFrontTab(), Pal::lamp);
     g.setColour (Pal::cream);
     g.setFont (cond (14.0f, true).withExtraKerningFactor (0.14f));
     g.drawText (b.getButtonText(), face.withTrimmedLeft (26.0f).withTrimmedRight (8.0f), juce::Justification::centred);

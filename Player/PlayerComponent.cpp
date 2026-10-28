@@ -6,7 +6,10 @@ namespace tf::pocket
 namespace
 {
     const juce::Colour screen { 0xff0a0a0a }, barColour { 0xff151413 }, keyColour { 0xff2c2a27 }, keyLine { 0xff3c3a36 },
-                       keyLit { 0xff4a3a2c }, overlay { 0xee1c1b19 };
+                       overlay { 0xee1c1b19 };
+    // a lit key, and the cassette in the player on the shelf: a touch of the theme's accent
+    juce::Colour keyLit()     { return Pal::accent.interpolatedWith (juce::Colour (0xff2c2a27), 0.82f); }
+    juce::Colour currentRow() { return Pal::accent.interpolatedWith (juce::Colour (0xff1b1a18), 0.88f); }
 
     juce::Path iconPath (PocketKey::Icon icon)
     {
@@ -51,7 +54,7 @@ void PocketKey::paintButton (juce::Graphics& g, bool over, bool down)
 {
     auto& lf = DeckLookAndFeel::get();
     auto r = getLocalBounds().toFloat().reduced (1.0f);
-    auto bg = lit ? (accent ? Pal::orange : keyLit) : keyColour;
+    auto bg = lit ? (accent ? Pal::accent : keyLit()) : keyColour;
     if (down) bg = bg.darker (0.25f);
     else if (over) bg = bg.brighter (0.08f);
     g.setColour (bg.withMultipliedAlpha (isEnabled() ? 1.0f : 0.4f));
@@ -76,7 +79,7 @@ void PocketKey::paintButton (juce::Graphics& g, bool over, bool down)
             juce::Path a;
             a.addCentredArc (c.x, c.y, 9.0f, 9.0f, 0.0f, -2.6f, 0.3f, true);
             a.addCentredArc (c.x, c.y, 9.0f, 9.0f, 0.0f, 0.54f, 3.44f, true);
-            g.setColour (Pal::orange);
+            g.setColour (Pal::accent);
             g.strokePath (a, juce::PathStrokeType (2.0f));
             juce::Path heads;
             heads.addTriangle (c.x + 8.0f, c.y - 8.0f, c.x + 12.0f, c.y - 1.0f, c.x + 3.0f, c.y - 2.0f);
@@ -100,7 +103,7 @@ void PocketKey::paintButton (juce::Graphics& g, bool over, bool down)
         juce::Path a;
         a.addCentredArc (box.getCentreX(), box.getCentreY(), 8.0f, 8.0f, 0.0f, -2.6f, 0.3f, true);
         a.addCentredArc (box.getCentreX(), box.getCentreY(), 8.0f, 8.0f, 0.0f, 0.54f, 3.44f, true);
-        g.setColour (Pal::orange);
+        g.setColour (Pal::accent);
         g.strokePath (a, juce::PathStrokeType (2.0f));
         juce::Path heads;
         heads.addTriangle (box.getCentreX() + 7.0f, box.getCentreY() - 7.0f, box.getCentreX() + 11.0f, box.getCentreY() - 1.0f, box.getCentreX() + 3.0f, box.getCentreY() - 2.0f);
@@ -150,9 +153,9 @@ struct ShelfView::Tile : public juce::Component
     {
         auto& lf = DeckLookAndFeel::get();
         auto r = getLocalBounds().toFloat().reduced (1.0f);
-        g.setColour (current ? juce::Colour (0xff2e251d) : juce::Colour (0xff1b1a18));
+        g.setColour (current ? currentRow() : juce::Colour (0xff1b1a18));
         g.fillRoundedRectangle (r, 12.0f);
-        g.setColour (current ? Pal::orange : juce::Colour (0xff33312d));
+        g.setColour (current ? Pal::accent : juce::Colour (0xff33312d));
         g.drawRoundedRectangle (r, 12.0f, 1.0f);
 
         auto text = getLocalBounds().reduced (12, 10);
@@ -186,12 +189,27 @@ ShelfView::ShelfView (Library& l, bool isTouch) : library (l), touch (isTouch)
 {
     openKey.onClick = [this] { if (onOpenFile) onOpenFile(); };
     closeKey.onClick = [this] { if (onClose) onClose(); };
+    themeKey.onClick = [this]
+    {
+        const auto next = (Theme::current() + 1) % (int) Theme::all().size();
+        library.setTheme (Theme::all()[(size_t) next].id);
+        Theme::apply (next);
+        showTheme();
+    };
+    showTheme();
     addAndMakeVisible (openKey);
     addAndMakeVisible (closeKey);
+    addAndMakeVisible (themeKey);
     viewport.setViewedComponent (&grid, false);
     viewport.setScrollBarsShown (true, false);
     viewport.setScrollOnDragMode (juce::Viewport::ScrollOnDragMode::all);
     addAndMakeVisible (viewport);
+}
+
+void ShelfView::showTheme()
+{
+    themeKey.setButtonText (juce::String ("THEME: ") + Theme::all()[(size_t) Theme::current()].name);
+    themeKey.repaint();
 }
 
 void ShelfView::refresh (const juce::String& currentId)
@@ -222,6 +240,8 @@ void ShelfView::resized()
     closeKey.setBounds (head.removeFromRight (100));
     head.removeFromRight (12);
     openKey.setBounds (head.removeFromRight (220));
+    head.removeFromRight (12);
+    themeKey.setBounds (head.removeFromRight (190));
     r.removeFromTop (16);
     viewport.setBounds (r);
 
@@ -310,7 +330,7 @@ PlayerComponent::PlayerComponent (PlayerEngine& e, Library& l, bool touchLayout)
     volume.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
     volume.setRange (0, 10, 1);
     volume.setValue (engine.getVolume(), juce::dontSendNotification);
-    volume.setColour (juce::Slider::trackColourId, Pal::orange);
+    volume.setColour (juce::Slider::trackColourId, Pal::accent);
     volume.setColour (juce::Slider::backgroundColourId, keyColour);
     volume.setColour (juce::Slider::thumbColourId, Pal::cream);
     volume.setTitle ("Volume");
@@ -552,7 +572,7 @@ void PlayerComponent::paint (juce::Graphics& g)
         g.setFont (lf.cond (16.0f));
         g.drawText (touch ? "Or send a .cass to the player from another app" : "Or drop a .cass file anywhere on the player",
                     openFirst.getBounds().translated (0, 50).withSizeKeepingCentre (500, 24), juce::Justification::centred);
-        g.setColour (Pal::orange);
+        g.setColour (Pal::accent);
         g.setFont (lf.cond (34.0f, true));
         g.drawText ("TF-P1", openFirst.getBounds().translated (0, -90).withSizeKeepingCentre (300, 40), juce::Justification::centred);
         g.setColour (Pal::cream);

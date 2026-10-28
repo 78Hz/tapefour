@@ -34,6 +34,10 @@ class Library
 public:
     explicit Library (juce::PropertiesFile& settings);
 
+    /** The colour theme chosen on the shelf (Theme::all()'s id). */
+    juce::String theme() const { return props.getValue ("theme", "teal"); }
+    void setTheme (const juce::String& id) { props.setValue ("theme", id); props.saveIfNeeded(); }
+
     std::vector<CassetteEntry> recent() const;
     /** Where this cassette was left, if the player has played it before. */
     std::optional<CassetteEntry> find (const juce::String& id) const;

@@ -115,7 +115,7 @@ private:
 
     // header
     LcdButton setupLcd;
-    LedKey learnBtn { "LEARN", Pal::amber };
+    LedKey learnBtn { "LEARN", Pal::lamp };
 
     // cassette bay
     CassetteComponent cassette;
@@ -129,8 +129,8 @@ private:
     KeyButton recKey { KeyButton::rec, "REC" }, rewKey { KeyButton::rew, "REW" }, ffKey { KeyButton::ff, "F.FWD" },
               playKey { KeyButton::play, "PLAY" }, stopKey { KeyButton::stop, "STOP" };
     LabeledKnob pitch;
-    LedKey speedLo { utf ("1\xe2\x85\x9e IPS"), Pal::amber }, speedHi { utf ("3\xc2\xbe IPS"), Pal::amber };
-    LedKey nrButton { "NOISE REDUCTION", Pal::amber };
+    LedKey speedLo { utf ("1\xe2\x85\x9e IPS"), Pal::lamp }, speedHi { utf ("3\xc2\xbe IPS"), Pal::lamp };
+    LedKey nrButton { "NOISE REDUCTION", Pal::lamp };
     LcdButton nrType;
 
     // mixer

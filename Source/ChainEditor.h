@@ -17,9 +17,16 @@ class ParamPicker;
     double-click it to open its window. "+" adds a block.
 */
 class ChainEditor : public juce::Component,
+                    public Theme::Aware,
                     private juce::Timer
 {
 public:
+    void themeChanged (const std::function<juce::Colour (juce::Colour)>& recolour) override
+    {
+        for (auto& c : captions) c.colour = recolour (c.colour);
+        layoutFlow();
+    }
+
     static constexpr int editorWidth = 840, editorHeight = 480, notchHeight = 10;
 
     ChainEditor (AudioEngine& engine, int track, int notchX);

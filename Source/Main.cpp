@@ -147,6 +147,7 @@ public:
         o.osxLibrarySubFolder = "Application Support";
         appProperties.setStorageParameters (o);
 
+        tf::Theme::apply (tf::Theme::indexOf (appProperties.getUserSettings()->getValue ("theme", "teal")));
         engine = std::make_unique<tf::AudioEngine> (*appProperties.getUserSettings());
         mainWindow = std::make_unique<tf::MainWindow> (*engine, *appProperties.getUserSettings());
 

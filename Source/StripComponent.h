@@ -63,7 +63,7 @@ private:
     AudioEngine& engine;
     LabeledKnob phones;
     LcdButton display;
-    LedKey side { "SIDE A", Pal::orange }, mixdown { "MIXDOWN", Pal::red };
+    LedKey side { "SIDE A", Pal::accent }, mixdown { "MIXDOWN", Pal::red };
     Meter meter { 2 };
     Fader fader;
     juce::Rectangle<int> peakArea;

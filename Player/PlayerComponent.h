@@ -43,6 +43,8 @@ private:
     Library& library;
     bool touch;
     PocketKey openKey { "OPEN A .CASS FILE", PocketKey::Icon::open, true }, closeKey { "CLOSE", PocketKey::Icon::none };
+    PocketKey themeKey { "THEME", PocketKey::Icon::none };   // each press, the next colour theme
+    void showTheme();
     juce::Viewport viewport;
     juce::Component grid;
     juce::OwnedArray<Tile> tiles;

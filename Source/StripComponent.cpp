@@ -154,8 +154,8 @@ void StripComponent::rebuildText()
     lcd.roomForMore = (int) chain.size() < AudioEngine::maxBlocks;
 
     if (bounce)                                      { tag = "BOUNCE";     tagColour = Pal::bounce; }
-    else if (hasAudio && hasMidi && ! chain.empty()) { tag = "AUDIO+MIDI"; tagColour = Pal::orange; }
-    else if (hasAudio)                               { tag = "AUDIO";      tagColour = Pal::orange; }
+    else if (hasAudio && hasMidi && ! chain.empty()) { tag = "AUDIO+MIDI"; tagColour = Pal::accent; }
+    else if (hasAudio)                               { tag = "AUDIO";      tagColour = Pal::accent; }
     else if (! chain.empty())                        { tag = "MIDI";       tagColour = Pal::midiBlue; }
     else                                             { tag = {};           tagColour = {}; }
 }
@@ -182,7 +182,7 @@ void StripComponent::refresh (bool blink)
 
     // What's on the tape under the head: noise reduction and recorded speed.
     lcd.nrLamp = false;
-    lcd.nrColour = Pal::amber;
+    lcd.nrColour = Pal::lamp;
     lcd.eqLamp = false;
     lcd.eqColour = Pal::green;
     if (tape != nullptr)
@@ -332,7 +332,7 @@ void StripComponent::paint (juce::Graphics& g)
     auto lbl = juce::Rectangle<float> (40, 16).withCentre ({ eqBox.getCentreX(), eqBox.getY() });
     g.setColour (Pal::panel);
     g.fillRect (lbl);
-    g.setColour (Pal::orange);
+    g.setColour (Pal::accent);
     g.drawText ("EQ", lbl, juce::Justification::centred);
 }
 
@@ -389,7 +389,7 @@ void MasterStrip::refresh (const juce::String& formats, bool blink)
     display.repaintIfChanged();
 
     side.setButtonText (juce::String ("SIDE ") + sideName);
-    side.setLed (! ms.direct(), Pal::orange);
+    side.setLed (! ms.direct(), Pal::accent);
     side.setEnabled (! ms.direct());
     const auto st = md.getState();
     const bool taking = st == MasterDeck::State::recording || st == MasterDeck::State::tailing || st == MasterDeck::State::finishing;

@@ -277,7 +277,7 @@ void DeckComponent::paint (juce::Graphics& g)
     g.setFont (lf.brand (46.0f));
     juce::AttributedString brand;
     brand.append ("TAPE", lf.brand (46.0f), Pal::cream);
-    brand.append (utf ("\xc2\xb7"), lf.brand (46.0f), Pal::orange);
+    brand.append (utf ("\xc2\xb7"), lf.brand (46.0f), Pal::accent);
     brand.append ("FOUR", lf.brand (46.0f), Pal::cream);
     brand.draw (g, juce::Rectangle<float> (20, 12, 220, 52));
     smallCaps (g, utf ("MODEL TF-4 \xc2\xb7 4-TRACK CASSETTE MULTITRACKER"), { 232, 28, 420, 24 });
@@ -308,7 +308,7 @@ void DeckComponent::paint (juce::Graphics& g)
         smallCaps (g, turned ? utf ("CASSETTE \xc2\xb7 SIDE B UP \xc2\xb7 SIDE A PLAYS BACKWARDS")
                              : utf ("CASSETTE \xc2\xb7 SIDE A UP \xc2\xb7 4 TRACKS ONE DIRECTION"),
                    { bayPanel.getX() + 18, bayPanel.getY() + 12, 420, 20 }, juce::Justification::centredLeft,
-                   turned ? Pal::amber : Pal::muted);
+                   turned ? Pal::lamp : Pal::muted);
     }
     smallCaps (g, "INLAY", { bayPanel.getX() + 448, bayPanel.getY() + 12, 90, 20 });
     auto bay = juce::Rectangle<float> ((float) bayPanel.getX() + 18, (float) bayPanel.getY() + 36, 524, 286);

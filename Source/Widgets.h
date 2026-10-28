@@ -6,14 +6,21 @@ namespace tf
 {
 //==============================================================================
 /** Amber display, two or three lines, clickable. */
-class LcdButton : public juce::Button
+class LcdButton : public juce::Button,
+                  public Theme::Aware
 {
 public:
+    void themeChanged (const std::function<juce::Colour (juce::Colour)>& recolour) override
+    {
+        nrColour = recolour (nrColour);
+        eqColour = recolour (eqColour);
+    }
+
     LcdButton() : juce::Button ("lcd") { setWantsKeyboardFocus (false); setMouseClickGrabsKeyboardFocus (false); }
 
     juce::String top, sub, low;
     bool nrLamp = false, eqLamp = false, midiLamp = false;   // the track displays' lamps
-    juce::Colour nrColour = Pal::amber, eqColour = Pal::green;
+    juce::Colour nrColour = Pal::lamp, eqColour = Pal::green;
 
     /** The track's chain as a row of little blocks (strip displays). */
     bool chainRow = false, highlighted = false;
@@ -150,9 +157,12 @@ public:
     changes colour. Toggles (mute, solo, arm, NR, learn) and choices (tape speed, the tape switch) light
     their LED; momentary keys (EJECT, RESET, RTZ) have none and centre their label.
 */
-class LedKey : public juce::Button
+class LedKey : public juce::Button,
+               public Theme::Aware
 {
 public:
+    void themeChanged (const std::function<juce::Colour (juce::Colour)>& recolour) override { ledColour = recolour (ledColour); }
+
     LedKey (const juce::String& label, juce::Colour led, bool withLed = true)
         : juce::Button (label), ledColour (led), hasLed (withLed)
     {
@@ -276,7 +286,7 @@ public:
         if (signal >= 0.0f)
         {
             auto bar = in.removeFromRight (4).withSizeKeepingCentre (4, std::min (18, in.getHeight() - 6)).toFloat();
-            g.setColour (chosen ? Pal::lcdDim : juce::Colour (0xff3a2a14));
+            g.setColour (chosen ? Pal::lcdDim : Pal::lcdRule);
             g.fillRoundedRectangle (bar, 1.0f);
             g.setColour (chosen ? Pal::lcd : Pal::green);
             g.fillRoundedRectangle (bar.withTrimmedTop (bar.getHeight() * (1.0f - juce::jlimit (0.0f, 1.0f, signal))), 1.0f);
@@ -321,7 +331,7 @@ public:
         g.setColour (Pal::lcdText);
         g.drawText (format (value), r.removeFromRight (64), juce::Justification::centredRight);
         bar = r.reduced (4, 0).withSizeKeepingCentre (r.getWidth() - 8, 6);
-        g.setColour (juce::Colour (0xff3a2a14));
+        g.setColour (Pal::lcdRule);
         g.fillRoundedRectangle (bar.toFloat(), 3.0f);
         g.setColour (Pal::lcdText);
         g.fillRoundedRectangle (bar.toFloat().withWidth ((float) bar.getWidth() * (float) ((value - lo) / (hi - lo))), 3.0f);
@@ -627,7 +637,7 @@ public:
             for (int i = 0; i < 20; ++i)
             {
                 auto y = inner.getBottom() - (float) (i + 1) * segH - (float) i * 3.0f;
-                auto col = vu[i] >= 3 ? Pal::red : (vu[i] >= 0 ? Pal::amber : Pal::green);
+                auto col = vu[i] >= 3 ? Pal::red : (vu[i] >= 0 ? Pal::lamp : Pal::green);
                 bool on = db >= vu[i];
                 g.setColour (on ? col : juce::Colour (0xff34322d));
                 g.fillRoundedRectangle (x, y, colW, segH, 1.5f);
@@ -728,7 +738,7 @@ public:
     void refresh()
     {
         for (int i = 0; i < keys.size(); ++i)
-            keys[i]->setLed (i == position, ! hasTape || position == tapeType ? Pal::green : Pal::amber);
+            keys[i]->setLed (i == position, ! hasTape || position == tapeType ? Pal::green : Pal::lamp);
     }
 
     void paint (juce::Graphics& g) override

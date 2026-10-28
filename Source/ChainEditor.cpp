@@ -5,7 +5,7 @@ namespace tf
 {
 namespace
 {
-    const juce::Colour midiDim { 0xff4a6178 }, midiBright { 0xff8fb0d6 }, frame { 0xff3d3b36 }, rule { 0xff5a4020 };
+    const juce::Colour frame { 0xff3d3b36 };
     constexpr int pad = 16, flowTop = 48, laneH = 18, nodeH = 60, linkW = 14;
 }
 //==============================================================================
@@ -193,7 +193,7 @@ void ChainEditor::buildInputsPanel (juce::Rectangle<int> area)
         auto slot = in.slot;
         ctl.push_back (chip (label, port == slot, [this, slot] { engine.setTrackMidiPort (t, slot); }));
     }
-    y = chipRow (y, x, right, "PLAYED BY", ctl, 30, midiBright);
+    y = chipRow (y, x, right, "PLAYED BY", ctl, 30, Pal::midiBright);
 
     auto names = engine.getActiveInputNames();
     auto ch = p.inputChannel.load();
@@ -293,7 +293,7 @@ void ChainEditor::buildBlockPanel (const AudioEngine::BlockInfo& b, juce::Rectan
         {
             if (y > left.getBottom() - 26) break;
             captions.push_back ({ m.paramName.toUpperCase().substring (0, 18) + utf (" \xe2\x86\x90 ") + m.portName.toUpperCase().substring (0, 10)
-                                      + " " + engine.mapper.describeMessage (m), { x, y, 280, 24 }, midiBright });
+                                      + " " + engine.mapper.describeMessage (m), { x, y, 280, 24 }, Pal::midiBright });
             auto mapId = m.id;
             auto* xb = chip ("X", false, [this, mapId] { engine.mapper.remove (mapId); });
             xb->setBounds (x + 284, y, 26, 24);
@@ -341,7 +341,7 @@ void ChainEditor::buildExternalPanel (const AudioEngine::BlockInfo& b, juce::Rec
     auto c3 = area;
     auto ext = [this, id] { return dynamic_cast<ExternalBlock*> (engine.findBlock (t, id)); };
 
-    captions.push_back ({ "SEND MIDI TO", c1.removeFromTop (18), midiBright });
+    captions.push_back ({ "SEND MIDI TO", c1.removeFromTop (18), Pal::midiBright });
     int shown = 0;
     for (auto& o : engine.getMidiOutputs())
     {
@@ -357,7 +357,7 @@ void ChainEditor::buildExternalPanel (const AudioEngine::BlockInfo& b, juce::Rec
     if (shown == 0)
         captions.push_back ({ utf ("TICK A MIDI OUTPUT IN SETUP › MIDI & DECK"), c1.removeFromTop (30), Pal::lcdDim });
 
-    captions.push_back ({ "ON CHANNEL", c2.removeFromTop (18), midiBright });
+    captions.push_back ({ "ON CHANNEL", c2.removeFromTop (18), Pal::midiBright });
     auto grid = c2.removeFromTop (4 * 30 + 3 * 4);
     for (int ch = 1; ch <= 16; ++ch)
     {
@@ -454,7 +454,7 @@ void ChainEditor::layoutFlow()
     bool midiChanged = false, audioOn = audioIn;
     const juce::Colour none = juce::Colours::transparentBlack;
 
-    auto midiColour = [&] { return midiChanged || ! anyMidiFx ? midiBright : midiDim; };
+    auto midiColour = [&] { return midiChanged || ! anyMidiFx ? Pal::midiBright : Pal::midiDim; };
     auto addLink = [&] (int nodeIndex)
     {
         Cell c;
@@ -563,7 +563,7 @@ void ChainEditor::paint (juce::Graphics& g)
     g.drawText ("TRACK " + juce::String (t + 1) + utf (" \xc2\xb7 SIGNAL CHAIN"), head.removeFromLeft (240), juce::Justification::centredLeft);
     auto legend = head.removeFromRight (150);
     g.setFont (lf.mono (10.0f));
-    g.setColour (midiBright);
+    g.setColour (Pal::midiBright);
     g.fillRect (legend.getX(), legend.getCentreY(), 16, 2);
     g.drawText ("MIDI", legend.getX() + 20, legend.getY(), 40, legend.getHeight(), juce::Justification::centredLeft);
     g.setColour (Pal::lcdText);
@@ -600,7 +600,7 @@ void ChainEditor::paint (juce::Graphics& g)
         const bool beingDragged = dragging && b != nullptr && b->id == dragId;
 
         juce::Colour fill = juce::Colours::transparentBlack, ink = Pal::lcdText, sub = Pal::lcdDim;
-        if (c.tape)      { fill = Pal::orange; ink = sub = juce::Colour (0xff1a1917); }
+        if (c.tape)      { fill = Pal::accent; ink = sub = juce::Colour (0xff1a1917); }
         else if (isSel)  { fill = Pal::lcdText; ink = sub = Pal::lcd; }
         const float alpha = (ghost && ! isSel) || beingDragged ? 0.55f : 1.0f;
 
@@ -655,7 +655,7 @@ void ChainEditor::paint (juce::Graphics& g)
             else
             {
                 auto port = p.midiPort.load();
-                g.setColour (port == AudioEngine::midiNone ? sub : (isSel ? ink : midiBright));
+                g.setColour (port == AudioEngine::midiNone ? sub : (isSel ? ink : Pal::midiBright));
                 g.drawFittedText (port == AudioEngine::midiNone ? juce::String ("NO MIDI") : "MIDI " + engine.midiPortLabel (port),
                                   in.removeFromTop (in.getHeight() / 2), juce::Justification::centredLeft, 1, 0.75f);
                 g.setColour (p.inputChannel.load() < 0 ? sub : ink);
@@ -675,7 +675,7 @@ void ChainEditor::paint (juce::Graphics& g)
                 g.setColour (Pal::lcd);
                 g.fillEllipse (lamp.expanded (1.5f));
             }
-            g.setColour (b->bypass ? juce::Colour (0xff3a2a14) : Pal::green);
+            g.setColour (b->bypass ? Pal::lcdRule : Pal::green);
             g.fillEllipse (lamp);
         }
         g.setColour (sub.withMultipliedAlpha (alpha));
@@ -702,7 +702,7 @@ void ChainEditor::paint (juce::Graphics& g)
             g.setColour (juce::Colour (0xff10151c));
             g.drawText (text, r, juce::Justification::centred);
         };
-        tag (c.midiTag, c.node.getY() - laneH + 7, midiBright);
+        tag (c.midiTag, c.node.getY() - laneH + 7, Pal::midiBright);
         tag (c.audioTag, c.node.getBottom() + 11, Pal::lcdText);
     }
 
@@ -723,7 +723,7 @@ void ChainEditor::paint (juce::Graphics& g)
     }
 
     // divider and captions for the panel underneath
-    g.setColour (rule);
+    g.setColour (Pal::lcdRule);
     g.fillRect (pad, notchHeight + flowTop + 2 * laneH + nodeH + 12, editorWidth - 2 * pad, 1);
     for (auto& cap : captions)
     {

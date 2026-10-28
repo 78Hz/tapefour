@@ -6,7 +6,6 @@ namespace tf
 {
 namespace
 {
-    const juce::Colour rule { 0xff5a4020 };
 
     void styleSearch (juce::TextEditor& e, const juce::String& hint)
     {
@@ -16,7 +15,7 @@ namespace
         e.setIndents (8, 6);
         e.setColour (juce::TextEditor::backgroundColourId, Pal::lcd);
         e.setColour (juce::TextEditor::textColourId, Pal::lcdText);
-        e.setColour (juce::TextEditor::outlineColourId, rule);
+        e.setColour (juce::TextEditor::outlineColourId, Pal::lcdRule);
         e.setColour (juce::TextEditor::focusedOutlineColourId, Pal::lcdText);
         e.setColour (juce::TextEditor::highlightColourId, Pal::lcdDim.withAlpha (0.4f));
         e.setColour (juce::TextEditor::highlightedTextColourId, Pal::lcdText);

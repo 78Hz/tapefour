@@ -281,7 +281,7 @@ private:
         ed.setColour (juce::TextEditor::backgroundColourId, Pal::darker);
         ed.setColour (juce::TextEditor::textColourId, Pal::lcdText);
         ed.setColour (juce::TextEditor::outlineColourId, Pal::line);
-        ed.setColour (juce::TextEditor::focusedOutlineColourId, Pal::orange);
+        ed.setColour (juce::TextEditor::focusedOutlineColourId, Pal::accent);
         ed.setIndents (6, 5);
     }
 
@@ -774,6 +774,50 @@ public:
 private:
     Panel panel;
 };
+/** The deck's colours: one of the themes, changed at once. */
+class DisplayPanel : public juce::Component
+{
+public:
+    explicit DisplayPanel (juce::PropertiesFile& settings) : props (settings)
+    {
+        heading.setText ("Colour theme", juce::dontSendNotification);
+        heading.setFont (DeckLookAndFeel::get().cond (17.0f));
+        heading.setColour (juce::Label::textColourId, Pal::muted);
+        addAndMakeVisible (heading);
+        const auto& themes = Theme::all();
+        for (int i = 0; i < (int) themes.size(); ++i)
+        {
+            auto* b = choices.add (new juce::ToggleButton (juce::String (themes[(size_t) i].name) + utf ("  \xc2\xb7  ") + themes[(size_t) i].about));
+            b->setRadioGroupId (0x7e3e);
+            b->setToggleState (i == Theme::current(), juce::dontSendNotification);
+            b->onClick = [this, i]
+            {
+                if (i == Theme::current()) return;
+                props.setValue ("theme", Theme::all()[(size_t) i].id);
+                props.saveIfNeeded();
+                Theme::apply (i);
+            };
+            addAndMakeVisible (b);
+        }
+    }
+
+    void resized() override
+    {
+        auto r = getLocalBounds().reduced (24, 20);
+        heading.setBounds (r.removeFromTop (28));
+        r.removeFromTop (6);
+        for (auto* b : choices)
+        {
+            b->setBounds (r.removeFromTop (40));
+            r.removeFromTop (8);
+        }
+    }
+
+private:
+    juce::PropertiesFile& props;
+    juce::Label heading;
+    juce::OwnedArray<juce::ToggleButton> choices;
+};
 } // namespace
 
 //==============================================================================
@@ -788,6 +832,7 @@ SetupWindow::SetupWindow (AudioEngine& engineRef, juce::PropertiesFile& settings
     tabs->addTab ("MIDI & DECK", Pal::panel, new Scrolling<MidiPanel> (engineRef), true);
     tabs->addTab ("DECK", Pal::panel, new Scrolling<DeckPanel> (engineRef), true);
     tabs->addTab ("PLUG-INS", Pal::panel, new InstrumentsPanel (engineRef, settings), true);
+    tabs->addTab ("DISPLAY", Pal::panel, new DisplayPanel (settings), true);
     setContentNonOwned (tabs.get(), false);
     setResizable (true, false);
     centreWithSize (780, 760);

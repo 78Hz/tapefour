@@ -24,9 +24,9 @@ public:
             auto label = deck.engine.mapper.labelFor (lt.target);
             if (isCurrent)
             {
-                g.setColour (Pal::orange.withAlpha (0.25f));
+                g.setColour (Pal::accent.withAlpha (0.25f));
                 g.fillRoundedRectangle (r, 4.0f);
-                g.setColour (Pal::orange);
+                g.setColour (Pal::accent);
                 g.drawRoundedRectangle (r, 4.0f, 2.0f);
             }
             else
@@ -35,7 +35,7 @@ public:
                 p.addRoundedRectangle (r, 4.0f);
                 const float dash[] { 4.0f, 3.0f };
                 juce::PathStrokeType (1.2f).createDashedStroke (p, p, dash, 2);
-                g.setColour ((label.isNotEmpty() ? Pal::green : Pal::amber).withAlpha (0.9f));
+                g.setColour ((label.isNotEmpty() ? Pal::green : Pal::lamp).withAlpha (0.9f));
                 g.fillPath (p);
             }
             auto badge = isCurrent ? juce::String ("MOVE A CONTROL") : label;
@@ -44,7 +44,7 @@ public:
                 g.setFont (lf.mono (10.0f));
                 auto w = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), badge) + 8.0f;
                 auto b = juce::Rectangle<float> (w, 14.0f).withPosition (r.getRight() - w, r.getY() - 7.0f);
-                g.setColour (isCurrent ? Pal::orange : Pal::green);
+                g.setColour (isCurrent ? Pal::accent : Pal::green);
                 g.fillRoundedRectangle (b, 2.0f);
                 g.setColour (juce::Colour (0xff141311));
                 g.drawText (badge, b, juce::Justification::centred);

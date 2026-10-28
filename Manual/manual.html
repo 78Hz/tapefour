@@ -19,8 +19,8 @@
   --muted: #6b665c;
   --rule: #d9d3c4;
   --paper: #fbf9f4;
-  --orange: #c4561b;
-  --orange-bright: #e8702a;
+  --orange: #1f8a80;
+  --orange-bright: #2fa59a;
   --panel: #2e2d29;
   --tint: #f3efe4;
 }
@@ -191,7 +191,7 @@ td:first-child { font-weight: 600; }
 <p>The window opens where you last left it. Starting TAPE·FOUR again while it's running brings the running copy to the front.</p>
 
 <h2>Audio interface</h2>
-<p>Click the amber display at the top right of the deck (<span class="lcd">SETUP ›</span>) to open Setup, then go to the <strong>Audio</strong> tab.</p>
+<p>Click the display at the top right of the deck (<span class="lcd">SETUP ›</span>) to open Setup, then go to the <strong>Audio</strong> tab.</p>
 <figure class="narrow"><img src="images/setup_audio.png" alt="Setup, Audio tab"><figcaption><b>Setup → Audio.</b> Choose the audio system and your interface, then the sample rate and buffer size, and the outputs.</figcaption></figure>
 <table>
   <thead><tr><th>Setting</th><th>What it does</th><th>What to expect</th></tr></thead>
@@ -233,6 +233,19 @@ td:first-child { font-weight: 600; }
 </table>
 <p>Many plug-ins come in several formats. The list in a track's chain shows each plug-in once, in the best format you have: CLAP, then VST3, then Audio Units, LV2 and LADSPA. A deck you saved keeps the format it was made with. TAPE·FOUR also has two built-in instruments, <strong>TF Poly Synth</strong> and <strong>TF Tine Piano</strong>, and three built-in effects, <strong>TF Plate</strong>, <strong>TF Spring Reverb</strong> and <strong>TF Tape Echo</strong>, so you can start without any plug-ins.</p>
 <figure class="narrow"><img src="images/setup_inst.png" alt="Setup, Plug-ins tab"><figcaption><b>Setup → Plug-ins.</b> Scan once; the list is remembered.</figcaption></figure>
+<h2>Colours</h2>
+<p>In <strong>Setup → Display</strong>, choose the deck's colour theme. It changes at once and is remembered.</p>
+<table>
+  <thead><tr><th>Theme</th><th>Keys and labels</th><th>Displays</th></tr></thead>
+  <tbody>
+    <tr><td>Teal VFD (as it comes)</td><td>Teal</td><td>Blue-green, like the fluorescent displays on 1980s decks</td></tr>
+    <tr><td>Cobalt</td><td>Blue</td><td>Blue-white, like a backlit LCD</td></tr>
+    <tr><td>Mono</td><td>Cream</td><td>White: no colour but the lamps</td></tr>
+    <tr><td>Red / green</td><td>Red</td><td>Green, like an unlit LCD</td></tr>
+  </tbody>
+</table>
+<p>The theme colours the deck, not the cassettes: each cassette keeps its own print. The pictures in this manual show Teal VFD.</p>
+<figure class="narrow"><img src="images/setup_display.png" alt="Setup, Display tab"><figcaption><b>Setup → Display.</b> Pick a theme; the deck changes at once.</figcaption></figure>
 
 <!-- ======================================================= 3 FRONT PANEL -->
 <h1><span class="num">3</span>The front panel</h1>
@@ -701,7 +714,7 @@ td:first-child { font-weight: 600; }
 <figure><img src="images/learn_mode.png" alt="The deck in learn mode"><figcaption><b>Learn mode.</b> Every control that can be learned is outlined: amber if it's free, green with a badge if it's already mapped (here, the KeyLab's CC 74 is on track 1's fader and a pad is on its mute).</figcaption></figure>
 <ol>
   <li>Press <span class="ctl">LEARN</span> at the top of the deck. Its lamp lights and the controls that can be learned are outlined.</li>
-  <li>Click a control. It turns orange and reads <span class="lcd">MOVE A CONTROL</span>.</li>
+  <li>Click a control. It lights in the deck's accent colour and reads <span class="lcd">MOVE A CONTROL</span>.</li>
   <li>Move a knob or fader, or press a button, on your controller. The status display confirms it, for example <span class="lcd">LEARNED: TRK 1 FADER ← CC 74</span>.</li>
   <li>Click another control to learn the next, or press <span class="ctl">LEARN</span> or <span class="key">Esc</span> to finish.</li>
 </ol>
