@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include "../Source/AudioEngine.h"
 #include "../Source/ElectricPiano.h"
+#include "../Source/TransistorOrgan.h"
 #include "../Source/TapeWriter.h"
 #include "../Source/ClapFormat.h"
 #include "../Source/TapeShelf.h"
@@ -1166,14 +1167,25 @@ int main()
         auto same = playA (0.4);
         check (tone (same, 220, 0.1, 0.4) > 4.0 * tone (up, 220, 0.1, 0.4), "chain: a MIDI effect after the synth leaves it alone", tone (same, 220, 0.1, 0.4), 0.0);
 
-        // Two instruments layer: both play, mixed.
+        // Two instruments layer: both play, mixed. Two organs, one on 8' and one on 4', so each is heard at its own pitch
+        // (a square wave has no 2nd harmonic: 440 Hz is only the second organ's).
+        auto organOn = [] (std::unique_ptr<Block> b, bool fourFoot)
+        {
+            auto* o = BuiltIn::transistorOrgan (b.get());
+            auto s = o->settings();
+            s.drawbar16 = 0.0f; s.drawbarIV = 0.0f; s.flute = 0.0f; s.reed = 8.0f; s.vibrato = false;
+            s.drawbar8 = fourFoot ? 0.0f : 8.0f; s.drawbar4 = fourFoot ? 8.0f : 0.0f;
+            o->setSettings (s);
+            return b;
+        };
         me.clearChain (0);
-        me.insertBlock (0, -1, BuiltIn::createSynth (BuiltIn::transistor));
-        auto one = rms (playA (0.4), 0.1, 0.4);
-        me.insertBlock (0, -1, BuiltIn::createSynth (BuiltIn::transistor));
-        auto two = rms (playA (0.4), 0.1, 0.4);
-        // two synths, their oscillators in their own phases: between +3 dB (unrelated) and +6 dB (in step)
-        check (two > one * 1.3 && two < one * 2.1, "chain: two instruments in a row are layered (both heard)", two / one, 1.6);
+        me.insertBlock (0, -1, organOn (BuiltIn::createSynth (BuiltIn::transistor), false));
+        auto one = playA (0.4);
+        me.insertBlock (0, -1, organOn (BuiltIn::createSynth (BuiltIn::transistor), true));
+        auto two = playA (0.4);
+        check (tone (two, 440, 0.1, 0.4) > 10.0 * tone (one, 440, 0.1, 0.4) && tone (two, 220, 0.1, 0.4) > 0.7 * tone (one, 220, 0.1, 0.4),
+               "chain: two instruments in a row are layered (both heard: the second's 440 Hz re the first alone)",
+               tone (two, 440, 0.1, 0.4) / std::max (1.0e-9, tone (one, 440, 0.1, 0.4)), 10.0);
 
         // An audio effect processes what reaches it; MIX blends it with the dry signal; BYPASS takes it out.
         audioIn (me, 1, 0);
