@@ -117,6 +117,7 @@ juce_add_gui_app(TapeFour
     COMPANY_NAME "78Hz"
     BUNDLE_ID "com.78hz.tapefour"
     VERSION ${PROJECT_VERSION}
+    ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/Resources/Icons/tf4_desktop.png"   # Tools/make_icons.py
     MICROPHONE_PERMISSION_ENABLED TRUE
     MICROPHONE_PERMISSION_TEXT "TAPE-FOUR records from your audio inputs.")
 

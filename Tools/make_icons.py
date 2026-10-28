@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """
-Makes TF-P1 Pocket's app icons: one supply reel, its hub head-on in a pack of tape. Needs Pillow.
+Makes the app icons. Needs Pillow.
+  TF-P1 Pocket: one supply reel, its hub head-on in a pack of tape.
+  TF-4: a cassette in the deck, its two reels through the window, the teal of the deck's
+  displays beneath.
 
     python3 Tools/make_icons.py <hub.png>
 
@@ -11,6 +14,7 @@ SD60 shell: its leader clamp in that shell's orange). It writes:
     Player/Icons/icon_desktop.png    1024 px, a rounded square with the usual margin (macOS, Windows, Linux)
     Player/Android/res/...           Android's adaptive icon (background, foreground and the one-tone
                                      layer for themed icons) and the pre-Android 8 square and round icons
+    Resources/Icons/tf4_desktop.png  the TF-4's, 1024 px, a rounded square with the usual margin
 
 The art is drawn on Android's 108 dp adaptive canvas, everything that matters inside its 66 dp
 safe circle; launchers show the middle 72 dp, and the other icons are that middle.
@@ -86,6 +90,54 @@ def monochrome(hub):
     return img
 
 
+def pack_disc(img, cx, cy, R):
+    """A pack of tape: darker toward the hub, lit at the edge."""
+    layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    d = ImageDraw.Draw(layer)
+    for i in range(160):
+        r = R * (1 - i / 160 * 0.55)
+        t = i / 160
+        d.ellipse([cx - r, cy - r, cx + r, cy + r],
+                  fill=tuple(round(a + (b - a) * t) for a, b in zip((74, 50, 32), (34, 21, 13))) + (255,))
+    d.ellipse([cx - R, cy - R, cx + R, cy + R], outline=(112, 80, 52, 255), width=max(2, round(R * 0.025)))
+    return layer
+
+
+def tf4_face(hub):
+    """The TF-4's: two reels through a cassette window (more tape on the left), a teal stripe beneath. 1024 px, full bleed."""
+    n = 1024
+    c = n / 2
+    img = Image.new("RGBA", (n, n))
+    d = ImageDraw.Draw(img)
+    for y in range(n):
+        t = y / (n - 1)
+        d.line([(0, y), (n, y)], fill=tuple(round(a + (b - a) * t) for a, b in zip(BG_TOP, BG_BOTTOM)) + (255,))
+    window = [c - 400, c - 175, c + 400, c + 175]
+    d.rounded_rectangle(window, radius=60, fill=(22, 18, 20, 255))
+    reels = Image.new("RGBA", (n, n), (0, 0, 0, 0))
+    reels.alpha_composite(pack_disc(reels, c - 200, c, 190))
+    reels.alpha_composite(pack_disc(reels, c + 200, c, 145))
+    inside = Image.new("L", (n, n), 0)
+    ImageDraw.Draw(inside).rounded_rectangle(window, radius=60, fill=255)
+    reels.putalpha(Image.composite(reels.getchannel("A"), Image.new("L", (n, n), 0), inside))
+    img.alpha_composite(reels)
+    box = round(230 * 224 / 208)
+    for x, angle in ((c - 200, 35), (c + 200, 95)):
+        h = hub.rotate(-angle, resample=Image.BICUBIC).resize((box, box), Image.LANCZOS)
+        img.alpha_composite(h, (round(x - box / 2), round(c - box / 2)))
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle(window, radius=60, outline=(120, 112, 130, 255), width=8)
+    d.rounded_rectangle([c - 400, c + 215, c + 400, c + 250], radius=10, fill=(47, 165, 154, 255))
+    return img
+
+
+def desktop(face):
+    """A rounded square in 824 of 1024 px, as macOS's own icons are."""
+    out = Image.new("RGBA", (1024, 1024), (0, 0, 0, 0))
+    out.paste(face.resize((824, 824), Image.LANCZOS), (100, 100), mask(824, "rounded"))
+    return out
+
+
 def middle(img):
     o = (S - VISIBLE) // 2
     return img.crop((o, o, o + VISIBLE, o + VISIBLE))
@@ -118,11 +170,11 @@ def main():
     icons = os.path.join(root, "Player", "Icons")
     os.makedirs(icons, exist_ok=True)
     face.convert("RGB").resize((1024, 1024), Image.LANCZOS).save(os.path.join(icons, "icon_ios.png"), optimize=True)
-    # desktop: a rounded square in 824 of 1024 px, as macOS's own icons are
-    desk = Image.new("RGBA", (1024, 1024), (0, 0, 0, 0))
-    sq = face.resize((824, 824), Image.LANCZOS)
-    desk.paste(sq, (100, 100), mask(824, "rounded"))
-    desk.save(os.path.join(icons, "icon_desktop.png"), optimize=True)
+    desktop(face).save(os.path.join(icons, "icon_desktop.png"), optimize=True)
+
+    tf4 = os.path.join(root, "Resources", "Icons")
+    os.makedirs(tf4, exist_ok=True)
+    desktop(tf4_face(hub)).save(os.path.join(tf4, "tf4_desktop.png"), optimize=True)
 
     res = os.path.join(root, "Player", "Android", "res")
     for name, scale in (("mdpi", 1), ("hdpi", 1.5), ("xhdpi", 2), ("xxhdpi", 3), ("xxxhdpi", 4)):
