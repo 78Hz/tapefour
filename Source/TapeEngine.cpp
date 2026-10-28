@@ -261,6 +261,7 @@ void TapeEngine::setTape (Tape* t, bool newTape) noexcept
     if (t != nullptr && newTape) params.tapeSwitch = t->naturalPosition();
     windVel = 0;
     mode = (int) Mode::stop;
+    counterRebase = true;   // the counter carries on from where it was, whatever goes in
     rtz = false;
     cueing = false;
     lastCueSecond = -1;
@@ -276,6 +277,20 @@ void TapeEngine::configureCompanders (int type)
         decoder[t].configure (sr, type, false);
     }
     companderType = type;
+}
+
+double TapeEngine::counterTurns (double position, int speedSel) const noexcept
+{
+    if (machine.counterRealtime.load())
+        return position / (cellRate * speedSel);
+    // A mechanical counter is geared to the take-up spindle. Winding a length dL onto a pack of
+    // radius r turns it dL / r, and the radius grows by the tape's thickness each turn, so the
+    // spindle has turned (r - r0) / thickness turns since the pack was empty.
+    const double fullR = tape->fullPackMm() * 0.5, r0 = Geometry::hubRadiusMm;
+    const double lengthMm = (tape->endOfTape() - tape->startOfTape()) / cellRate * Geometry::speedMmPerSecond;
+    const double thicknessMm = juce::MathConstants<double>::pi * (fullR * fullR - r0 * r0) / std::max (1.0, lengthMm);
+    const double r = Geometry::packRadiusMm (tape->rightFraction (position), fullR * 2.0);
+    return machine.countsPerTurn.load() * (r - r0) / std::max (1.0e-6, thicknessMm);
 }
 
 void TapeEngine::beginBlock (int n, const bool* armed) noexcept
@@ -298,11 +313,7 @@ void TapeEngine::beginBlock (int n, const bool* armed) noexcept
     const bool winding = m == Mode::ff || m == Mode::rew;
     switch ((Command) pendingCommand.exchange (0))
     {
-        case Command::play:
-            // While winding, PLAY brings the head onto the moving tape (cue and review);
-            // pressed again, it plays.
-            if (winding && ! cue && ! rtz.load()) { cue = true; break; }
-            m = Mode::play; cue = false; rtz = false; break;
+        case Command::play: m = Mode::play; cue = false; rtz = false; break;
         case Command::stop: m = Mode::stop; cue = false; rtz = false; break;
         case Command::rec:
             if (winding && cue) { recInCue = true; break; }   // the record key won't go down while cueing
@@ -310,21 +321,15 @@ void TapeEngine::beginBlock (int n, const bool* armed) noexcept
             if (anyArmed) { m = Mode::rec; cue = false; rtz = false; }
             else noArmWarning = true;
             break;
-        case Command::ff:
-            // In cue: the same direction lifts the head (plain winding), the other reverses, still cueing.
-            if (cue && m == Mode::ff) cue = false;
-            if (! winding) cue = false;
-            m = Mode::ff; rtz = false; break;
-        case Command::rew:
-            if (cue && m == Mode::rew) cue = false;
-            if (! winding) cue = false;
-            m = Mode::rew; rtz = false; break;
+        // FF or REW: pressed once, a slower wind with the head lightly on the tape (cue and review);
+        // pressed again, a full-speed wind with it lifted clear.
+        case Command::ff:  cue = m != Mode::ff;  m = Mode::ff;  rtz = false; break;
+        case Command::rew: cue = m != Mode::rew; m = Mode::rew; rtz = false; break;
         case Command::rtz:
             if (counter.load() > 0.0) { m = Mode::rew; rtz = true; cue = false; }
             break;
         case Command::none: default: break;
     }
-    if (counterReset.exchange (false)) counter = 0.0;
 
     if (m == Mode::rec && ! anyArmed)
         m = Mode::play;
@@ -366,8 +371,19 @@ void TapeEngine::beginBlock (int n, const bool* armed) noexcept
     const double startPos = tape->startOfTape(), endPos = tape->endOfTape();
     // the machine's counter, driven by the take-up spindle (or by the tape, for a real-time one)
     const bool realtimeCounter = machine.counterRealtime.load();
-    const double countsPerRadian = machine.countsPerTurn.load() / juce::MathConstants<double>::twoPi;
     double count = counter.load();
+    {
+        // what the counter is reading from: a change of cassette, speed or kind of counter carries
+        // on from the same reading; RESET makes this place zero
+        const int key = (realtimeCounter ? 1 : 0) + 2 * speedSel + 8 * (int) (machine.countsPerTurn.load() * 1000.0f);
+        if (counterRebase.exchange (false) || tape != counterTape || key != counterKey)
+            counterOffset = count - counterTurns (pos, speedSel);
+        if (counterReset.exchange (false))
+            counterOffset = -counterTurns (pos, speedSel);
+        counterTape = tape;
+        counterKey = key;
+        count = counterOffset + counterTurns (pos, speedSel);
+    }
 
     const double inc[4] { 0.55 / sr, 1.3 / sr, 6.3 / sr, 11.7 / sr };
     blockHasPlayback = blockHasRecording = false;
@@ -405,6 +421,7 @@ void TapeEngine::beginBlock (int n, const bool* armed) noexcept
                 const auto f = tape->rightFraction (pos);
                 const auto rMm = Geometry::packRadiusMm (m == Mode::ff ? f : 1.0 - f, fullMm);
                 target = (m == Mode::ff ? 1.0 : -1.0) * spindle * rMm * cellsPerMm / sr;
+                if (cue) target *= juce::jlimit (0.05, 1.0, (double) machine.cueWindRatio.load());
             }
             windVel += (target - windVel) * windSmooth;
             if (m == Mode::stop) windVel = 0;
@@ -427,16 +444,13 @@ void TapeEngine::beginBlock (int n, const bool* armed) noexcept
         }
 
         // the counter
-        const auto moved = pos - (i > 0 ? posBuf[(size_t) i - 1] : lastBlockPos);
-        if (std::abs (moved) > 0.0)
-        {
-            if (realtimeCounter)
-                count += moved / (cellRate * speedSel);
-            else
-                count += moved / cellsPerMm / Geometry::packRadiusMm (tape->rightFraction (pos), fullMm) * countsPerRadian;
-        }
+        if (! juce::exactlyEqual (pos, i > 0 ? posBuf[(size_t) i - 1] : lastBlockPos))
+            count = counterOffset + counterTurns (pos, speedSel);
         if (rtz.load() && m == Mode::rew && count <= 0.0)
         {
+            // it stops with the wheels on 000: back the sample that went past
+            pos = i > 0 ? posBuf[(size_t) i - 1] : lastBlockPos;
+            count = counterOffset + counterTurns (pos, speedSel);
             m = Mode::stop;
             rtz = false;
         }

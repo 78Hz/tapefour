@@ -294,6 +294,7 @@ tfmt::DeckDescription AudioEngine::getMachine() const
     d.transport.windSecondsC60 = clean (m.windSecondsC60.load());
     d.cue.levelDb = clean (m.cueLevelDb.load());
     d.cue.spacingUm = clean (m.cueSpacingUm.load());
+    d.cue.windRatio = clean (m.cueWindRatio.load());
     d.counter.kind = m.counterRealtime.load() ? "realtime" : "mechanical";
     d.counter.countsPerTurn = clean (m.countsPerTurn.load());
     d.electronics.channelNoiseDb = clean (channelNoiseDb.load());
@@ -315,6 +316,7 @@ void AudioEngine::setMachine (const tfmt::DeckDescription& d)
     m.windSecondsC60 = (float) d.transport.windSecondsC60;
     m.cueLevelDb = (float) d.cue.levelDb;
     m.cueSpacingUm = (float) d.cue.spacingUm;
+    m.cueWindRatio = (float) d.cue.windRatio;
     m.counterRealtime = d.counter.kind == "realtime";
     m.countsPerTurn = (float) d.counter.countsPerTurn;
     channelNoiseDb = (float) d.electronics.channelNoiseDb;

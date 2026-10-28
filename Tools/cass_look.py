@@ -72,6 +72,9 @@ def draw(folder, side="A", fraction=0.35, angle=0.0):
         for k in range(steps, 0, -1):
             r = radius * k / steps
             pen.ellipse([cx * s - r, cy * s - r, cx * s + r, cy * s + r], fill=mix(inner, outer, r / radius))
+        # a ring: inside the hub's winding surface there is no tape
+        r0 = pack["minDiameter"] * 0.5 * s
+        pen.ellipse([cx * s - r0, cy * s - r0, cx * s + r0, cy * s + r0], fill=(0, 0, 0, 0))
         over(out, layer)
         ring_layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
         pen = ImageDraw.Draw(ring_layer)

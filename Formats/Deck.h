@@ -42,7 +42,7 @@ struct DeckDescription
         double windSecondsC60 = 120.0;   // fast wind of one side of a C-60, end to end (the take-up spindle is driven)
     } transport;
     /** Cue and review (PLAY pressed while winding): the head touches the tape lightly. */
-    struct Cue { double levelDb = -18.0, spacingUm = 3.0; } cue;
+    struct Cue { double levelDb = -18.0, spacingUm = 3.0, windRatio = 0.3; } cue;
     /** The tape counter: part of the machine, not the cassette. mechanical: three digits driven by
         the take-up spindle (countsPerTurn counts per turn), so not linear in time; realtime: minutes and seconds. */
     struct Counter { std::string kind = "mechanical"; double countsPerTurn = 0.75; } counter;

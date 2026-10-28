@@ -40,6 +40,8 @@ public:
         std::atomic<float> windSecondsC60 { 120.0f };
         /** Cue and review: how far down the lightly touching head is, and how far off the tape it rides. */
         std::atomic<float> cueLevelDb { -18.0f }, cueSpacingUm { 3.0f };
+        /** Cue and review wind slower than a fast wind: this fraction of its spindle speed. */
+        std::atomic<float> cueWindRatio { 0.3f };
         /** The counter: false a mechanical one, countsPerTurn counts per turn of the take-up spindle;
             true a real-time one (seconds of playing time). */
         std::atomic<bool>  counterRealtime { false };
@@ -74,7 +76,7 @@ public:
         It belongs to the machine: it keeps its reading when cassettes are changed or turned over. */
     double getCounter() const noexcept        { return counter.load(); }
     void resetCounter() noexcept              { counterReset = true; }
-    void setCounter (double v) noexcept       { counter = v; }
+    void setCounter (double v) noexcept       { counter = v; counterRebase = true; }
     bool takeEndOfTapeFlag() noexcept         { return endOfTape.exchange (false); }
     bool takeNoArmFlag() noexcept             { return noArmWarning.exchange (false); }
     float getNominalSpeed() const noexcept    { return nominalSpeed.load(); }   // incl. pitch, rel. to 1 7/8
@@ -127,6 +129,13 @@ private:
     std::atomic<bool> rtz { false }, endOfTape { false }, noArmWarning { false };
     std::atomic<bool> cueing { false }, recInCue { false }, counterReset { false };
     std::atomic<double> counter { 0.0 };
+    // The counter reads counterOffset + counterTurns (pos): a function of where the tape is, so it
+    // comes back to exactly the same reading at the same place, however the tape got there.
+    std::atomic<bool> counterRebase { true };
+    double counterOffset = 0.0;
+    const Tape* counterTape = nullptr;
+    int counterKey = -1;
+    double counterTurns (double position, int speedSel) const noexcept;
     bool blockCue = false;
     float cueGain = 1.0f, cueLpCoef = 0.0f, cueLp[numTracks] {};
     std::vector<double> prevPosBuf;

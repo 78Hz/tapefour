@@ -64,7 +64,8 @@ public:
 
 private:
     float fraction = 0.0f, fullPackUnits = 440.0f;
-    double lastPos = -1.0;
+    double lastPos = 0.0;
+    bool hasLastPos = false;
     const Tape* lastTape = nullptr;
     float angleL = 0.0f, angleR = 0.0f, stepL = 0.0f, stepR = 0.0f;
     bool hasTape = false;

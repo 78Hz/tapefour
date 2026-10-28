@@ -26,7 +26,7 @@ TAPE·FOUR keeps its own machine as `TF-4.deck` beside its settings.
   },
   "transport": { "wowPct": 0.15, "flutterPct": 0.075, "driftPct": 0.2, "speedErrorPct": 0, "windSecondsC60": 120 },
   "heads": { "cutoffHz": 15157, "crosstalkDb": -65, "azimuthErrorMinutes": 0 },
-  "cue": { "levelDb": -18, "spacingUm": 3 },
+  "cue": { "levelDb": -18, "spacingUm": 3, "windRatio": 0.3 },
   "counter": { "kind": "mechanical", "countsPerTurn": 0.75 },
   "electronics": { "channelNoiseDb": -76, "busNoiseDb": -90 },
   "condition": "serviced",
@@ -60,8 +60,9 @@ TAPE·FOUR keeps its own machine as `TF-4.deck` beside its settings.
 - **transport.windSecondsC60**: fast wind, end to end, of one side of a C-60. The take-up
   spindle is driven at about a constant speed, so the tape speeds up as its pack grows (about
   9 times playing speed at the start of a C-60, 20 times at the end).
-- **cue**: cue and review (PLAY while winding): the head rides lightly on the tape, `levelDb`
-  down, `spacingUm` off it (spacing loss, 54.6 d / λ dB).
+- **cue**: cue and review (FF or REW pressed once; pressed again, a full-speed wind): the head
+  rides lightly on the tape, `levelDb` down, `spacingUm` off it (spacing loss, 54.6 d / λ dB),
+  and the tape winds at `windRatio` of the fast wind's spindle speed (0.05 to 1).
 - **counter**: the tape counter is the machine's. `mechanical`: three digits driven by the
   take-up spindle, `countsPerTurn` counts per turn, so not linear in time and different from
   one machine to another; `realtime`: minutes and seconds of playing time. It keeps counting

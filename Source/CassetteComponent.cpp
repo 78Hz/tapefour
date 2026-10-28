@@ -8,7 +8,7 @@ namespace
     // All geometry in tenths of a millimetre: the shell is 1004 x 638.
     constexpr float shellW = 1004.0f, shellH = 638.0f;
     constexpr float hubR = 104.0f;                     // 21 mm hub
-    constexpr float minPackD = (float) (Geometry::hubDiameterMm * 10.0);   // the hub's winding surface (Geometry.h)
+    constexpr float minPackD = hubR * 2.0f;            // an empty pack is the hub's own rim: the tape winds straight onto it
     constexpr float cy = 300.0f, lx = 292.0f, rx = 712.0f;
     constexpr float guideY = 586.0f, guideR = 32.0f, wrapR = 30.0f, guideLX = 118.0f, guideRX = 886.0f;
     constexpr float unitsPerTapeSecond = 476.0f;       // 47.6 mm/s
@@ -148,9 +148,16 @@ float CassetteComponent::packDiameter (float f) const
 
 void CassetteComponent::update (const Tape* tape, double pos)
 {
-    // Still, and nothing new: nothing to draw.
+    // Still, and nothing new: nothing to draw (once the hubs have stopped blurring).
     if ((tape != nullptr) == hasTape && tape == lastTape && juce::exactlyEqual (pos, lastPos))
+    {
+        if (! juce::exactlyEqual (stepL, 0.0f) || ! juce::exactlyEqual (stepR, 0.0f))
+        {
+            stepL = stepR = 0.0f;
+            repaint();
+        }
         return;
+    }
     lastTape = tape;
     hasTape = tape != nullptr;
     if (! hasTape) { repaint(); return; }
@@ -158,7 +165,7 @@ void CassetteComponent::update (const Tape* tape, double pos)
     fullPackUnits = tape->fullPackMm() * 10.0f;
     fraction = (float) tape->rightFraction (pos);
 
-    if (lastPos >= 0.0)
+    if (hasLastPos)   // (the leaders are at negative positions: they turn the hubs too)
     {
         auto moved = (float) ((pos - lastPos) / cellRate) * unitsPerTapeSecond;
         auto rL = packDiameter (1.0f - fraction) * 0.5f, rR = packDiameter (fraction) * 0.5f;
@@ -171,6 +178,7 @@ void CassetteComponent::update (const Tape* tape, double pos)
         angleR = std::fmod (angleR, juce::MathConstants<float>::twoPi);
     }
     lastPos = pos;
+    hasLastPos = true;
     repaint();
 }
 
@@ -178,8 +186,13 @@ void CassetteComponent::drawPack (juce::Graphics& g, juce::Point<float> c, float
 {
     auto st = styleFor (model);
     auto r = juce::Rectangle<float> (d, d).withCentre (c);
+    // a ring of tape round the hub's rim: the hub's openings show the shell behind, not tape
+    juce::Path pack;
+    pack.setUsingNonZeroWinding (false);
+    pack.addEllipse (r);
+    pack.addEllipse (juce::Rectangle<float> (minPackD, minPackD).withCentre (c));
     g.setGradientFill (juce::ColourGradient (st.pack0, c.x, c.y, st.pack1, c.x + d * 0.5f, c.y, true));
-    g.fillEllipse (r);
+    g.fillPath (pack);
     g.setColour (juce::Colours::white.withAlpha (0.045f));
     for (float rr = d * 0.5f - 10.0f; rr > hubR; rr -= 26.0f)
         g.drawEllipse (juce::Rectangle<float> (rr * 2, rr * 2).withCentre (c), 2.0f);
@@ -579,7 +592,7 @@ namespace
 {
     // Which version of the TF-4's drawings a look was made by: a change to the drawings raises it,
     // and cassettes get their looks redrawn the next time they're saved.
-    constexpr const char* artRevision = "4";   // 2: looks written blank on Windows by revision 1 are redrawn; 3: real pack sizes (Geometry.h); 4: hollow hubs, leader clamp
+    constexpr const char* artRevision = "5";   // 2: looks written blank on Windows by revision 1 are redrawn; 3: real pack sizes (Geometry.h); 4: hollow hubs, leader clamp; 5: empty packs are the bare hub
     constexpr float artScale = 2.0f;   // image pixels per tenth of a mm
 
     std::string hex (juce::Colour c)

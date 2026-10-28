@@ -120,8 +120,11 @@ void LookView::setPlayed (double f, double tapeSecondsMoved)
         angleL = std::fmod (angleL + stepL, juce::MathConstants<float>::twoPi);
         angleR = std::fmod (angleR + stepR, juce::MathConstants<float>::twoPi);
     }
-    else
-        stepL = stepR = 0.0f;
+    else if (! juce::exactlyEqual (stepL, 0.0f) || ! juce::exactlyEqual (stepR, 0.0f))
+    {
+        stepL = stepR = 0.0f;   // stopped: the hubs stop blurring
+        repaint();
+    }
     if (juce::exactlyEqual (f, fraction) && juce::exactlyEqual (tapeSecondsMoved, 0.0)) return;
     fraction = f;
     repaint();
@@ -181,8 +184,14 @@ void LookView::paint (juce::Graphics& g)
     for (int i = 0; i < 2; ++i)
     {
         auto c = reels[i];
+        // a ring of tape round the hub's winding surface: the hub's openings show what's behind them
+        const auto r0 = (float) l.pack.minDiameter * 0.5f * k;
+        juce::Path pack;
+        pack.setUsingNonZeroWinding (false);
+        pack.addEllipse (juce::Rectangle<float> (d[i], d[i]).withCentre (c));
+        pack.addEllipse (juce::Rectangle<float> (r0 * 2.0f, r0 * 2.0f).withCentre (c));
         g.setGradientFill (juce::ColourGradient (inner, c.x, c.y, outer, c.x + d[i] * 0.5f, c.y, true));
-        g.fillEllipse (juce::Rectangle<float> (d[i], d[i]).withCentre (c));
+        g.fillPath (pack);
         g.setColour (ring);
         for (float rr = d[i] * 0.5f - (float) l.pack.ringInset * k; rr > (float) l.pack.ringStop * k; rr -= (float) l.pack.ringSpacing * k)
             g.drawEllipse (juce::Rectangle<float> (rr * 2, rr * 2).withCentre (c), (float) l.pack.ringWidth * k);

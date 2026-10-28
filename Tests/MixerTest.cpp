@@ -347,7 +347,8 @@ int main()
     // Return to zero.
     r.cmd (TapeEngine::Command::rtz);
     r.run (1.5);
-    check (e.tapeEngine.getMode() == Mode::stop && e.getTape()->position.load() < 1.0, "RTZ rewinds to 000 and stops", e.getTape()->position.load(), 0.0);
+    check (e.tapeEngine.getMode() == Mode::stop && std::abs (e.getTape()->position.load()) < cellRate * 0.005 && e.tapeEngine.getCounter() >= 0.0,
+           "RTZ rewinds to 000 and stops (within 5 ms of tape, reading 000)", e.getTape()->position.load(), 0.0);
 
     // Bounce 1+2 onto 3: silence the inputs so only the tape is heard.
     r.amp[0] = r.amp[1] = 0;

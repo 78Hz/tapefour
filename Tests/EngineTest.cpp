@@ -893,7 +893,9 @@ int main()
         r.eng.machine.windSecondsC60 = 120.0f;
         r.rewindTo (r.tape.startOfTape());
         bool armed[numTracks] {};
-        r.eng.command (TapeEngine::Command::ff);
+        r.eng.command (TapeEngine::Command::ff);   // once: cue
+        r.eng.beginBlock (bs, armed); r.eng.endBlock();
+        r.eng.command (TapeEngine::Command::ff);   // again: full speed
         double t = 0, early = 0, late = 0;
         while (r.eng.getMode() == Mode::ff || t < 0.1)
         {
@@ -909,28 +911,42 @@ int main()
         check (early > 7.0 && early < 11.0 && late > 18.0 && late < 23.0, "wind: about 9x play speed at the start, 20x at the end", late / early, 2.1);
     }
 
-    {   // 15. Cue and review: PLAY while winding puts the head lightly on the tape.
+    {   // 15. Cue and review: FF or REW pressed once winds slower with the head lightly on the tape;
+        //     pressed again, full speed with it lifted. PLAY always plays.
         Rig r;
+        bool armed[numTracks] {};
         for (int64_t c = 0; c < (int64_t) cellRate * 200; ++c)
             r.tape.writeCell (0, c, 0.25f * (float) std::sin (juce::MathConstants<double>::twoPi * 100.0 * (double) c / cellRate), false, 0, 1.0f, 0);
         r.rewindTo (cellRate * 10.0);
         auto played = r.run (1.0, TapeEngine::Command::play, false, 0, 0);
         r.eng.command (TapeEngine::Command::stop);
-        r.run (0.1, TapeEngine::Command::ff, false, 0, 0);
-        auto silent = r.run (1.0, TapeEngine::Command::none, false, 0, 0);
-        auto cue = r.run (1.0, TapeEngine::Command::play, false, 0, 0);
+        auto cue = r.run (1.0, TapeEngine::Command::ff, false, 0, 0);
         const auto level = db (rms (cue, 0.4, 0.95) / rms (played, 0.4, 0.95));
-        check (r.eng.isCueing() && r.eng.getMode() == Mode::ff && rms (silent, 0.2, 0.9) < 1.0e-9, "cue: PLAY while winding keeps winding, head on", rms (silent, 0.2, 0.9), 0.0);
+        check (r.eng.isCueing() && r.eng.getMode() == Mode::ff, "cue: FF pressed once winds with the head on", r.eng.isCueing(), 1);
         check (level < -10.0 && level > -35.0, "cue: heard faintly (dB re playing)", level, -20.0);
+        // its speed: the cue fraction of a full wind's, at the same place
+        auto speedNow = [&]
+        {
+            const auto p0 = r.eng.getPosition();
+            r.eng.beginBlock (bs, armed); r.eng.endBlock();
+            return (r.eng.getPosition() - p0) / bs * sr / cellRate;
+        };
+        r.run (1.0, TapeEngine::Command::none, false, 0, 0);
+        const auto cueSpeed = speedNow();
         r.run (0.1, TapeEngine::Command::rec, true, 0, 0);
         check (r.eng.takeRecInCueFlag() && r.eng.getMode() == Mode::ff, "cue: REC is ignored, and says so", 1, 1);
+        auto lifted = r.run (2.0, TapeEngine::Command::ff, false, 0, 0);
+        const auto fullSpeed = speedNow();
+        check (! r.eng.isCueing() && r.eng.getMode() == Mode::ff && rms (lifted, 1.2, 1.9) < 1.0e-9,
+               "cue: FF pressed again winds at full speed, silently", rms (lifted, 1.2, 1.9), 0.0);
+        check (std::abs (cueSpeed / fullSpeed - 0.3) < 0.05, "cue: winds at the machine's cue fraction of full speed", cueSpeed / fullSpeed, 0.3);
         r.run (0.1, TapeEngine::Command::rew, false, 0, 0);
-        check (r.eng.isCueing() && r.eng.getMode() == Mode::rew, "cue: the other direction reverses, still cueing (review)", r.eng.isCueing(), 1);
+        check (r.eng.isCueing() && r.eng.getMode() == Mode::rew, "cue: the other key reverses, cueing (review)", r.eng.isCueing(), 1);
+        r.run (0.1, TapeEngine::Command::play, false, 0, 0);
+        check (! r.eng.isCueing() && r.eng.getMode() == Mode::play, "cue: PLAY plays", (int) r.eng.getMode(), (int) Mode::play);
         r.run (0.1, TapeEngine::Command::rew, false, 0, 0);
-        check (! r.eng.isCueing() && r.eng.getMode() == Mode::rew, "cue: the same direction lifts the head", r.eng.isCueing(), 0);
         r.run (0.1, TapeEngine::Command::play, false, 0, 0);
-        r.run (0.1, TapeEngine::Command::play, false, 0, 0);
-        check (! r.eng.isCueing() && r.eng.getMode() == Mode::play, "cue: PLAY again plays", (int) r.eng.getMode(), (int) Mode::play);
+        check (! r.eng.isCueing() && r.eng.getMode() == Mode::play, "cue: PLAY while winding plays at once", (int) r.eng.getMode(), (int) Mode::play);
     }
 
     {   // 16. The counter is the machine's: mechanical, driven by the take-up spindle (not linear in time).
@@ -956,7 +972,28 @@ int main()
         check (std::abs (r.eng.getCounter() - 10.0) < 0.1, "counter: a real-time one counts seconds of playing", r.eng.getCounter(), 10.0);
         r.run (0.05, TapeEngine::Command::rtz, false, 0, 0);
         r.run (30.0, TapeEngine::Command::none, false, 0, 0);
-        check (r.eng.getMode() == Mode::stop && std::abs (r.eng.getCounter()) < 0.5, "counter: RETURN TO ZERO stops at 0", r.eng.getCounter(), 0.0);
+        check (r.eng.getMode() == Mode::stop && r.eng.getCounter() >= 0.0 && r.eng.getCounter() < 0.5, "counter: RETURN TO ZERO stops at 0 (not just below)", r.eng.getCounter(), 0.0);
+
+        // Reset at the start, play, rewind to the start: back to exactly 000 (not 999), as the
+        // wheels are geared to the spindle; and the same place reads the same however it was reached.
+        for (const bool realtime : { false, true })
+        {
+            r.eng.machine.counterRealtime = realtime;
+            r.rewindTo (r.tape.startOfTape());
+            r.eng.resetCounter();
+            r.run (20.0, TapeEngine::Command::play, false, 0, 0);
+            const auto at = r.eng.getPosition(), reading = r.eng.getCounter();
+            r.run (0.1, TapeEngine::Command::ff, false, 0, 0);
+            r.run (0.1, TapeEngine::Command::ff, false, 0, 0);
+            r.run (5.0, TapeEngine::Command::none, false, 0, 0);
+            r.run (60.0, TapeEngine::Command::rew, false, 0, 0);
+            check (juce::exactlyEqual (r.eng.getPosition(), r.tape.startOfTape()) && r.eng.getCounter() >= 0.0 && r.eng.getCounter() < 1.0e-9,
+                   realtime ? "counter: rewound to where it was reset, a real-time one reads 0:00" : "counter: rewound to where it was reset, reads 000 (not 999)",
+                   r.eng.getCounter(), 0.0);
+            r.run (20.0, TapeEngine::Command::play, false, 0, 0);
+            check (std::abs (r.eng.getPosition() - at) < 1.0 && std::abs (r.eng.getCounter() - reading) < 1.0e-6,
+                   "counter: the same place on the tape, the same reading", r.eng.getCounter(), reading);
+        }
     }
 
     {   // 17. Hiss is the tape's flux noise through the playback EQ: its treble rises above the EQ's corner.

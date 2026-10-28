@@ -235,6 +235,7 @@ void MasterDeck::configureEngines (int nrType)
         e->machine.windSecondsC60 = (float) machine.transport.windSecondsC60;
         e->machine.cueLevelDb = (float) machine.cue.levelDb;
         e->machine.cueSpacingUm = (float) machine.cue.spacingUm;
+        e->machine.cueWindRatio = (float) machine.cue.windRatio;
         e->machine.counterRealtime = machine.counter.kind == "realtime";
         e->machine.countsPerTurn = (float) machine.counter.countsPerTurn;
         if (tape != nullptr)

@@ -32,6 +32,7 @@ void PlayerEngine::setPocketMachine (TapeEngine::Machine& m)
     m.windSecondsC60 = 110.0f;   // a portable's small motor winds a little slower than a deck
     m.cueLevelDb = -18.0f;
     m.cueSpacingUm = 3.0f;
+    m.cueWindRatio = 0.3f;
 }
 
 juce::String PlayerEngine::start()

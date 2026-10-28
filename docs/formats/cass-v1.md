@@ -189,7 +189,7 @@ A player draws five layers, back to front:
   "layers": { "back": "art/back.png", "front": { "A": "art/front-a.png", "B": "art/front-b.png" },
               "hub": { "image": "art/hub.png", "size": 224 } },
   "reels": [ { "x": 292, "y": 300 }, { "x": 712, "y": 300 } ],
-  "pack": { "minDiameter": 220, "fullDiameter": 473, "inner": "#3a2618ff", "outer": "#160c06ff",
+  "pack": { "minDiameter": 208, "fullDiameter": 473, "inner": "#3a2618ff", "outer": "#160c06ff",
             "rings": { "colour": "#ffffff0b", "width": 2, "spacing": 26, "inset": 10, "stop": 104 } },
   "tape": { "colour": "#2c1a0eff", "width": 4,
             "guides": [ { "x": 118, "y": 586 }, { "x": 886, "y": 586 } ], "wrapRadius": 30 },
@@ -205,7 +205,8 @@ A player draws five layers, back to front:
 - **design**: who drew it, which design and which revision of the drawing (`tapefour.sd/1`).
   Informative; a writer uses it to know when to redraw its own looks. **labelText**: the label's
   writing as it appears on the front images.
-- **pack**: the tape wound on each hub is a disc centred on its reel. With a fraction `f` of the
+- **pack**: the tape wound on each hub is a ring centred on its reel, from the hub's winding
+  surface (`min`) out: nothing is drawn inside it, so the hub's openings show the shell behind. With a fraction `f` of the
   tape on a hub (`1 − f` on the other; at the start of a side it is all on the left, leader and
   all), its diameter is `√(min² + (full² − min²) · f)`, so the tape's area is kept. `min` is the
   hub's winding surface; `full` is every millimetre of this cassette's tape, leaders included,

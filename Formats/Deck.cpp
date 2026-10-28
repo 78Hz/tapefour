@@ -58,6 +58,7 @@ Json toJson (const DeckDescription& d)
     auto& cue = j.set ("cue");
     cue.set ("levelDb", d.cue.levelDb);
     cue.set ("spacingUm", d.cue.spacingUm);
+    cue.set ("windRatio", d.cue.windRatio);
     auto& counter = j.set ("counter");
     counter.set ("kind", d.counter.kind);
     if (d.counter.kind == "mechanical") counter.set ("countsPerTurn", d.counter.countsPerTurn);
@@ -112,6 +113,7 @@ bool fromJson (const Json& j, DeckDescription& d, std::string& error)
     d.transport.windSecondsC60 = tr["windSecondsC60"].number (d.transport.windSecondsC60);
     d.cue.levelDb = j["cue"]["levelDb"].number (d.cue.levelDb);
     d.cue.spacingUm = j["cue"]["spacingUm"].number (d.cue.spacingUm);
+    d.cue.windRatio = j["cue"]["windRatio"].number (d.cue.windRatio);
     d.counter.kind = j["counter"]["kind"].string (d.counter.kind) == "realtime" ? "realtime" : "mechanical";
     d.counter.countsPerTurn = j["counter"]["countsPerTurn"].number (d.counter.countsPerTurn);
     d.electronics.channelNoiseDb = j["electronics"]["channelNoiseDb"].number (d.electronics.channelNoiseDb);
@@ -143,6 +145,7 @@ bool fromJson (const Json& j, DeckDescription& d, std::string& error)
     d.transport.windSecondsC60 = clampTo (d.transport.windSecondsC60, 20.0, 600.0);
     d.cue.levelDb = clampTo (d.cue.levelDb, -60.0, 0.0);
     d.cue.spacingUm = clampTo (d.cue.spacingUm, 0.0, 50.0);
+    d.cue.windRatio = clampTo (d.cue.windRatio, 0.05, 1.0);
     d.counter.countsPerTurn = clampTo (d.counter.countsPerTurn, 0.05, 10.0);
     d.electronics.channelNoiseDb = clampTo (d.electronics.channelNoiseDb, -140.0, -30.0);
     d.electronics.busNoiseDb = clampTo (d.electronics.busNoiseDb, -140.0, -30.0);

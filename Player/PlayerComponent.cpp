@@ -454,7 +454,7 @@ juce::String PlayerComponent::counterText() const
 void PlayerComponent::refreshKeys()
 {
     const auto mode = engine.getMode();
-    play.setOn (mode == Mode::play || engine.isCueing());
+    play.setOn (mode == Mode::play);
     ff.setOn (mode == Mode::ff);
     rew.setOn (mode == Mode::rew);
     static const char* systems[] { "NR 2:1", "NR B", "NR C" };
