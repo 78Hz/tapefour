@@ -5,6 +5,7 @@
 namespace tf
 {
 namespace ep { class Processor; }
+namespace organ { class Processor; }
 
 /**
     What a block does with the two streams that run through a track's chain:
@@ -178,7 +179,7 @@ private:
 /** TAPE·FOUR's own instruments and effects. */
 namespace BuiltIn
 {
-    enum Synth { poly = 0, epiano = 1, numSynths };
+    enum Synth { transistor = 0, epiano = 1, numSynths };
     enum Fx { plate = 0, spring = 1, tapeEcho = 2, numFx };
 
     juce::String synthName (int which);
@@ -187,6 +188,8 @@ namespace BuiltIn
     std::unique_ptr<Block> createFx (int which);
     /** The electric piano behind a block, or nullptr if the block is something else (for its editor). */
     ep::Processor* electricPiano (Block*) noexcept;
+    /** The transistor organ behind a block, or nullptr. */
+    tf::organ::Processor* transistorOrgan (Block*) noexcept;
     /** A block from its saved BLOCK element, if it's a built-in (nullptr for plug-ins and external synths). */
     std::unique_ptr<Block> restore (const juce::XmlElement& block);
 }

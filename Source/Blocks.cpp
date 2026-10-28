@@ -1,5 +1,6 @@
 #include "Blocks.h"
 #include "ElectricPiano.h"
+#include "TransistorOrgan.h"
 
 namespace tf
 {
@@ -34,166 +35,6 @@ void Block::readCommon (const juce::XmlElement& x)
 
 namespace
 {
-inline float polyBlep (double t, double dt) noexcept
-{
-    if (t < dt)       { t /= dt; return (float) (t + t - t * t - 1.0); }
-    if (t > 1.0 - dt) { t = (t - 1.0) / dt; return (float) (t * t + t + t + 1.0); }
-    return 0.0f;
-}
-
-//==============================================================================
-/**
-    Warm two-oscillator poly. MPE: per-note pitch bend, pressure opens the
-    filter and swells the level, timbre (CC74) shifts the filter.
-*/
-class PolyVoice : public juce::MPESynthesiserVoice
-{
-public:
-    void noteStarted() override
-    {
-        auto note = getCurrentlyPlayingNote();
-        vel = note.noteOnVelocity.asUnsignedFloat();
-        updateNote();
-        amp.setSampleRate (currentSampleRate);
-        fenv.setSampleRate (currentSampleRate);
-        amp.setParameters ({ 0.004f, 0.35f, 0.65f, 0.35f });
-        fenv.setParameters ({ 0.002f, 0.45f, 0.25f, 0.35f });
-        amp.noteOn();
-        fenv.noteOn();
-        coefCountdown = 0;
-    }
-
-    void noteStopped (bool allowTailOff) override
-    {
-        if (allowTailOff) { amp.noteOff(); fenv.noteOff(); }
-        else { amp.reset(); fenv.reset(); clearCurrentNote(); }
-    }
-
-    void notePitchbendChanged() override { updateNote(); }
-    void notePressureChanged() override  { updateNote(); }
-    void noteTimbreChanged() override    { updateNote(); }
-    void noteKeyStateChanged() override  {}
-
-    using juce::MPESynthesiserVoice::renderNextBlock;
-    void renderNextBlock (juce::AudioBuffer<float>& out, int start, int num) override
-    {
-        if (! amp.isActive()) return;
-
-        const auto sr = currentSampleRate;
-        const auto d1 = freq * 1.0040 / sr, d2 = freq * 0.9960 / sr;
-
-        while (--num >= 0)
-        {
-            auto s = (float) (2.0 * p1 - 1.0) - polyBlep (p1, d1) + (float) (2.0 * p2 - 1.0) - polyBlep (p2, d2);
-            s += 0.4f * (float) std::sin (juce::MathConstants<double>::twoPi * p3);
-            p1 += d1; if (p1 >= 1.0) p1 -= 1.0;
-            p2 += d2; if (p2 >= 1.0) p2 -= 1.0;
-            p3 += d1 * 0.5; if (p3 >= 1.0) p3 -= 1.0;
-
-            // smooth the expressive controls so slides and pressure don't zip
-            sPressure += (pressure - sPressure) * 0.002f;
-            sTimbre += (timbre - sTimbre) * 0.002f;
-            auto env = fenv.getNextSample();
-
-            // The filter's coefficients follow the envelope every 16 samples (0.3 ms): the tan and pow
-            // were most of the synth's cost when done every sample, and the difference is inaudible.
-            if (--coefCountdown <= 0)
-            {
-                coefCountdown = 16;
-                auto cutoff = juce::jlimit (60.0, sr * 0.45, (500.0 + (400.0 + 5200.0 * vel) * env)
-                                                              * std::pow (2.0, 2.2 * sPressure + 2.0 * (sTimbre - 0.5)));
-                auto g = std::tan (juce::MathConstants<double>::pi * cutoff / sr);
-                auto k = 1.0 / 2.2;
-                a1 = 1.0 / (1.0 + g * (g + k)); a2 = g * a1; a3 = g * a2;
-            }
-            auto v3 = s - ic2, v1 = a1 * ic1 + a2 * v3, v2 = ic2 + a2 * ic1 + a3 * v3;
-            ic1 = 2.0 * v1 - ic1; ic2 = 2.0 * v2 - ic2;
-
-            auto y = (float) v2 * amp.getNextSample() * (0.12f + 0.12f * vel) * (0.75f + 0.6f * sPressure);
-            for (int c = out.getNumChannels(); --c >= 0;)
-                out.addSample (c, start, y);
-            ++start;
-        }
-
-        if (! amp.isActive()) clearCurrentNote();
-    }
-
-private:
-    void updateNote()
-    {
-        auto note = getCurrentlyPlayingNote();
-        freq = note.getFrequencyInHertz();
-        pressure = note.pressure.asUnsignedFloat();
-        timbre = note.timbre.asUnsignedFloat();
-    }
-
-    double freq = 440, p1 = 0, p2 = 0.37, p3 = 0, ic1 = 0, ic2 = 0, a1 = 1, a2 = 0, a3 = 0;
-    float vel = 0, pressure = 0, timbre = 0.5f, sPressure = 0, sTimbre = 0.5f;
-    int coefCountdown = 0;
-    juce::ADSR amp, fenv;
-};
-
-//==============================================================================
-/** The built-in synths, as ordinary processors so they sit in a chain like any plug-in. */
-class BuiltInSynthProcessor : public juce::AudioProcessor
-{
-public:
-    explicit BuiltInSynthProcessor (int k)
-        : juce::AudioProcessor (BusesProperties().withOutput ("Out", juce::AudioChannelSet::stereo(), true)), kind (k)
-    {
-        for (int i = 0; i < 15; ++i)
-            synth.addVoice (new PolyVoice());
-        synth.enableLegacyMode (2);
-        synth.setVoiceStealingEnabled (true);
-    }
-
-    void applyMpe (bool on, int bendRange) noexcept
-    {
-        if (on == mpeOn && bendRange == range) return;
-        mpeOn = on;
-        range = bendRange;
-        if (on)
-        {
-            juce::MPEZoneLayout layout;
-            layout.setLowerZone (15, bendRange, 2);
-            synth.setZoneLayout (layout);
-        }
-        else
-        {
-            synth.enableLegacyMode (2);
-        }
-    }
-
-    const juce::String getName() const override { return BuiltIn::synthName (kind); }
-    void prepareToPlay (double sr, int) override { synth.setCurrentPlaybackSampleRate (sr); }
-    void releaseResources() override {}
-    using juce::AudioProcessor::processBlock;   // the double-precision overload stays the base one
-    void processBlock (juce::AudioBuffer<float>& b, juce::MidiBuffer& m) override
-    {
-        b.clear();
-        synth.renderNextBlock (b, m, 0, b.getNumSamples());
-        m.clear();
-    }
-    double getTailLengthSeconds() const override { return 3.0; }
-    bool acceptsMidi() const override { return true; }
-    bool producesMidi() const override { return false; }
-    juce::AudioProcessorEditor* createEditor() override { return nullptr; }
-    bool hasEditor() const override { return false; }
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram (int) override {}
-    const juce::String getProgramName (int) override { return {}; }
-    void changeProgramName (int, const juce::String&) override {}
-    void getStateInformation (juce::MemoryBlock&) override {}
-    void setStateInformation (const void*, int) override {}
-
-private:
-    int kind;
-    bool mpeOn = false;
-    int range = 2;
-    juce::MPESynthesiser synth;
-};
-
 //==============================================================================
 /** Base for the built-in effects: stereo in and out, a few knobs, a generic editor. */
 class FxProcessor : public juce::AudioProcessor
@@ -493,9 +334,7 @@ void ProcessorBlock::prepare (double sampleRate, int blockSize)
 
 void ProcessorBlock::applyMpe (bool on, int bendRange) noexcept
 {
-    if (auto* s = dynamic_cast<BuiltInSynthProcessor*> (processor.get()))
-        s->applyMpe (on, bendRange);
-    else if (auto* e = dynamic_cast<ep::Processor*> (processor.get()))
+    if (auto* e = dynamic_cast<ep::Processor*> (processor.get()))
         e->applyMpe (on, bendRange);
 }
 
@@ -638,7 +477,7 @@ PendingBlock::PendingBlock (std::unique_ptr<juce::XmlElement> s) : saved (std::m
 }
 
 //==============================================================================
-juce::String BuiltIn::synthName (int which) { return which == epiano ? "TF ELECTRIC PIANO" : "TF POLY SYNTH"; }
+juce::String BuiltIn::synthName (int which) { return which == epiano ? "TF ELECTRIC PIANO" : "TF TRANSISTOR"; }
 
 juce::String BuiltIn::fxName (int which)
 {
@@ -655,7 +494,7 @@ std::unique_ptr<Block> BuiltIn::createSynth (int which)
     which = juce::jlimit (0, numSynths - 1, which);
     if (which == epiano)
         return std::make_unique<ProcessorBlock> (std::make_unique<ep::Processor>(), ProcessorBlock::Kind::builtInSynth, which);
-    return std::make_unique<ProcessorBlock> (std::make_unique<BuiltInSynthProcessor> (which), ProcessorBlock::Kind::builtInSynth, which);
+    return std::make_unique<ProcessorBlock> (std::make_unique<organ::Processor>(), ProcessorBlock::Kind::builtInSynth, which);
 }
 
 std::unique_ptr<Block> BuiltIn::createFx (int which)
@@ -668,6 +507,12 @@ std::unique_ptr<Block> BuiltIn::createFx (int which)
     auto b = std::make_unique<ProcessorBlock> (std::move (p), ProcessorBlock::Kind::builtInFx, which);
     b->mix = which == tapeEcho ? 0.35f : 0.3f;   // send-like by default
     return b;
+}
+
+tf::organ::Processor* BuiltIn::transistorOrgan (Block* b) noexcept
+{
+    auto* pb = dynamic_cast<ProcessorBlock*> (b);
+    return pb != nullptr ? dynamic_cast<organ::Processor*> (pb->getProcessor()) : nullptr;
 }
 
 ep::Processor* BuiltIn::electricPiano (Block* b) noexcept

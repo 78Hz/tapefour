@@ -39,7 +39,7 @@ Open the repository's **Actions** tab, pick the latest green **Build** run, and 
    - under **Hardware synths out**, tick the MIDI outputs your synths are on, and give each a name for the deck if you like.
 
    On first start TapeFour opens the computer's usual audio device, or on Windows an ASIO driver if one is installed. Every change is saved straight away. If the saved driver can't be opened at start-up (for example, another program has it), the deck says so and keeps your choice for next time.
-2. To use your own plug-ins, go to the **Plug-ins** tab, choose **Options…** and scan each format you use. A plug-in installed in several formats is offered once, in the best of them (CLAP, then VST3, AU, LV2, LADSPA). The program also has two built-in instruments (a poly synth and a reed electric piano) and three built-in effects (a plate, a spring reverb and a tape echo), so you can start without any plug-ins.
+2. To use your own plug-ins, go to the **Plug-ins** tab, choose **Options…** and scan each format you use. A plug-in installed in several formats is offered once, in the best of them (CLAP, then VST3, AU, LV2, LADSPA). The program also has two built-in instruments (a transistor combo organ and a reed electric piano) and three built-in effects (a plate, a spring reverb and a tape echo), so you can start without any plug-ins.
 3. Close the setup window. You're at the deck.
 
 ### Audio systems

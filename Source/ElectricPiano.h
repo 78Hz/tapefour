@@ -2,6 +2,7 @@
 
 #include "Common.h"
 #include "Tuning.h"
+#include "InstrumentPresets.h"
 
 /*
     TF ELECTRIC PIANO: a reed electric piano after the Wurlitzer 200 and 200A
@@ -97,7 +98,8 @@ inline constexpr double networkCornerHz = 880.0;
 double ringToMinus40 (const Reed&);
 
 //==============================================================================
-class Processor : public juce::AudioProcessor
+class Processor : public juce::AudioProcessor,
+                  public presets::Presettable
 {
 public:
     Processor();
@@ -143,14 +145,9 @@ public:
     void setStateInformation (const void*, int) override;
 
     /** The whole piano (controls, tuning files, seed, condition; its age if withAge), and back. */
-    std::unique_ptr<juce::XmlElement> toXml (bool withAge) const;
-    void fromXml (const juce::XmlElement&);
-
-    /** The preset it was loaded from or saved as ("" none), and whether it has changed since. */
-    juce::String currentPreset() const { return presetName; }
-    void setPreset (const juce::String& name);
-    bool isModified() const;
-    void renamePreset (const juce::String& name) { presetName = name; }   // keeps whether it's modified
+    std::unique_ptr<juce::XmlElement> toXml (bool withAge) const override;
+    void fromXml (const juce::XmlElement&) override;
+    const presets::Kind& presetKind() const override;
 
     /** The parameters by id, for the editor. */
     juce::RangedAudioParameter* param (const juce::String& id) const;
@@ -158,8 +155,6 @@ public:
     struct Impl;
 
 private:
-    juce::String fingerprint() const;
-    juce::String presetName, presetFingerprint;
     std::unique_ptr<Impl> impl;
     std::atomic<double> hours { 0.0 };
     std::atomic<int> condition { 1 };
@@ -167,16 +162,18 @@ private:
     std::atomic<bool> zone { false };
     std::atomic<int> zoneBend { 48 };
 };
-/** Presets: one file each (.tfep) in Documents/TapeFour/Presets/Electric Piano, the whole piano in each. */
+/** The piano's presets: one file each (.tfep) in Documents/TapeFour/Presets/Electric Piano, the whole piano in each. */
+const presets::Kind& presetKind();
 namespace presets
 {
-    struct Entry { juce::File file; juce::String name, summary; juce::Time saved; };
-    juce::File folder();
-    juce::File fileFor (const juce::String& name);
-    std::vector<Entry> list();
-    bool save (Processor&, const juce::String& name, juce::String& error);
-    bool load (Processor&, const juce::File&, juce::String& error);
-    bool rename (Processor&, const juce::String& newName, juce::String& error);
-    bool remove (Processor&, juce::String& error);
+    using Entry = tf::presets::Entry;
+    using Kind = tf::presets::Kind;
+    inline juce::File folder()                                { return tf::presets::folder (presetKind()); }
+    inline juce::File fileFor (const juce::String& name)      { return tf::presets::fileFor (presetKind(), name); }
+    inline std::vector<Entry> list()                          { return tf::presets::list (presetKind()); }
+    inline bool save (Processor& p, const juce::String& n, juce::String& e)    { return tf::presets::save (p, n, e); }
+    inline bool load (Processor& p, const juce::File& f, juce::String& e)      { return tf::presets::load (p, f, e); }
+    inline bool rename (Processor& p, const juce::String& n, juce::String& e)  { return tf::presets::rename (p, n, e); }
+    inline bool remove (Processor& p, juce::String& e)                         { return tf::presets::remove (p, e); }
 }
 } // namespace tf::ep

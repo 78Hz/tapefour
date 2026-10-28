@@ -2,6 +2,8 @@
 
 #include "StripComponent.h"
 #include "ElectricPianoPanel.h"
+#include "PresetPanel.h"
+#include "TransistorPanel.h"
 
 namespace tf
 {
@@ -68,7 +70,9 @@ private:
     void buildBlockPanel (const AudioEngine::BlockInfo&, juce::Rectangle<int> area);
     void buildExternalPanel (const AudioEngine::BlockInfo&, juce::Rectangle<int> area);
     void buildPickerPanel (juce::Rectangle<int> area, bool replacing);
-    void buildPianoPanel (const AudioEngine::BlockInfo&, juce::Rectangle<int> area, ep::Processor&);
+    void buildInstrumentPanel (const AudioEngine::BlockInfo&, juce::Rectangle<int> area, presets::Presettable&,
+                               std::function<std::unique_ptr<juce::Component>()> makeEditor);
+    static bool hasPanelEditor (Block*);
     void editBlock (int blockId);
     LcdChip* chip (const juce::String& text, bool chosen, std::function<void()> action, const juce::String& sub = {});
     int chipRow (int y, int x, int right, const juce::String& caption, const std::vector<LcdChip*>& chips, int chipH = 30, juce::Colour captionColour = Pal::lcdDim);
@@ -94,11 +98,12 @@ private:
     LcdChip closeX { "X" };
 
     bool learning = false;            // LEARN: picking a parameter of the selected block
-    bool pianoEditing = false;        // the electric piano's editor fills the lower half
+    bool instrumentEditing = false;   // a built-in instrument's editor fills the lower half
     int pianoTab = 0;
-    std::unique_ptr<ElectricPianoPanel> pianoPanel;
-    std::unique_ptr<PianoPresetDisplay> presetDisplay;
-    std::unique_ptr<PianoPresets> presetList;
+    int organTab = 0;
+    std::unique_ptr<juce::Component> instrumentPanel;   // a built-in instrument's editor
+    std::unique_ptr<PresetDisplay> presetDisplay;
+    std::unique_ptr<PresetList> presetList;
     bool presetsOpen = false;         // the presets list in place of the piano's editor
     int learnParam = -1;
 

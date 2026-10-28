@@ -398,7 +398,7 @@ void AudioEngine::restoreAll()
     }
 
     // Factory setup: two built-in instruments and two audio inputs.
-    insertBlock (0, -1, BuiltIn::createSynth (BuiltIn::poly));
+    insertBlock (0, -1, BuiltIn::createSynth (BuiltIn::transistor));
     insertBlock (1, -1, BuiltIn::createSynth (BuiltIn::epiano));
     setTrackInput (2, 0);
     setTrackInput (3, 1);

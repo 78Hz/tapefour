@@ -42,7 +42,7 @@ juce::String ChainEditor::signature() const
     for (auto& m : engine.mapper.getMappings()) s << m.id << ".";
     for (auto& i : engine.getMidiInputs()) s << i.slot << (int) i.active << (int) i.mpe;
     for (auto& o : engine.getMidiOutputs()) s << o.slot << (int) o.active;
-    s << engine.getActiveInputNames().size() << (int) sel << selId << (int) learning << (int) pianoEditing << (int) presetsOpen;
+    s << engine.getActiveInputNames().size() << (int) sel << selId << (int) learning << (int) instrumentEditing << (int) presetsOpen;
     return s;
 }
 
@@ -125,7 +125,7 @@ void ChainEditor::rebuild()
 
 void ChainEditor::clearPanel()
 {
-    pianoPanel.reset();
+    instrumentPanel.reset();
     presetList.reset();
     presetDisplay.reset();
     picker.reset();
@@ -243,12 +243,31 @@ void ChainEditor::buildBlockPanel (const AudioEngine::BlockInfo& b, juce::Rectan
     }
 
     auto* blk = engine.findBlock (t, id);
-    auto* piano = BuiltIn::electricPiano (blk);
-    if (piano != nullptr && pianoEditing)
+    if (instrumentEditing)
     {
-        captions.pop_back();
-        buildPianoPanel (b, left.getUnion (area).withX (left.getX()), *piano);
-        return;
+        auto toMessage = [this] (const juce::String& m) { if (onMessage) onMessage (m); };
+        if (auto* piano = BuiltIn::electricPiano (blk))
+        {
+            captions.pop_back();
+            buildInstrumentPanel (b, left.getUnion (area).withX (left.getX()), *piano, [this, piano, toMessage]
+            {
+                auto e = std::make_unique<ElectricPianoPanel> (*piano, pianoTab);
+                e->onMessage = toMessage;
+                return std::unique_ptr<juce::Component> (std::move (e));
+            });
+            return;
+        }
+        if (auto* organ = BuiltIn::transistorOrgan (blk))
+        {
+            captions.pop_back();
+            buildInstrumentPanel (b, left.getUnion (area).withX (left.getX()), *organ, [this, organ, toMessage]
+            {
+                auto e = std::make_unique<TransistorPanel> (*organ, organTab);
+                e->onMessage = toMessage;
+                return std::unique_ptr<juce::Component> (std::move (e));
+            });
+            return;
+        }
     }
 
     captions.push_back ({ b.name.toUpperCase(), { x, y, 310, 24 }, Pal::lcdText });
@@ -257,7 +276,7 @@ void ChainEditor::buildBlockPanel (const AudioEngine::BlockInfo& b, juce::Rectan
     y += 22;
 
     std::vector<LcdChip*> buttons;
-    if (b.hasEditor || piano != nullptr)
+    if (b.hasEditor || hasPanelEditor (blk))
         buttons.push_back (chip ("EDIT", true, [this, id] { editBlock (id); }));
     buttons.push_back (chip ("BYPASS", b.bypass, [this, id, by = b.bypass] { engine.setBlockBypass (t, id, ! by); }));
     const bool hasParams = blk != nullptr && blk->getProcessor() != nullptr && ! blk->getProcessor()->getParameters().isEmpty();
@@ -772,7 +791,7 @@ void ChainEditor::mouseDown (const juce::MouseEvent& e)
         for (auto& bi : chain) if (bi.id == id) b = &bi;
         if (b == nullptr) return;
         juce::PopupMenu m;
-        m.addItem ("Edit", b->hasEditor || BuiltIn::electricPiano (engine.findBlock (t, id)) != nullptr, false, [this, id] { editBlock (id); });
+        m.addItem ("Edit", b->hasEditor || hasPanelEditor (engine.findBlock (t, id)), false, [this, id] { editBlock (id); });
         m.addItem (b->bypass ? "Switch on" : "Bypass", [this, id, by = b->bypass] { engine.setBlockBypass (t, id, ! by); changed(); });
         m.addItem ("Remove", [this, id] { engine.removeBlock (t, id); changed(); });
         m.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (localAreaToGlobal (c.node)));
@@ -828,9 +847,9 @@ void ChainEditor::mouseUp (const juce::MouseEvent& e)
     auto& c = cells[(size_t) i];
     if (c.inputs)            { sel = Sel::inputs; selId = 0; }
     else if (c.add)          { sel = Sel::add; selId = 0; }
-    else if (c.blockId != 0) { if (selId != c.blockId) pianoEditing = false; sel = Sel::block; selId = c.blockId; }
+    else if (c.blockId != 0) { if (selId != c.blockId) instrumentEditing = false; sel = Sel::block; selId = c.blockId; }
     else return;
-    if (c.blockId == 0) pianoEditing = false;
+    if (c.blockId == 0) instrumentEditing = false;
     if (learning) engine.mapper.cancelLearn();
     learning = false;
     learnParam = -1;
@@ -846,12 +865,12 @@ void ChainEditor::mouseDoubleClick (const juce::MouseEvent& e)
 
 void ChainEditor::editBlock (int blockId)
 {
-    // the electric piano's editor is in the panel; plug-ins open their own windows
-    if (BuiltIn::electricPiano (engine.findBlock (t, blockId)) != nullptr)
+    // the built-in instruments' editors are in the panel; plug-ins open their own windows
+    if (hasPanelEditor (engine.findBlock (t, blockId)))
     {
         sel = Sel::block;
         selId = blockId;
-        pianoEditing = ! pianoEditing;
+        instrumentEditing = ! instrumentEditing;
         presetsOpen = false;
         learning = false;
         changed();
@@ -860,7 +879,13 @@ void ChainEditor::editBlock (int blockId)
     if (onEditBlock) onEditBlock (t, blockId);
 }
 
-void ChainEditor::buildPianoPanel (const AudioEngine::BlockInfo& b, juce::Rectangle<int> area, ep::Processor& piano)
+bool ChainEditor::hasPanelEditor (Block* b)
+{
+    return BuiltIn::electricPiano (b) != nullptr || BuiltIn::transistorOrgan (b) != nullptr;
+}
+
+void ChainEditor::buildInstrumentPanel (const AudioEngine::BlockInfo& b, juce::Rectangle<int> area, presets::Presettable& piano,
+                                        std::function<std::unique_ptr<juce::Component>()> makeEditor)
 {
     const int id = b.id;
     int index = 0;
@@ -868,7 +893,7 @@ void ChainEditor::buildPianoPanel (const AudioEngine::BlockInfo& b, juce::Rectan
     auto head = area.removeFromTop (40);
     captions.push_back ({ utf ("SELECTED \xc2\xb7 BLOCK ") + juce::String (index) + utf (" \xc2\xb7 ") + roleName (b.role), head.withHeight (12), Pal::lcdDim });
     captions.back().text << utf (" \xc2\xb7 ") << b.name.toUpperCase();
-    presetDisplay = std::make_unique<PianoPresetDisplay> (piano);
+    presetDisplay = std::make_unique<PresetDisplay> (piano);
     presetDisplay->open = presetsOpen;
     presetDisplay->onClick = [this] { presetsOpen = ! presetsOpen; changed(); };
     addAndMakeVisible (*presetDisplay);
@@ -877,8 +902,8 @@ void ChainEditor::buildPianoPanel (const AudioEngine::BlockInfo& b, juce::Rectan
     int x = head.getX() + 236;
     for (auto* c : { chip ("EDIT", true, [this, id] { editBlock (id); }),
                      chip ("BYPASS", b.bypass, [this, id, by = b.bypass] { engine.setBlockBypass (t, id, ! by); }),
-                     chip ("LEARN", false, [this] { pianoEditing = false; learning = true; learnParam = -1; }),
-                     chip ("REMOVE", false, [this, id] { pianoEditing = false; engine.removeBlock (t, id); }) })
+                     chip ("LEARN", false, [this] { instrumentEditing = false; learning = true; learnParam = -1; }),
+                     chip ("REMOVE", false, [this, id] { instrumentEditing = false; engine.removeBlock (t, id); }) })
     {
         c->setBounds (x, head.getY() + 2, c->idealWidth(), 26);
         x += c->idealWidth() + 6;
@@ -893,17 +918,16 @@ void ChainEditor::buildPianoPanel (const AudioEngine::BlockInfo& b, juce::Rectan
 
     if (presetsOpen)
     {
-        presetList = std::make_unique<PianoPresets> (piano);
+        presetList = std::make_unique<PresetList> (piano);
         presetList->onMessage = [this] (const juce::String& m) { if (onMessage) onMessage (m); };
         presetList->onLoaded = [this] { presetsOpen = false; changed(); };
         addAndMakeVisible (*presetList);
         presetList->setBounds (area);
         return;
     }
-    pianoPanel = std::make_unique<ElectricPianoPanel> (piano, pianoTab);
-    pianoPanel->onMessage = [this] (const juce::String& m) { if (onMessage) onMessage (m); };
-    addAndMakeVisible (*pianoPanel);
-    pianoPanel->setBounds (area);
+    instrumentPanel = makeEditor();
+    addAndMakeVisible (*instrumentPanel);
+    instrumentPanel->setBounds (area);
 }
 
 bool ChainEditor::keyPressed (const juce::KeyPress& k)

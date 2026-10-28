@@ -299,7 +299,7 @@ int main()
                 auto& e = *m.engine;
                 e.clearChain (t);
                 e.setTrackInput (t, -1);
-                e.insertBlock (t, -1, BuiltIn::createSynth (BuiltIn::poly));
+                e.insertBlock (t, -1, BuiltIn::createSynth (BuiltIn::transistor));
                 e.insertBlock (t, -1, BuiltIn::createFx (BuiltIn::tapeEcho));
                 e.insertBlock (t, -1, BuiltIn::createFx (BuiltIn::spring));
                 e.insertBlock (t, -1, BuiltIn::createFx (BuiltIn::plate));
@@ -327,7 +327,7 @@ int main()
     auto& e = *r.engine;
     audioIn (e, 0, 0);
     audioIn (e, 1, 1);
-    instrument (e, 3, BuiltIn::poly);
+    instrument (e, 3, BuiltIn::transistor);
     r.f[0] = 500;  r.amp[0] = 0.3f;
     r.f[1] = 1500; r.amp[1] = 0.3f;
 
@@ -523,9 +523,9 @@ int main()
         auto& me = *m.engine;
         auto keysA = me.addVirtualMidiInput ("Keys A"), keysB = me.addVirtualMidiInput ("Keys B");
         check (keysA > 0 && keysB > 0 && keysA != keysB, "two controllers get their own slots", keysB, keysA + 1);
-        instrument (me, 0, BuiltIn::poly);
-        instrument (me, 1, BuiltIn::poly);
-        instrument (me, 2, BuiltIn::poly);
+        instrument (me, 0, BuiltIn::transistor);
+        instrument (me, 1, BuiltIn::transistor);
+        instrument (me, 2, BuiltIn::transistor);
         me.setTrackMidiPort (0, keysA);
         me.setTrackMidiPort (1, keysB);
         me.setTrackMidiPort (2, AudioEngine::midiAny);
@@ -623,7 +623,7 @@ int main()
                "deck recall: hardware synth route comes back", hwBack.empty() ? -1 : hwBack[0].channel, 7);
         check (me.track[0].midiPort.load() == keysA && me.track[1].midiPort.load() == keysB, "deck recall: each track's controller comes back",
                me.track[0].midiPort.load(), keysA);
-        check (firstName (me, 1) == BuiltIn::synthName (BuiltIn::poly),
+        check (firstName (me, 1) == BuiltIn::synthName (BuiltIn::transistor),
                "deck recall: instruments come back", 1, 1);
 
         // ...and the deck travels with the tape.
@@ -1102,7 +1102,7 @@ int main()
         // A plug-in's window is told to close while the instrument still exists.
         bool stillThere = false;
         me.onBlockRemoving = [&] (int t, int id) { stillThere = me.findBlock (t, id) != nullptr; };
-        instrument (me, 0, BuiltIn::poly);
+        instrument (me, 0, BuiltIn::transistor);
         check (stillThere, "a block's window closes before the block goes", stillThere, 1);
         me.onBlockRemoving = nullptr;
     }
@@ -1168,9 +1168,9 @@ int main()
 
         // Two instruments layer: both play, mixed.
         me.clearChain (0);
-        me.insertBlock (0, -1, BuiltIn::createSynth (BuiltIn::poly));
+        me.insertBlock (0, -1, BuiltIn::createSynth (BuiltIn::transistor));
         auto one = rms (playA (0.4), 0.1, 0.4);
-        me.insertBlock (0, -1, BuiltIn::createSynth (BuiltIn::poly));
+        me.insertBlock (0, -1, BuiltIn::createSynth (BuiltIn::transistor));
         auto two = rms (playA (0.4), 0.1, 0.4);
         // two synths, their oscillators in their own phases: between +3 dB (unrelated) and +6 dB (in step)
         check (two > one * 1.3 && two < one * 2.1, "chain: two instruments in a row are layered (both heard)", two / one, 1.6);

@@ -820,28 +820,10 @@ void Processor::fromXml (const juce::XmlElement& x)
     ++impl->scaleVersion;
 }
 
-juce::String Processor::fingerprint() const
-{
-    // the piano as it sounds, without its playing time (which changes as you play)
-    return juce::String::toHexString (toXml (false)->toString (juce::XmlElement::TextFormat().singleLine()).hashCode64());
-}
-
-void Processor::setPreset (const juce::String& name)
-{
-    presetName = name;
-    presetFingerprint = fingerprint();
-}
-
-bool Processor::isModified() const
-{
-    return presetName.isNotEmpty() && fingerprint() != presetFingerprint;
-}
-
 void Processor::getStateInformation (juce::MemoryBlock& mb)
 {
     auto x = toXml (true);
-    x->setAttribute ("preset", presetName);
-    x->setAttribute ("presetFingerprint", presetFingerprint);
+    writePresetAttributes (*x);
     copyXmlToBinary (*x, mb);
 }
 
@@ -850,97 +832,25 @@ void Processor::setStateInformation (const void* data, int size)
     auto x = getXmlFromBinary (data, size);
     if (x == nullptr || ! x->hasTagName ("EPIANO")) return;
     fromXml (*x);
-    presetName = x->getStringAttribute ("preset");
-    presetFingerprint = x->getStringAttribute ("presetFingerprint");
+    readPresetAttributes (*x);
 }
 
 //==============================================================================
-namespace presets
+const presets::Kind& presetKind()
 {
-juce::File folder()
-{
-    return juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("TapeFour").getChildFile ("Presets").getChildFile ("Electric Piano");
-}
-
-juce::File fileFor (const juce::String& name)
-{
-    return folder().getChildFile (juce::File::createLegalFileName (name.trim()) + ".tfep");
-}
-
-std::vector<Entry> list()
-{
-    std::vector<Entry> out;
-    for (auto& f : folder().findChildFiles (juce::File::findFiles, false, "*.tfep"))
+    static const presets::Kind kind { "Electric Piano", "tfep", "TFEP", "PIANO", [] (const juce::XmlElement& p)
     {
-        auto x = juce::XmlDocument::parse (f);
-        if (x == nullptr || ! x->hasTagName ("TFEP")) continue;
-        auto* p = x->getChildByName ("EPIANO");
-        if (p == nullptr) continue;
-        Entry e;
-        e.file = f;
-        e.name = x->getStringAttribute ("name", f.getFileNameWithoutExtension());
-        e.saved = f.getLastModificationTime();
-        const int sys = p->getIntAttribute ("system");
+        const int sys = p.getIntAttribute ("system");
         static const char* keys[] { "C", "C#", "D", "EB", "E", "F", "F#", "G", "AB", "A", "BB", "B" };
         juce::String tun = tuning::systemName ((tuning::System) std::clamp (sys, 0, (int) tuning::System::numSystems - 1));
-        if (sys == (int) tuning::System::edo) tun = juce::String (p->getIntAttribute ("edo")) + "-EDO";
-        else if (sys > 0 && sys < (int) tuning::System::custom) tun << " IN " << keys[std::clamp (p->getIntAttribute ("key"), 0, 11)];
+        if (sys == (int) tuning::System::edo) tun = juce::String (p.getIntAttribute ("edo")) + "-EDO";
+        else if (sys > 0 && sys < (int) tuning::System::custom) tun << " IN " << keys[std::clamp (p.getIntAttribute ("key"), 0, 11)];
         const juce::String dot (juce::CharPointer_UTF8 (" \xc2\xb7 "));
-        e.summary = juce::String (p->getIntAttribute ("model", 1) == 0 ? "200" : "200A") + dot + conditionName (p->getIntAttribute ("condition", 1))
-                  + dot + tun + dot + (p->getIntAttribute ("output", 1) == 1 ? "REAR JACK" : "SPEAKERS");
-        out.push_back (e);
-    }
-    std::sort (out.begin(), out.end(), [] (const Entry& a, const Entry& b) { return a.name.compareIgnoreCase (b.name) < 0; });
-    return out;
+        return juce::String (p.getIntAttribute ("model", 1) == 0 ? "200" : "200A") + dot + conditionName (p.getIntAttribute ("condition", 1))
+             + dot + tun + dot + (p.getIntAttribute ("output", 1) == 1 ? "REAR JACK" : "SPEAKERS");
+    } };
+    return kind;
 }
 
-bool save (Processor& piano, const juce::String& name, juce::String& error)
-{
-    if (name.trim().isEmpty()) { error = "GIVE IT A NAME"; return false; }
-    const auto f = fileFor (name);
-    if (! f.getParentDirectory().createDirectory()) { error = "CAN'T MAKE THE PRESETS FOLDER"; return false; }
-    juce::XmlElement x ("TFEP");
-    x.setAttribute ("version", 1);
-    x.setAttribute ("name", name.trim());
-    x.addChildElement (piano.toXml (true).release());
-    if (! x.writeTo (f)) { error = "CAN'T WRITE " + f.getFileName().toUpperCase(); return false; }
-    piano.setPreset (name.trim());
-    return true;
-}
-
-bool load (Processor& piano, const juce::File& f, juce::String& error)
-{
-    auto x = juce::XmlDocument::parse (f);
-    auto* p = x != nullptr && x->hasTagName ("TFEP") ? x->getChildByName ("EPIANO") : nullptr;
-    if (p == nullptr) { error = "NOT AN ELECTRIC PIANO PRESET"; return false; }
-    piano.fromXml (*p);
-    piano.setPreset (x->getStringAttribute ("name", f.getFileNameWithoutExtension()));
-    return true;
-}
-
-bool rename (Processor& piano, const juce::String& newName, juce::String& error)
-{
-    const auto old = fileFor (piano.currentPreset());
-    const auto to = fileFor (newName);
-    if (newName.trim().isEmpty()) { error = "GIVE IT A NAME"; return false; }
-    if (to.existsAsFile() && to != old) { error = "THERE'S ALREADY ONE CALLED THAT"; return false; }
-    // the file keeps what was saved in it: only its name changes
-    auto x = juce::XmlDocument::parse (old);
-    if (x == nullptr || ! x->hasTagName ("TFEP")) return save (piano, newName, error);
-    x->setAttribute ("name", newName.trim());
-    if (! x->writeTo (to)) { error = "CAN'T WRITE IT"; return false; }
-    if (to != old) old.deleteFile();
-    piano.renamePreset (newName.trim());
-    return true;
-}
-
-bool remove (Processor& piano, juce::String& error)
-{
-    const auto f = fileFor (piano.currentPreset());
-    if (! f.existsAsFile()) { error = "NOTHING TO DELETE"; return false; }
-    if (! f.deleteFile()) { error = "CAN'T DELETE IT"; return false; }
-    piano.setPreset ({});
-    return true;
-}
-} // namespace presets
+const presets::Kind& Processor::presetKind() const { return ep::presetKind(); }
 } // namespace tf::ep

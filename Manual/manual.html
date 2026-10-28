@@ -231,7 +231,7 @@ td:first-child { font-weight: 600; }
     <tr><td>LADSPA</td><td>Linux</td><td>The standard LADSPA folders. LADSPA plug-ins are effects only.</td></tr>
   </tbody>
 </table>
-<p>Many plug-ins come in several formats. The list in a track's chain shows each plug-in once, in the best format you have: CLAP, then VST3, then Audio Units, LV2 and LADSPA. A deck you saved keeps the format it was made with. TAPE·FOUR also has two built-in instruments, <strong>TF Poly Synth</strong> and <strong>TF Electric Piano</strong>, and three built-in effects, <strong>TF Plate</strong>, <strong>TF Spring Reverb</strong> and <strong>TF Tape Echo</strong>, so you can start without any plug-ins.</p>
+<p>Many plug-ins come in several formats. The list in a track's chain shows each plug-in once, in the best format you have: CLAP, then VST3, then Audio Units, LV2 and LADSPA. A deck you saved keeps the format it was made with. TAPE·FOUR also has two built-in instruments, <strong>TF Transistor</strong> (an organ) and <strong>TF Electric Piano</strong>, and three built-in effects, <strong>TF Plate</strong>, <strong>TF Spring Reverb</strong> and <strong>TF Tape Echo</strong>, so you can start without any plug-ins.</p>
 <figure class="narrow"><img src="images/setup_inst.png" alt="Setup, Plug-ins tab"><figcaption><b>Setup → Plug-ins.</b> Scan once; the list is remembered.</figcaption></figure>
 <h2>Colours</h2>
 <p>In <strong>Setup → Display</strong>, choose the deck's colour theme. It changes at once and is remembered.</p>
@@ -515,7 +515,7 @@ td:first-child { font-weight: 600; }
 <h1><span class="num">8</span>Signal chains</h1>
 <p class="lede">Every track has a signal chain in front of the tape, like a rack of gear wired up before a real deck: up to eight blocks in a row. MIDI from your controller runs along the top of the chain and audio along the bottom, and whatever comes out of the last block is what the track records.</p>
 <p>Click a track's display to drop down its chain. Click a block to select it, and its settings appear underneath. Click outside, click <span class="ctl">X</span> or press <span class="key">Esc</span> to close it.</p>
-<figure><img src="images/chain_block.png" alt="The signal chain editor with an effect selected"><figcaption><b>Track 1's chain.</b> The inputs, then TF Poly Synth, TF Tape Echo and TF Plate, then the tape. The blue line is MIDI: it stops at the synth, the last block that listens to it. The amber line is audio: it starts where the synth mixes in (<span class="lcd">+ MIX</span>). TF Plate is selected; underneath are its controls and the list to replace it from.</figcaption></figure>
+<figure><img src="images/chain_block.png" alt="The signal chain editor with an effect selected"><figcaption><b>Track 1's chain.</b> The inputs, then TF Transistor, TF Tape Echo and TF Plate, then the tape. The blue line is MIDI: it stops at the organ, the last block that listens to it. The amber line is audio: it starts where the organ mixes in (<span class="lcd">+ MIX</span>). TF Plate is selected; underneath are its controls and the list to replace it from.</figcaption></figure>
 
 <table>
   <thead><tr><th>To</th><th>Do this</th></tr></thead>
@@ -561,7 +561,7 @@ td:first-child { font-weight: 600; }
 <table>
   <thead><tr><th>Built-in</th><th>Kind</th><th>What to expect</th></tr></thead>
   <tbody>
-    <tr><td>TF Poly Synth</td><td>Instrument</td><td>A warm two-oscillator analogue-style polysynth. Responds to MPE.</td></tr>
+    <tr><td>TF Transistor</td><td>Instrument</td><td>A transistor combo organ after the 1960s Vox Continental, built as its circuit is: twelve oscillators divided down into every octave, four contacts a key, drawbars and vibrato. It has its own editor (below).</td></tr>
     <tr><td>TF Electric Piano</td><td>Instrument</td><td>A reed electric piano after the Wurlitzer 200 and 200A, built from its mechanism: reeds, felt hammers, the charged pickup that makes it bark, dampers, the preamp's vibrato and the little speakers. It has its own editor (below).</td></tr>
     <tr><td>TF Plate</td><td>Audio effect</td><td>A smooth, dense plate reverb with pre-delay. Size, damping and pre-delay.</td></tr>
     <tr><td>TF Spring Reverb</td><td>Audio effect</td><td>The boingy, dripping reverb of a guitar amp's spring tank.</td></tr>
@@ -589,7 +589,7 @@ td:first-child { font-weight: 600; }
 <figure><img src="images/ep_pickup.png" alt="The electric piano's editor, PICKUP tab"><figcaption><b>PICKUP.</b> Middle C's reed between its fingers, end on, and what the pickup sends played softly, medium and hard.</figcaption></figure>
 
 <h3>Presets</h3>
-<p>A preset keeps the whole piano: every control, its tuning (a Scala file and keyboard map included), its reeds as they drifted, and how long it has been played. The box at the left of the editor's header shows the preset it came from, with <span class="lcd">*</span> once you've changed a control (playing it, and the wear that comes with that, doesn't count). Click the box for your presets, in place of the tabs:</p>
+<p>The built-in instruments keep presets the same way; the piano's are described here. A preset keeps the whole piano: every control, its tuning (a Scala file and keyboard map included), its reeds as they drifted, and how long it has been played. The box at the left of the editor's header shows the preset it came from, with <span class="lcd">*</span> once you've changed a control (playing it, and the wear that comes with that, doesn't count). Click the box for your presets, in place of the tabs:</p>
 <ul>
   <li><span class="ctl">SAVE</span> writes the piano over its preset (with none, it asks for a name). <span class="ctl">SAVE AS NEW</span> asks for a name and keeps it as another. Return saves, Esc cancels.</li>
   <li><span class="ctl">RENAME</span> and <span class="ctl">DELETE</span> act on the current preset; deleting asks once.</li>
@@ -597,6 +597,24 @@ td:first-child { font-weight: 600; }
   <li><span class="ctl">SHOW FOLDER</span> opens <span class="lcd">Documents/TapeFour/Presets/Electric Piano</span>. Each preset is one file there, so you can copy them to another computer or share them.</li>
 </ul>
 <figure><img src="images/ep_presets.png" alt="The electric piano's presets"><figcaption><b>Presets.</b> Naming a new one; the current preset is lit.</figcaption></figure>
+
+<h2>The transistor organ</h2>
+<p>Select <strong>TF Transistor</strong> in a chain and press <span class="ctl">EDIT</span> (or double-click it). Its editor opens in the lower half of the chain: first the organ's own panel, then what's inside its case. Like the original, it plays any number of notes at once, with no velocity, out of one output.</p>
+<p>Inside, twelve oscillators make the twelve notes of the top octave. Each feeds a chain of dividers that halve it again and again, so every C on the organ comes from one oscillator, and every octave is exact. Each key closes four contacts, one each for 16', 8', 4' and the IV mixture, switching those pitches straight on.</p>
+<figure><img src="images/organ_panel.png" alt="The transistor organ's editor, PANEL tab"><figcaption><b>PANEL.</b> The six drawbars and the vibrato switch, and what middle C sounds pitch by pitch (amber: the flute tone's share).</figcaption></figure>
+<table>
+  <thead><tr><th>Tab</th><th>What it holds</th></tr></thead>
+  <tbody>
+    <tr><td>PANEL</td><td>The drawbars: drag one down to bring it in, double-click it for its default. <span class="ctl">16'</span>, <span class="ctl">8'</span> and <span class="ctl">4'</span> set those pitches; <span class="ctl">IV</span> is the mixture, four higher pitches together (2⅔', 2', 1⅗' and 1'). The two amber drawbars set the tone: <span class="ctl">~</span> the soft flute tone, <span class="ctl">M</span> the bright reed tone. With both in, the organ is silent. <span class="ctl">VIBRATO</span> on or off.</td></tr>
+    <tr><td>TUNING</td><td>Equal temperament, just intonation, Pythagorean, quarter-comma meantone, Werckmeister III, Kirnberger III and Vallotti (on any key); <span class="ctl">PER NOTE</span>, where you drag each of the twelve oscillators up or down; or a Scala scale of 12 notes to the octave. A4 from 415 to 466 Hz. With only twelve oscillators and exact octaves, an organ like this can't have the piano's EDO or octave stretch.</td></tr>
+    <tr><td>GENERATORS</td><td>The oscillators drift, as germanium transistors do: <span class="ctl">DRIFT</span> sets how far they wander, and the chart shows where each is now. <span class="ctl">TUNE THEM UP</span> is the technician retuning them. Alongside: middle C's square wave from its divider, rounded by its filter into the reed tone, and smoothed into the flute tone.</td></tr>
+    <tr><td>KEYS</td><td><span class="ctl">CLICK</span>: the contacts switch instantly, as on the original, or you can soften them. <span class="ctl">BOUNCE</span>: how long a contact chatters as it closes and opens. <span class="ctl">CONTACT SPREAD</span>: how far apart a key's four contacts close, so the pitches don't all start together. The diagram shows middle C's four contacts as the key goes down and comes up.</td></tr>
+    <tr><td>VIBRATO</td><td>Speed and depth, which on the original are set inside the case. One wobble moves all twelve oscillators, so every note moves together.</td></tr>
+  </tbody>
+</table>
+<figure><img src="images/organ_generators.png" alt="The transistor organ's editor, GENERATORS tab"><figcaption><b>GENERATORS.</b> The twelve oscillators' drift, and middle C on its way from divider to flute tone.</figcaption></figure>
+<figure><img src="images/organ_keys.png" alt="The transistor organ's editor, KEYS tab"><figcaption><b>KEYS.</b> Middle C's four contacts: bouncing as they close, a few milliseconds apart, and again as the key comes up.</figcaption></figure>
+<p>Presets work as the piano's do (above), in <span class="lcd">Documents/TapeFour/Presets/Transistor</span>.</p>
 
 <h2>Hardware synths</h2>
 <figure><img src="images/chain_external.png" alt="An external instrument block selected"><figcaption><b>An external instrument</b>, on a USB MIDI interface.</figcaption></figure>
