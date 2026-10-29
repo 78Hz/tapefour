@@ -309,6 +309,25 @@ public:
 };
 
 //==============================================================================
+/** The meters' scale: twenty segments from -30 to +6, where 0 is -12 dBFS (the tape's Dolby level). */
+struct MeterScale
+{
+    static const float* segments()
+    {
+        static const float vu[20] { -30, -26, -22, -19, -16, -13, -11, -9, -7, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 6 };
+        return vu;
+    }
+    /** How many segments a peak lights. */
+    static int lit (float level)
+    {
+        auto db = juce::Decibels::gainToDecibels (level, -100.0f) + 12.0f;
+        int n = 0;
+        while (n < 20 && db >= segments()[n]) ++n;
+        return n;
+    }
+};
+
+//==============================================================================
 /** A horizontal bar in the amber display style: drag to set, double-click to reset. */
 class LcdSlider : public juce::Component
 {
@@ -320,6 +339,16 @@ public:
     double value = 0.0;
 
     void setValue (double v) { value = juce::jlimit (lo, hi, v); repaint(); }
+
+    /** An instrument's LEVEL: what it sends, as a peak meter under the bar (the track meters' scale).
+        Call about 30 times a second with the peak since the last call. */
+    void setSend (float peak)
+    {
+        showsSend = true;
+        send = std::max (peak, send * 0.86f);
+        const int lit = MeterScale::lit (send);
+        if (lit != lastLit) { lastLit = lit; repaint(); }
+    }
 
     void paint (juce::Graphics& g) override
     {
@@ -335,6 +364,19 @@ public:
         g.fillRoundedRectangle (bar.toFloat(), 3.0f);
         g.setColour (Pal::lcdText);
         g.fillRoundedRectangle (bar.toFloat().withWidth ((float) bar.getWidth() * (float) ((value - lo) / (hi - lo))), 3.0f);
+        if (showsSend)
+        {
+            // twenty segments under the bar, as on the track meters: lit to what the instrument sends
+            const int lit = MeterScale::lit (send);
+            const float segW = ((float) bar.getWidth() - 19.0f) / 20.0f;
+            for (int i = 0; i < 20; ++i)
+            {
+                const auto v = MeterScale::segments()[i];
+                auto col = v >= 3 ? Pal::red : (v >= 0 ? Pal::lamp : Pal::green);
+                g.setColour (i < lit ? col : Pal::lcdRule);
+                g.fillRect (juce::Rectangle<float> ((float) bar.getX() + (float) i * (segW + 1.0f), (float) bar.getBottom() + 3.0f, segW, 3.0f));
+            }
+        }
     }
 
     void mouseDown (const juce::MouseEvent& e) override { set (e); }
@@ -351,6 +393,9 @@ private:
 
     juce::String label;
     double lo, hi, reset;
+    bool showsSend = false;
+    float send = 0.0f;
+    int lastLit = -1;
     std::function<juce::String (double)> format;
     juce::Rectangle<int> bar;
 };
@@ -603,60 +648,66 @@ private:
 };
 
 //==============================================================================
-/** LED bar meter, 20 segments; 0 VU sits at -12 dBFS like a tape deck. */
+/** LED bar meter, 20 segments, reading peaks; 0 sits at -12 dBFS (the tape's Dolby level) like a tape deck.
+    Each column's highest peak stays lit for a moment (the hold). */
 class Meter : public juce::Component
 {
 public:
     explicit Meter (int channels = 1) : numChannels (channels) {}
 
+    /** About 30 times a second: the peaks since the last call. */
     void setLevels (float l, float r = 0.0f)
     {
         auto upd = [] (float& disp, float v) { disp = std::max (v, disp * 0.86f); };
         upd (level[0], l);
         upd (level[1], r);
+        for (int c = 0; c < 2; ++c)
+        {
+            if (level[c] >= hold[c]) { hold[c] = level[c]; holdFrames[c] = 45; }   // held for about a second and a half
+            else if (holdFrames[c] > 0) --holdFrames[c];
+            else hold[c] *= 0.8f;
+        }
         // Only redraw when a segment lights or goes out.
-        auto lit = litSegments (level[0]) * 32 + litSegments (level[1]);
+        auto lit = ((litSegments (level[0]) * 32 + litSegments (level[1])) * 32 + litSegments (hold[0])) * 32 + litSegments (hold[1]);
         if (lit != lastLit) { lastLit = lit; repaint(); }
     }
 
     void paint (juce::Graphics& g) override
     {
-        static const float vu[20] { -30, -26, -22, -19, -16, -13, -11, -9, -7, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 6 };
         auto r = getLocalBounds().toFloat();
         g.setColour (Pal::dark);
         g.fillRoundedRectangle (r, 4.0f);
 
         auto inner = r.reduced (5.0f);
+        g.setColour (Pal::muted);
+        g.setFont (DeckLookAndFeel::get().cond (9.0f, true));
+        g.drawFittedText ("PEAK", inner.removeFromTop (10.0f).expanded (2.0f, 0.0f).toNearestInt(), juce::Justification::centred, 1, 0.6f);
+        inner.removeFromTop (3.0f);
         auto colW = (inner.getWidth() - (float) (numChannels - 1) * 3.0f) / (float) numChannels;
         auto segH = (inner.getHeight() - 19 * 3.0f) / 20.0f;
 
         for (int c = 0; c < numChannels; ++c)
         {
-            auto db = juce::Decibels::gainToDecibels (level[c], -100.0f) + 12.0f;
+            const int lit = litSegments (level[c]), held = litSegments (hold[c]);
             auto x = inner.getX() + (float) c * (colW + 3.0f);
             for (int i = 0; i < 20; ++i)
             {
                 auto y = inner.getBottom() - (float) (i + 1) * segH - (float) i * 3.0f;
-                auto col = vu[i] >= 3 ? Pal::red : (vu[i] >= 0 ? Pal::lamp : Pal::green);
-                bool on = db >= vu[i];
+                auto col = scale()[i] >= 3 ? Pal::red : (scale()[i] >= 0 ? Pal::lamp : Pal::green);
+                bool on = i < lit || (held > 0 && i == held - 1);
                 g.setColour (on ? col : juce::Colour (0xff34322d));
                 g.fillRoundedRectangle (x, y, colW, segH, 1.5f);
             }
         }
     }
 
-private:
-    static int litSegments (float level)
-    {
-        static const float vu[20] { -30, -26, -22, -19, -16, -13, -11, -9, -7, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 6 };
-        auto db = juce::Decibels::gainToDecibels (level, -100.0f) + 12.0f;
-        int n = 0;
-        while (n < 20 && db >= vu[n]) ++n;
-        return n;
-    }
+    static const float* scale() { return MeterScale::segments(); }
+    static int litSegments (float level) { return MeterScale::lit (level); }
 
+private:
     int numChannels;
-    float level[2] {};
+    float level[2] {}, hold[2] {};
+    int holdFrames[2] {};
     int lastLit = -1;
 };
 

@@ -260,6 +260,34 @@ int main()
         check (std::abs (db (rms (soft, 0.1, 0.4), rms (loud, 0.1, 0.4))) < 0.1, "keys: no velocity: soft and hard the same (dB)", db (rms (soft, 0.1, 0.4), rms (loud, 0.1, 0.4)), 0.0);
     }
     {
+        // the level: a chord on the panel as it comes peaks at -15 dBFS out of the organ, which the track's
+        // mono sum (+3 dB for a sound the same on both sides) puts at 0 on the meters (-12 dBFS)
+        // (its dividers start in their own phases each time, so the peak varies a little: the middle of eight)
+        std::vector<double> peaks;
+        for (int run = 0; run < 8; ++run)
+        {
+            organ::Processor p;
+            p.setRateAndBufferSizeDetails (sr, bs);
+            p.prepareToPlay (sr, bs);
+            std::vector<float> out;
+            juce::AudioBuffer<float> b (2, bs);
+            for (int k = 0; k < (int) (1.0 * sr / bs); ++k)
+            {
+                juce::MidiBuffer m;
+                if (k == 0) for (int n : { 60, 64, 67, 72 }) m.addEvent (on (n, 0.8f), 0);
+                p.processBlock (b, m);
+                out.insert (out.end(), b.getReadPointer (0), b.getReadPointer (0) + bs);
+            }
+            float peak = 0.0f;
+            for (size_t i = (size_t) (0.1 * sr); i < out.size(); ++i) peak = std::max (peak, std::abs (out[i]));
+            peaks.push_back (20.0 * std::log10 (peak));
+        }
+        std::sort (peaks.begin(), peaks.end());
+        std::printf ("      organ chord peaks: %.1f .. %.1f dBFS\n", peaks.front(), peaks.back());
+        const double pk = 0.5 * (peaks[3] + peaks[4]);
+        check (std::abs (pk + 15.0) < 1.5, "level: a four-note chord as it comes peaks at -15 dBFS (0 on the track meter)", pk, -15.0);
+    }
+    {
         // the vibrato: all twelve oscillators together; its pitch swing follows DEPTH
         auto swing = [] (bool on_)
         {

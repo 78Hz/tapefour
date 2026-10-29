@@ -345,7 +345,7 @@ struct Processor::Impl
         const double g = 1.0 + 7.0 * drv;
         const double bias = 0.05;     // clips nearly symmetrically (OpenWurli's SPICE analysis: 1.21:1)
         const double norm = 1.0 / (std::pow (g, 0.6) * (1.0 - std::tanh (bias) * std::tanh (bias)));
-        const double vol = std::pow (s.volume / 10.0, 2.0) * 7.5;
+        const double vol = std::pow (s.volume / 10.0, 2.0) * 3.1;   // a velocity-90 chord at VOLUME 7: 0 on the track meter
         const double vibInc = twoPi * 5.75 / sr;
         const double humHz = s.mains60 ? 60.0 : 50.0, humInc = twoPi * humHz / sr;
         const double hum = dbToGain (s.humDb + (s.model == 0 ? 6.0 : 0.0));

@@ -228,6 +228,38 @@ struct Nosy : Gain
     const juce::String getName() const override { ++nameQuestions; return "NOSY"; }
 };
 
+// A plug-in instrument for the gain structure: while any note is held, a 1 kHz tone of a fixed peak,
+// the same on both sides (centred) or a quarter-cycle apart (as wide as a stereo patch gets).
+struct ToneSynth : TestProcessor
+{
+    explicit ToneSynth (bool w) : TestProcessor (BusesProperties().withOutput ("Out", juce::AudioChannelSet::stereo())), wide (w) {}
+    const juce::String getName() const override { return "TONE"; }
+    bool acceptsMidi() const override { return true; }
+    bool producesMidi() const override { return false; }
+    void prepareToPlay (double rate, int) override { srate = rate; }
+    using juce::AudioProcessor::processBlock;
+    void processBlock (juce::AudioBuffer<float>& b, juce::MidiBuffer& m) override
+    {
+        for (const auto meta : m)
+        {
+            const auto msg = meta.getMessage();
+            if (msg.isNoteOn()) ++held; else if (msg.isNoteOff()) held = std::max (0, held - 1);
+        }
+        for (int i = 0; i < b.getNumSamples(); ++i)
+        {
+            const double a = held > 0 ? peak : 0.0;
+            b.setSample (0, i, (float) (a * std::sin (phase)));
+            b.setSample (1, i, (float) (a * (wide ? std::cos (phase) : std::sin (phase))));
+            phase += juce::MathConstants<double>::twoPi * 1000.0 / srate;
+        }
+        m.clear();
+    }
+    static constexpr double peak = 0.25;
+    bool wide;
+    int held = 0;
+    double phase = 0.0, srate = 48000.0;
+};
+
 // The old one-source-per-track set-ups, as chains.
 void audioIn (AudioEngine& e, int t, int ch)
 {
@@ -418,14 +450,19 @@ int main()
         instrument (me, 0, BuiltIn::epiano);
         // the electric piano hears only velocity until its own MPE is turned on
         if (auto* ep = BuiltIn::electricPiano (me.findBlock (0, me.getChain (0)[0].id)))
+        {
             ep->param ("mpe")->setValueNotifyingHost (1.0f);
+            auto st = ep->settings();
+            st.tuningSpreadCents = 0.0f; st.shortRingers = 0; st.ages = false;   // its reeds in tune, so the octave is on 880 Hz
+            ep->setSettings (st);
+        }
         me.track[0].armed = true;                  // armed + stopped: you hear the instrument live
         m.run (0.1);
         me.injectMidi (juce::MidiMessage::pitchWheel (2, 8192 + 8192 * 12 / 48));
         me.injectMidi (juce::MidiMessage::noteOn (2, 69, (juce::uint8) 110));
         auto bent = m.run (0.6);
         auto at880 = tone (bent, 880, 0.2, 0.5), at440 = tone (bent, 440, 0.2, 0.5);
-        check (at880 > 4.0 * at440 && at880 > 0.005, "MPE: per-note bend on channel 2 moves A440 up an octave", at880, 4.0 * at440);
+        check (at880 > 4.0 * at440 && at880 > 0.001, "MPE: per-note bend on channel 2 moves A440 up an octave", at880, 4.0 * at440);
 
         // A second note on another member channel is not bent.
         me.injectMidi (juce::MidiMessage::noteOn (3, 64, (juce::uint8) 110));
@@ -1135,6 +1172,45 @@ int main()
         me.saveSettings();
         auto written = file.getLastModificationTime() > old + juce::RelativeTime::minutes (30);
         check (untouched && written, "settings: unchanged saves touch nothing on disk", untouched + 2 * written, 3);
+    }
+
+    // ---- The gain structure: inputs, plug-ins and the mono sum ----
+    {
+        Rig m;
+        auto& me = *m.engine;
+        me.track[0].armed = true;
+        // an input: a 1 kHz sine peaking at 0.25
+        audioIn (me, 0, 0);
+        m.f[0] = 1000.0; m.amp[0] = 0.25f;
+        m.run (0.3);
+        const double viaInput = tone (m.run (0.3), 1000.0, 0.05, 0.3);
+        m.amp[0] = 0.0f;
+        // the same peak from a plug-in instrument: not cut any more, and summed to mono with equal power
+        auto viaSynth = [&] (bool wide)
+        {
+            me.clearChain (0);
+            me.setTrackInput (0, -1);
+            me.setTrackMidiPort (0, AudioEngine::midiAny);
+            me.insertBlock (0, -1, std::make_unique<ProcessorBlock> (std::make_unique<ToneSynth> (wide), ProcessorBlock::Kind::hosted));
+            m.run (0.05);
+            me.injectMidi (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100));
+            auto out = m.run (0.4);
+            me.injectMidi (juce::MidiMessage::noteOff (1, 60));
+            m.run (0.1);
+            return tone (out, 1000.0, 0.1, 0.4);
+        };
+        const double wide = viaSynth (true), centred = viaSynth (false);
+        check (std::abs (db (wide / viaInput)) < 0.2, "gain: a plug-in as wide as stereo gets comes in at an input's level (dB)", db (wide / viaInput), 0.0);
+        check (std::abs (db (centred / viaInput) - 3.01) < 0.2, "gain: a plug-in the same on both sides, 3 dB up (equal-power mono sum)", db (centred / viaInput), 3.01);
+        // and its block's meter reads what it sends
+        auto* blk = me.findBlock (0, me.getChain (0)[0].id);
+        me.injectMidi (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100));
+        blk->sendPeak = 0.0f;
+        m.run (0.2);
+        const float sent = blk->sendPeak.load();
+        me.injectMidi (juce::MidiMessage::noteOff (1, 60));
+        check (std::abs (db (sent / (ToneSynth::peak * std::sqrt (2.0)))) < 0.3, "gain: the block's meter reads what it sends into the track (dB)",
+               db (sent / (ToneSynth::peak * std::sqrt (2.0))), 0.0);
     }
 
     // ---- The chain: MIDI and audio streams through blocks ----

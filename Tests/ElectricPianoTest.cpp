@@ -282,6 +282,34 @@ int main()
         check (mf < -20.0 && ff > -10.0, "piano: C4's third harmonic: quiet at velocity 80, strong at 127 (dB re fundamental)", mf, ff);
     }
     {
+        // the level: a four-note chord at velocity 90, as the piano comes, peaks at -15 dBFS out, which the
+        // track's mono sum (+3 dB for a sound the same on both sides) puts at 0 on the meters (-12 dBFS)
+        // (each piano's reeds are out of tune their own way, so the peak varies a little: the middle of eight)
+        std::vector<double> peaks;
+        for (int run = 0; run < 8; ++run)
+        {
+            ep::Processor p;
+            p.setRateAndBufferSizeDetails (sr, bs);
+            p.prepareToPlay (sr, bs);
+            std::vector<float> out;
+            juce::AudioBuffer<float> b (2, bs);
+            for (int k = 0; k < (int) (1.5 * sr / bs); ++k)
+            {
+                juce::MidiBuffer m;
+                if (k == 0) for (int n : { 60, 64, 67, 72 }) m.addEvent (on (n, 90.0f / 127.0f), 0);
+                p.processBlock (b, m);
+                out.insert (out.end(), b.getReadPointer (0), b.getReadPointer (0) + bs);
+            }
+            float peak = 0.0f;
+            for (auto v : out) peak = std::max (peak, std::abs (v));
+            peaks.push_back (20.0 * std::log10 (peak));
+        }
+        std::sort (peaks.begin(), peaks.end());
+        std::printf ("      piano chord peaks: %.1f .. %.1f dBFS\n", peaks.front(), peaks.back());
+        const double pk = 0.5 * (peaks[3] + peaks[4]);
+        check (std::abs (pk + 15.0) < 1.5, "level: a four-note chord at velocity 90 peaks at -15 dBFS (0 on the track meter)", pk, -15.0);
+    }
+    {
         // MPE is off as it comes: pressure changes nothing
         Rig r;
         auto s = r.p.settings(); s.pressureTarget = 1; r.p.setSettings (s);

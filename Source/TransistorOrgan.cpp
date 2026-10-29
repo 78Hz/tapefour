@@ -340,7 +340,7 @@ struct Processor::Impl
             // the flute tone: the mix through two more RC filters; the reed tone: the mix as it is
             fl1 += flA * (mix - fl1);
             fl2 += flA * (fl1 - fl2);
-            double y = (mix * gReed + fl2 * gFlute * fluteMakeup) * 0.06;
+            double y = (mix * gReed + fl2 * gFlute * fluteMakeup) * 0.0235;   // a chord on the panel as it comes: 0 on the track meter
             y = std::tanh (y * 1.5) / 1.5;   // the preamp's two transistor stages, near their limit only on big chords
             out[i] = (float) y;
             ++now;

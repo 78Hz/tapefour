@@ -56,6 +56,21 @@ void ChainEditor::changed()
 
 void ChainEditor::timerCallback()
 {
+    // what each instrument sends: its node's strip, and the LEVEL in its panel
+    for (auto& bi : chain)
+    {
+        if (bi.role != BlockRole::instrument && bi.role != BlockRole::external) continue;
+        auto* blk = engine.findBlock (t, bi.id);
+        if (blk == nullptr) continue;
+        const float peak = blk->sendPeak.exchange (0.0f);
+        auto& shown = sendShown[bi.id];
+        const int before = MeterScale::lit (shown);
+        shown = std::max (peak, shown * 0.86f);
+        if (MeterScale::lit (shown) != before)
+            for (auto& c : cells) if (c.blockId == bi.id) repaint (c.node);
+        for (auto& [slider, id] : levelSliders) if (id == bi.id) slider->setSend (peak);
+    }
+
     // signal bars on the input chips
     for (auto& [c, ch] : inputChips)
     {
@@ -126,6 +141,7 @@ void ChainEditor::rebuild()
 void ChainEditor::clearPanel()
 {
     instrumentPanel.reset();
+    levelSliders.clear();
     presetList.reset();
     presetDisplay.reset();
     picker.reset();
@@ -300,6 +316,7 @@ void ChainEditor::buildBlockPanel (const AudioEngine::BlockInfo& b, juce::Rectan
         panel.add (s);
         addAndMakeVisible (s);
         s->setBounds (x, y, 310, 22);
+        if (! isMix) levelSliders.push_back ({ s, id });
         y += 30;
     }
     if (b.canProcessInput)
@@ -363,6 +380,7 @@ void ChainEditor::buildExternalPanel (const AudioEngine::BlockInfo& b, juce::Rec
     panel.add (level);
     addAndMakeVisible (level);
     level->setBounds (top.reduced (0, 4).withTrimmedRight (10));
+    levelSliders.push_back ({ level, id });
     area.removeFromTop (10);
 
     auto col = area.getWidth() / 3;
@@ -715,7 +733,23 @@ void ChainEditor::paint (juce::Graphics& g)
         g.drawFittedText (kind, in.removeFromTop (12).withTrimmedLeft (b->role == BlockRole::pending ? 0 : 12), juce::Justification::centredLeft, 1, 0.7f);
         g.setColour (ink.withMultipliedAlpha (alpha));
         g.setFont (lf.mono (12.0f));
-        g.drawFittedText (b->name.toUpperCase(), in, juce::Justification::centredLeft, 2, 0.75f);
+        g.drawFittedText (b->name.toUpperCase(), in.withTrimmedBottom (b->role == BlockRole::instrument || b->role == BlockRole::external ? 4 : 0),
+                          juce::Justification::centredLeft, 2, 0.75f);
+        if (b->role == BlockRole::instrument || b->role == BlockRole::external)
+        {
+            // what it sends into the track, on the meters' scale
+            auto it = sendShown.find (b->id);
+            const int lit = MeterScale::lit (it != sendShown.end() ? it->second : 0.0f);
+            auto strip = rf.reduced (7.0f, 0.0f).withTop (rf.getBottom() - 6.0f).withHeight (2.0f);
+            const float segW = (strip.getWidth() - 19.0f) / 20.0f;
+            for (int seg = 0; seg < 20; ++seg)
+            {
+                const auto v = MeterScale::segments()[seg];
+                auto col = v >= 3 ? Pal::red : (v >= 0 ? Pal::lamp : (isSel ? Pal::lcd : Pal::green));
+                g.setColour (seg < lit ? col : (isSel ? Pal::lcd.withAlpha (0.25f) : Pal::lcdRule));
+                g.fillRect (juce::Rectangle<float> (strip.getX() + (float) seg * (segW + 1.0f), strip.getY(), segW, strip.getHeight()));
+            }
+        }
     }
 
     // lane tags
@@ -914,6 +948,7 @@ void ChainEditor::buildInstrumentPanel (const AudioEngine::BlockInfo& b, juce::R
     panel.add (s);
     addAndMakeVisible (s);
     s->setBounds (head.getRight() - 250, head.getY() + 4, 250, 22);
+    levelSliders.push_back ({ s, id });
     area.removeFromTop (4);
 
     if (presetsOpen)

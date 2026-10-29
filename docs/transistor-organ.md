@@ -38,6 +38,7 @@ published figure and were set by ear. The tables below say which.
 | Drawbars | Each footage's busbar, then the tones: reed is the mix as it is, flute the mix through two more RC filters | 3 dB a step, nothing at 0, set by ear (the taper isn't published). Flute filter corners at 250 Hz with 6 dB of make-up, set by ear so middle C's flute tone is near a sine (its 3rd harmonic about 31 dB down) |
 | Vibrato | A square wave through an RC filter (time constant 0.12 of its period), frequency-modulating all twelve oscillators together | The shape is from the schematics (Connie). Speed 6.4 Hz and depth ±18 cents are defaults set by ear: no measured figure is published (6.4 Hz is Connie's) |
 | Preamp | Two transistor stages: a gentle limit on big chords | Set by ear |
+| Level | A four-note chord on the panel as it comes peaks at −15 dBFS: the track's mono sum adds 3 dB, so it reads 0 on the meters (Dolby level, −12 dBFS) | A choice, to match TAPE·FOUR's other sources |
 
 ## Tuning
 

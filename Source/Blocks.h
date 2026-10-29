@@ -31,6 +31,7 @@ public:
     std::atomic<float> levelDb { 0.0f };          // instruments and external synths: level into the mix
     std::atomic<float> mix { 1.0f };              // audio effects: how much of the effect (0 dry .. 1 wet)
     std::atomic<bool>  processInput { false };    // an instrument that takes audio processes it instead of mixing in
+    std::atomic<float> sendPeak { 0.0f };         // instruments and external synths: the peak of what it adds to the track (the panel takes it)
 
     virtual juce::String getName() const = 0;
     virtual juce::String getMaker() const { return {}; }
@@ -38,7 +39,6 @@ public:
     virtual bool canProcessInput() const { return false; }   // instruments with an audio input (a vocoder)
     virtual bool producesMidi() const { return false; }
     virtual bool isHosted() const { return false; }          // a VST3 / AU plug-in
-    virtual float mixInPad() const { return 1.0f; }          // plug-in synths come in 12 dB down, as on a line input
 
     /** Message thread (or the audio thread stopped). blockSize: the device's buffer. */
     virtual void prepare (double /*sampleRate*/, int /*blockSize*/) {}
@@ -81,7 +81,6 @@ public:
     bool canProcessInput() const override   { return naturalRole == BlockRole::instrument && numIns > 0; }
     bool producesMidi() const override      { return makesMidi; }
     bool isHosted() const override          { return kind == Kind::hosted; }
-    float mixInPad() const override         { return kind == Kind::hosted ? 0.25f : 1.0f; }
 
     void prepare (double sampleRate, int blockSize) override;
     void process (juce::AudioBuffer<float>& stereo, int numSamples, juce::MidiBuffer& midi) override;

@@ -13,6 +13,7 @@ double tfPocketScreenPointsPerMm (double frameX, double frameWidth, double frame
 
 namespace tf::pocket
 {
+#if ! (JUCE_IOS || JUCE_ANDROID)
 /** Logical pixels per millimetre on the screen showing this point: what the system reports of its size
     (on Windows, only the scaling setting: 96 pixels an inch at 100 %). */
 static double pixelsPerMm (juce::Point<int> where)
@@ -28,6 +29,7 @@ static double pixelsPerMm (juce::Point<int> where)
     const double perInch = d->dpi / juce::jmax (0.1, d->scale);
     return perInch > 50.0 && perInch < 1000.0 ? perInch / 25.4 : 96.0 / 25.4;
 }
+#endif
 
 // A phone or tablet: the keys come up when you tap the cassette. --touch shows that layout on a computer.
 static bool touchLayout (const juce::String& commandLine)

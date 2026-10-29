@@ -101,6 +101,8 @@ private:
     bool instrumentEditing = false;   // a built-in instrument's editor fills the lower half
     int pianoTab = 0;
     int organTab = 0;
+    std::map<int, float> sendShown;                          // block id: what it sends, as shown on its node
+    std::vector<std::pair<LcdSlider*, int>> levelSliders;    // the panel's LEVEL controls, and their blocks
     std::unique_ptr<juce::Component> instrumentPanel;   // a built-in instrument's editor
     std::unique_ptr<PresetDisplay> presetDisplay;
     std::unique_ptr<PresetList> presetList;

@@ -57,6 +57,7 @@ figure and were set by ear. The tables below say which.
 | Vibrato | The preamp's gain switched at 5.75 Hz, between a sine and a square; up to 8 dB of swing | Rate from the service manual, depth from OpenWurli; shape set by ear |
 | Speakers | Power amp, then the two small ovals: high-pass 110 Hz, a presence peak, a treble roll-off | 200: Alnico, a 1 dB peak at 2.2 kHz and a 5.2 kHz roll-off. 200A: ceramic, a 3 dB peak at 2.8 kHz and a 7 kHz roll-off. Set by ear from the sources' descriptions (Alnico smoother, ceramic brighter) |
 | Rear jack | The preamp's output, before the power amp and speakers | — |
+| Level | A four-note chord at velocity 90, VOLUME 7, peaks at −15 dBFS: the track's mono sum adds 3 dB, so it reads 0 on the meters (Dolby level, −12 dBFS) | A choice, to match TAPE·FOUR's other sources |
 | Noise | Mains hum (50 or 60 Hz and harmonics, 6 dB more on the 200), hiss (−84 dB on the 200, −92 dB on the 200A), action, damper and pedal noise | Set by ear. The 200's noisier amplifier is from the sources |
 
 What comes out, at the rear jack (C4, the 200A, serviced): at velocity 64 the second harmonic is

@@ -553,7 +553,8 @@ td:first-child { font-weight: 600; }
   </tbody>
 </table>
 <p>Order matters, as it does with real gear. A MIDI effect only changes the blocks after it. An effect placed before an instrument doesn't hear that instrument, only what came before it. So a typical chain is <em>MIDI effects → instruments → audio effects</em>, but nothing stops you putting a reverb on the voice coming in, then a synth on top, then a delay over both.</p>
-<p>Plug-in instruments come in 12 dB below their own output, so a full-level synth sits near 0 VU. The built-in instruments don't need it.</p>
+<p>Every instrument comes in at its own level: plug-ins vary a lot, so each instrument block has its own <span class="ctl">LEVEL</span>, from −24 to +12 dB. The strip under each instrument's node in the chain, and the segments under its <span class="ctl">LEVEL</span>, show what it is sending into the track, on the same scale as the track meters. Set <span class="ctl">LEVEL</span> so your loudest playing peaks around 0, then set the recording level with the track's gain and fader as usual. The built-in instruments are set up so ordinary playing peaks around 0 as they come.</p>
+<p>A track is mono, and the chain is stereo: at its end the two sides are added together with equal power. A stereo instrument keeps its level however wide its sound; one that's the same on both sides comes in 3 dB higher. An input comes through at the level it went in.</p>
 
 <h2>Picking a block</h2>
 <figure><img src="images/chain_add.png" alt="The list of blocks to add"><figcaption><b>Adding a block.</b> The built-ins first, then hardware synths, then every scanned plug-in, grouped by maker.</figcaption></figure>
@@ -651,7 +652,7 @@ td:first-child { font-weight: 600; }
     <tr><td>LOW</td><td>±12 dB shelf: about ±11.6 dB at 100 Hz, ±6 dB at 250 Hz</td><td>Weight. A cut helps when bouncing several tracks together.</td></tr>
     <tr><td>PAN</td><td>L100 to R100, constant power</td><td>Centre is −3 dB to each side. Hard left puts the full level on the left output only.</td></tr>
     <tr><td>Fader</td><td>−∞ to +7 dB (0 at the mark)</td><td>The level into the mix and into bounces. On an armed track it also sets the level going to tape, as on a portastudio.</td></tr>
-    <tr><td>Meter</td><td>20 LEDs, 0 VU at −12 dBFS</td><td>Green below 0 VU, amber from 0 to +3, red above +3. Keep peaks around 0 VU for a clean recording, and push into the amber for tape colour.</td></tr>
+    <tr><td>Meter</td><td>20 LEDs reading peaks, 0 VU at −12 dBFS</td><td>Green below 0 VU, amber from 0 to +3, red above +3. The highest peak stays lit for a moment. It reads peaks, not loudness: a sound with sharp attacks reads higher than a dense one that sounds as loud. Keep peaks around 0 VU for a clean recording, and push into the amber for tape colour.</td></tr>
     <tr><td>MUTE</td><td>On or off (orange lamp)</td><td>Silences the track everywhere: in the mix, in bounces, and its live input. An armed track that's muted <strong>still records to tape</strong>: you just don't hear it.</td></tr>
     <tr><td>SOLO</td><td>On or off (yellow lamp)</td><td>Changes only what you hear. With any track soloed, only soloed tracks are heard. Solo doesn't change what is recorded or bounced.</td></tr>
     <tr><td>ARM</td><td>On or off (red lamp)</td><td>An armed track plays its live inputs through its chain instead of its tape, whatever the transport is doing, and the display reads <span class="lcd">LIVE IN</span>. The lamp flashes while armed and stays lit while recording. Press REC on the transport and it records to tape. To hear a take, disarm the track: while it is armed you hear the input, not the tape.</td></tr>

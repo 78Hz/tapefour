@@ -801,15 +801,29 @@ AudioEngine::ChainResult AudioEngine::runChain (int t, const float* const* input
     auto& p = track[t];
     acc.clear (0, n);
 
+    // The chain runs in stereo and the track is mono: the two sides are summed with equal power (each times
+    // 1/sqrt 2), so a stereo instrument keeps its level however wide it is. A mono source goes in on both
+    // sides at 1/sqrt 2, so it comes out of the sum at the level it went in.
+    constexpr float side = 0.70710678f;
+    auto sendOf = [n] (const juce::AudioBuffer<float>& b, float gain)
+    {
+        const auto* bl = b.getReadPointer (0);
+        const auto* br = b.getReadPointer (1);
+        float peak = 0.0f;
+        for (int i = 0; i < n; ++i) peak = std::max (peak, std::abs (bl[i] + br[i]));
+        return peak * side * gain;
+    };
+    auto noteSend = [] (Block& b, float peak) { if (peak > b.sendPeak.load()) b.sendPeak = peak; };
+
     // ---- the audio stream starts with the track's input (or the bounce, or silence) ----
     if (bounceIn != nullptr)
     {
-        acc.copyFrom (0, 0, bounceIn, n);
-        acc.copyFrom (1, 0, bounceIn, n);
+        acc.copyFrom (0, 0, bounceIn, n, side);
+        acc.copyFrom (1, 0, bounceIn, n, side);
     }
     else if (p.inputChannel.load() >= 0)
     {
-        copyInput (p.inputChannel.load(), p.inputPair.load(), inputs, numInputs, n, acc.getWritePointer (0));
+        copyInput (p.inputChannel.load(), p.inputPair.load(), inputs, numInputs, n, acc.getWritePointer (0), side);
         acc.copyFrom (1, 0, acc, 0, 0, n);
         r.throughInterface = true;
     }
@@ -909,8 +923,10 @@ AudioEngine::ChainResult AudioEngine::runChain (int t, const float* const* input
                         scratch.clear (0, n);
                         copyInput (e.returnInput.load(), e.returnPair.load(), inputs, numInputs, n, scratch.getWritePointer (0),
                                    dbToGain (e.levelDb.load()));
-                        acc.addFrom (0, 0, scratch, 0, 0, n);
-                        acc.addFrom (1, 0, scratch, 0, 0, n);
+                        auto range = juce::FloatVectorOperations::findMinAndMax (scratch.getReadPointer (0), n);
+                        noteSend (b, std::max (-range.getStart(), range.getEnd()));
+                        acc.addFrom (0, 0, scratch, 0, 0, n, side);
+                        acc.addFrom (1, 0, scratch, 0, 0, n, side);
                         r.throughInterface = true;
                     }
                     r.hasInstruments = true;
@@ -928,7 +944,8 @@ AudioEngine::ChainResult AudioEngine::runChain (int t, const float* const* input
                         // Adds its sound to what's already there.
                         scratch.clear (0, n);
                         runWithMidi (scratch);
-                        const auto g = dbToGain (b.levelDb.load()) * b.mixInPad();
+                        const auto g = dbToGain (b.levelDb.load());
+                        noteSend (b, sendOf (scratch, g));
                         acc.addFrom (0, 0, scratch, 0, 0, n, g);
                         acc.addFrom (1, 0, scratch, 1, 0, n, g);
                         r.hasInstruments = true;
@@ -955,6 +972,7 @@ AudioEngine::ChainResult AudioEngine::runChain (int t, const float* const* input
                     if (role == BlockRole::instrument)
                     {
                         acc.applyGain (0, n, dbToGain (b.levelDb.load()));
+                        noteSend (b, sendOf (acc, 1.0f));
                         r.hasInstruments = true;
                     }
                     r.latency += b.latencySamples();
@@ -968,7 +986,7 @@ AudioEngine::ChainResult AudioEngine::runChain (int t, const float* const* input
     auto* l = acc.getReadPointer (0);
     auto* rr = acc.getReadPointer (1);
     for (int i = 0; i < n; ++i)
-        monoOut[i] = (l[i] + rr[i]) * 0.5f;
+        monoOut[i] = (l[i] + rr[i]) * side;
     return r;
 }
 
