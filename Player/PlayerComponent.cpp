@@ -68,7 +68,7 @@ void PocketKey::paintButton (juce::Graphics& g, bool over, bool down)
     g.setColour (fg);
 
     auto word = getButtonText();
-    auto content = r.reduced (10.0f, 6.0f);
+    auto content = r.reduced (getWidth() < 110 ? 7.0f : 10.0f, 6.0f);
     if (stacked && word.isNotEmpty())
     {
         // icon above, word below
@@ -123,7 +123,14 @@ void PocketKey::paintButton (juce::Graphics& g, bool over, bool down)
     }
     if (word.isNotEmpty())
     {
-        g.setFont (lf.cond (15.0f, true).withExtraKerningFactor (0.12f));
+        // the word as big as fits (the keys are narrower with the cassette at its real size)
+        auto font = lf.cond (15.0f, true).withExtraKerningFactor (0.12f);
+        for (float size = 15.0f; size > 10.5f; size -= 0.5f)
+        {
+            font = lf.cond (size, true).withExtraKerningFactor (size < 13.0f ? 0.06f : 0.12f);
+            if (juce::GlyphArrangement::getStringWidth (font, word) <= content.getWidth()) break;
+        }
+        g.setFont (font);
         g.drawText (word, content, icon == Icon::none ? juce::Justification::centred : juce::Justification::centredLeft, true);
     }
 }
@@ -235,18 +242,31 @@ void ShelfView::refresh (const juce::String& currentId)
 
 void ShelfView::resized()
 {
-    auto r = getLocalBounds().reduced (touch ? 24 : 20, 18);
+    auto r = getLocalBounds().reduced (touch ? 24 : (getWidth() < 560 ? 12 : 20), 18);
     auto head = r.removeFromTop (44);
-    closeKey.setBounds (head.removeFromRight (100));
-    head.removeFromRight (12);
-    openKey.setBounds (head.removeFromRight (220));
-    head.removeFromRight (12);
-    themeKey.setBounds (head.removeFromRight (190));
-    r.removeFromTop (16);
+    if (r.getWidth() < 540)
+    {
+        // narrow (the player at a real cassette's size): the keys on their own row under the title
+        head = r.removeFromTop (34);
+        const int w = (head.getWidth() - 16) / 3;
+        themeKey.setBounds (head.removeFromLeft (w)); head.removeFromLeft (8);
+        openKey.setBounds (head.removeFromLeft (w)); head.removeFromLeft (8);
+        closeKey.setBounds (head);
+        r.removeFromTop (12);
+    }
+    else
+    {
+        closeKey.setBounds (head.removeFromRight (100));
+        head.removeFromRight (12);
+        openKey.setBounds (head.removeFromRight (220));
+        head.removeFromRight (12);
+        themeKey.setBounds (head.removeFromRight (190));
+        r.removeFromTop (16);
+    }
     viewport.setBounds (r);
 
-    const int columns = juce::jmax (1, r.getWidth() / 200);
-    const int gap = 14;
+    const int columns = juce::jmax (r.getWidth() < 540 ? 2 : 1, r.getWidth() / 200);
+    const int gap = r.getWidth() < 540 ? 10 : 14;
     const int w = (r.getWidth() - gap * (columns - 1) - (viewport.isVerticalScrollBarShown() ? 8 : 0)) / columns;
     const int h = juce::roundToInt ((float) (w - 20) * 638.0f / 1004.0f) + 86;
     for (int i = 0; i < tiles.size(); ++i)
@@ -258,7 +278,7 @@ void ShelfView::paint (juce::Graphics& g)
 {
     auto& lf = DeckLookAndFeel::get();
     g.fillAll (juce::Colour (0xff0f0f0e));
-    auto r = getLocalBounds().reduced (touch ? 24 : 20, 18);
+    auto r = getLocalBounds().reduced (touch ? 24 : (getWidth() < 560 ? 12 : 20), 18);
     g.setColour (Pal::cream);
     g.setFont (lf.cond (26.0f, true).withExtraKerningFactor (0.08f));
     g.drawText ("CASSETTES", r.removeFromTop (44), juce::Justification::centredLeft);
@@ -503,25 +523,44 @@ void PlayerComponent::resized()
     if (shelf.isVisible()) shelf.setBounds (getLocalBounds());
 }
 
+void PlayerComponent::setPixelsPerMm (double pxPerMm)
+{
+    pixelsPerMm = pxPerMm;
+    resized();
+}
+
+juce::Point<int> PlayerComponent::desktopSize() const
+{
+    // the cassette at its real size, with a margin round it, and two rows of keys under it
+    const int w = juce::roundToInt (cassetteWidthMm * pixelsPerMm), h = juce::roundToInt (cassetteHeightMm * pixelsPerMm);
+    return { w + 2 * margin, margin + h + margin + (margin + keyRow + rowGap + keyRow + margin) };
+}
+
 void PlayerComponent::layoutBar()
 {
     auto r = getLocalBounds();
-    barArea = r.removeFromBottom (68);
-    look.setBounds (r.reduced (20, 16));
+    const int w = juce::roundToInt (cassetteWidthMm * pixelsPerMm), h = juce::roundToInt (cassetteHeightMm * pixelsPerMm);
+    look.setBounds (juce::Rectangle<int> (w, h).withCentre ({ r.getCentreX(), margin + h / 2 }));
+    barArea = r.withTop (look.getBottom() + margin);
 
-    auto b = barArea.reduced (16, 12);
-    rew.setBounds (b.removeFromLeft (56)); b.removeFromLeft (8);
-    stop.setBounds (b.removeFromLeft (56)); b.removeFromLeft (8);
-    play.setBounds (b.removeFromLeft (68)); b.removeFromLeft (8);
-    ff.setBounds (b.removeFromLeft (56)); b.removeFromLeft (12);
-    counterArea = b.removeFromLeft (96);
-    b.removeFromLeft (8);
-    turn.setBounds (b.removeFromLeft (118)); b.removeFromLeft (8);
-    nr.setBounds (b.removeFromLeft (76));
-    eject.setBounds (b.removeFromRight (122));
-    b.removeFromRight (16);
-    volumeArea = b.removeFromRight (juce::jmin (190, juce::jmax (0, b.getWidth() - 16)));
-    volume.setBounds (volumeArea.withTrimmedLeft (36));
+    // two rows under the cassette: the transport and the counter; then side, noise reduction, volume and the shelf
+    auto b = barArea.reduced (margin, margin);
+    auto top = b.removeFromTop (keyRow);
+    b.removeFromTop (rowGap);
+    auto bottom = b.removeFromTop (keyRow);
+    const int unit = juce::jlimit (36, 56, top.getWidth() / 9);
+    rew.setBounds (top.removeFromLeft (unit)); top.removeFromLeft (6);
+    stop.setBounds (top.removeFromLeft (unit)); top.removeFromLeft (6);
+    play.setBounds (top.removeFromLeft (unit + 12)); top.removeFromLeft (6);
+    ff.setBounds (top.removeFromLeft (unit)); top.removeFromLeft (8);
+    counterArea = top;
+
+    const int wide = juce::jlimit (96, 118, bottom.getWidth() * 27 / 100);
+    turn.setBounds (bottom.removeFromLeft (wide)); bottom.removeFromLeft (6);
+    nr.setBounds (bottom.removeFromLeft (juce::jlimit (56, 76, bottom.getWidth() / 5))); bottom.removeFromLeft (8);
+    eject.setBounds (bottom.removeFromRight (wide)); bottom.removeFromRight (8);
+    volumeArea = bottom;
+    volume.setBounds (volumeArea.withTrimmedLeft (30));
 }
 
 void PlayerComponent::layoutTouch()
@@ -563,7 +602,7 @@ void PlayerComponent::paint (juce::Graphics& g)
         g.setColour (barColour);
         g.fillRect (barArea);
         g.setColour (keyLine);
-        g.fillRect (barArea.removeFromTop (1));
+        g.fillRect (barArea.withHeight (1));   // (a copy: removeFromTop would shave the bar a pixel every frame)
     }
 
     if (! haveCassette)
@@ -571,7 +610,7 @@ void PlayerComponent::paint (juce::Graphics& g)
         g.setColour (Pal::muted);
         g.setFont (lf.cond (16.0f));
         g.drawText (touch ? "Or send a .cass to the player from another app" : "Or drop a .cass file anywhere on the player",
-                    openFirst.getBounds().translated (0, 50).withSizeKeepingCentre (500, 24), juce::Justification::centred);
+                    openFirst.getBounds().translated (0, 50).withSizeKeepingCentre (juce::jmin (500, getWidth() - 16), 24), juce::Justification::centred);
         g.setColour (Pal::accent);
         g.setFont (lf.cond (34.0f, true));
         g.drawText ("TF-P1", openFirst.getBounds().translated (0, -90).withSizeKeepingCentre (300, 40), juce::Justification::centred);
@@ -617,7 +656,7 @@ void PlayerComponent::paintOverChildren (juce::Graphics& g)
         {
             g.setColour (Pal::muted);
             g.setFont (lf.cond (12.0f, true).withExtraKerningFactor (0.2f));
-            g.drawText ("VOL", volumeArea.withWidth (36), juce::Justification::centredLeft);
+            g.drawText ("VOL", volumeArea.withWidth (30), juce::Justification::centredLeft);
         }
         g.setColour (Pal::lcdText);
         g.setFont (lf.mono (20.0f));

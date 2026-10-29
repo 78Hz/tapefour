@@ -240,6 +240,7 @@ if(TAPEFOUR_PLAYER)
         Player/SystemVolume.cpp
         Player/Launch.cpp
         $<$<STREQUAL:${CMAKE_SYSTEM_NAME},iOS>:Player/SystemVolume_ios.mm>
+        $<$<STREQUAL:${CMAKE_SYSTEM_NAME},Darwin>:Player/ScreenSize_mac.mm>
         Source/Tape.cpp
         Source/TapeEngine.cpp
         Source/NoiseReduction.cpp

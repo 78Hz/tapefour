@@ -7,8 +7,28 @@
 #endif
 #include "../Source/CassetteComponent.h"
 
+#if JUCE_MAC
+double tfPocketScreenPointsPerMm (double frameX, double frameWidth, double frameHeight);   // ScreenSize_mac.mm
+#endif
+
 namespace tf::pocket
 {
+/** Logical pixels per millimetre on the screen showing this point: what the system reports of its size
+    (on Windows, only the scaling setting: 96 pixels an inch at 100 %). */
+static double pixelsPerMm (juce::Point<int> where)
+{
+    const auto& displays = juce::Desktop::getInstance().getDisplays();
+    const auto* d = displays.getDisplayForPoint (where);
+    if (d == nullptr) d = displays.getPrimaryDisplay();
+    if (d == nullptr) return 96.0 / 25.4;
+   #if JUCE_MAC
+    const auto fromMac = tfPocketScreenPointsPerMm (d->totalArea.getX(), d->totalArea.getWidth(), d->totalArea.getHeight());
+    if (fromMac > 1.0) return fromMac / juce::Desktop::getInstance().getGlobalScaleFactor();
+   #endif
+    const double perInch = d->dpi / juce::jmax (0.1, d->scale);
+    return perInch > 50.0 && perInch < 1000.0 ? perInch / 25.4 : 96.0 / 25.4;
+}
+
 // A phone or tablet: the keys come up when you tap the cassette. --touch shows that layout on a computer.
 static bool touchLayout (const juce::String& commandLine)
 {
@@ -32,15 +52,47 @@ public:
        #if JUCE_IOS || JUCE_ANDROID
         setFullScreen (true);
        #else
-        setResizable (true, true);
-        setResizeLimits (touch ? 560 : 860, 380, 4000, 3000);
-        centreWithSize (touch ? 844 : 920, touch ? 390 : 620);
+        if (touch)
+        {
+            setResizable (true, true);
+            setResizeLimits (560, 380, 4000, 3000);
+            centreWithSize (844, 390);
+        }
+        else
+        {
+            // the cassette at a real cassette's size, the window fitted round it
+            setResizable (false, false);
+            fitToScreen (juce::Desktop::getInstance().getDisplays().getPrimaryDisplay() != nullptr
+                             ? juce::Desktop::getInstance().getDisplays().getPrimaryDisplay()->userArea.getCentre() : juce::Point<int>());
+            centreWithSize (getWidth(), getHeight());
+        }
        #endif
         setVisible (true);
         player->grabKeyboardFocus();
     }
 
     void closeButtonPressed() override { juce::JUCEApplication::getInstance()->systemRequestedQuit(); }
+
+   #if ! (JUCE_IOS || JUCE_ANDROID)
+    // Moved to another screen: the cassette stays a real cassette's size there too.
+    void moved() override
+    {
+        juce::DocumentWindow::moved();
+        if (player != nullptr && ! player->isTouch()) fitToScreen (getBounds().getCentre());
+    }
+
+    void fitToScreen (juce::Point<int> where)
+    {
+        const auto ppm = pixelsPerMm (where);
+        if (std::abs (ppm - fitted) < 0.01) return;
+        fitted = ppm;
+        player->setPixelsPerMm (ppm);
+        const auto size = player->desktopSize();
+        setContentComponentSize (size.x, size.y);
+    }
+
+    double fitted = 0.0;
+   #endif
 
     PlayerComponent* player = nullptr;
 };

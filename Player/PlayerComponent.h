@@ -73,6 +73,13 @@ public:
         the player's own folder, then put in. */
     void importAndOpen (const juce::URL&);
 
+    /** On a computer: the screen's pixels per millimetre, so the cassette is drawn at a real cassette's size
+        (100.4 x 63.8 mm); the window is sized to it (desktopSize). */
+    void setPixelsPerMm (double pxPerMm);
+    juce::Point<int> desktopSize() const;
+    bool isTouch() const noexcept { return touch; }
+    static constexpr double cassetteWidthMm = 100.4, cassetteHeightMm = 63.8;
+
     void paint (juce::Graphics&) override;
     void paintOverChildren (juce::Graphics&) override;
     void resized() override;
@@ -90,6 +97,8 @@ private:
     void timerCallback() override;
     void layoutTouch();
     void layoutBar();
+    double pixelsPerMm = 96.0 / 25.4;
+    static constexpr int margin = 12, keyRow = 34, rowGap = 8;
     void refreshKeys();
     void say (const juce::String& message, double seconds = 4.0);
     juce::String counterText() const;
