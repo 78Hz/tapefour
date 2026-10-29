@@ -134,8 +134,12 @@ public:
     double getTailLengthSeconds() const override { return 6.0; }
     bool acceptsMidi() const override { return true; }
     bool producesMidi() const override { return false; }
-    juce::AudioProcessorEditor* createEditor() override { return nullptr; }
-    bool hasEditor() const override { return false; }
+    juce::AudioProcessorEditor* createEditor() override { return editorFactory ? editorFactory (*this) : nullptr; }
+    bool hasEditor() const override { return editorFactory != nullptr; }
+
+    /** Its editor, in a window of its own like a plug-in's (the app sets this: the engine has no user interface). */
+    static inline std::function<juce::AudioProcessorEditor* (Processor&)> editorFactory;
+    int editorTab = 0;   // the tab the editor was last on
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
     void setCurrentProgram (int) override {}

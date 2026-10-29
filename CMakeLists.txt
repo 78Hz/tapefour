@@ -159,6 +159,7 @@ target_sources(TapeFour PRIVATE
     Source/TransistorPanel.cpp
     Source/InstrumentWidgets.cpp
     Source/PresetPanel.cpp
+    Source/InstrumentEditor.cpp
     Source/InlayCard.cpp
     Source/SetupWindow.cpp
     Source/MasterDeckCard.cpp)

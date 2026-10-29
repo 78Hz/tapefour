@@ -2,6 +2,9 @@
 #include "CassetteComponent.h"
 #include "PluginScan.h"
 #include "CrashHandler.h"
+#include "InstrumentEditor.h"
+#include "ElectricPianoPanel.h"
+#include "TransistorPanel.h"
 
 namespace tf
 {
@@ -124,6 +127,26 @@ public:
 
         lookAndFeel = std::make_unique<tf::DeckLookAndFeel>();
         juce::LookAndFeel::setDefaultLookAndFeel (lookAndFeel.get());
+
+        // the built-in instruments' editors, in windows of their own like plug-ins'
+        tf::ep::Processor::editorFactory = [] (tf::ep::Processor& p) -> juce::AudioProcessorEditor*
+        {
+            return new tf::InstrumentEditor (p, p, "TF ELECTRIC PIANO", [&p] (tf::InstrumentEditor::Say say)
+            {
+                auto e = std::make_unique<tf::ElectricPianoPanel> (p, p.editorTab);
+                e->onMessage = say;
+                return std::unique_ptr<juce::Component> (std::move (e));
+            });
+        };
+        tf::organ::Processor::editorFactory = [] (tf::organ::Processor& p) -> juce::AudioProcessorEditor*
+        {
+            return new tf::InstrumentEditor (p, p, "TF TRANSISTOR", [&p] (tf::InstrumentEditor::Say say)
+            {
+                auto e = std::make_unique<tf::TransistorPanel> (p, p.editorTab);
+                e->onMessage = say;
+                return std::unique_ptr<juce::Component> (std::move (e));
+            });
+        };
 
         // A tool for making artwork: --render-cassettes <folder> draws each formulation's cassette, at full size, as a PNG.
         if (commandLine.contains ("--render-cassettes"))

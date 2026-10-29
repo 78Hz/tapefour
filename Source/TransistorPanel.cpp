@@ -158,7 +158,7 @@ void TransistorPanel::build()
             addAndMakeVisible (d);
             auto left = area.removeFromLeft (420);
             d->setBounds (left.withTrimmedBottom (14));
-            note (left.removeFromBottom (14).withTrimmedLeft (8), utf ("IV = 2\xe2\x85\x94' 2' 1\xe2\x85\x97' 1' \xc2\xb7 ~ FLUTE \xc2\xb7 M REED \xc2\xb7 BOTH TONES IN: SILENCE"));
+            note (left.removeFromBottom (14).withTrimmedLeft (8), utf ("IV = 2\xe2\x85\x94' 2' 1\xe2\x85\x97' 1' \xc2\xb7 ~ FLUTE \xc2\xb7 M REED"));
             auto right = area.withTrimmedLeft (12);
             auto& vib = paramChips ("vibrato", "VIBRATO", { "OFF", "ON" });
             const int h = vib.layout (right.getWidth());
