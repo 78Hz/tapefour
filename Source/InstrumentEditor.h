@@ -15,13 +15,13 @@ public:
     using Say = std::function<void (const juce::String&)>;
     /** makePanel: the instrument's own panel; it can show a message in the header with the Say it's given. */
     InstrumentEditor (juce::AudioProcessor&, presets::Presettable&, const juce::String& title,
-                      std::function<std::unique_ptr<juce::Component> (Say)> makePanel);
+                      std::function<std::unique_ptr<juce::Component> (Say)> makePanel, int height = defaultHeight);
     ~InstrumentEditor() override;
 
     void paint (juce::Graphics&) override;
     void resized() override;
 
-    static constexpr int width = 860, height = 390;
+    static constexpr int width = 860, defaultHeight = 390;
 
 private:
     void showPresets (bool);

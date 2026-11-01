@@ -1,6 +1,7 @@
 #include "Blocks.h"
 #include "ElectricPiano.h"
 #include "TransistorOrgan.h"
+#include "PhraseSampler.h"
 
 namespace tf
 {
@@ -300,6 +301,7 @@ ProcessorBlock::ProcessorBlock (std::unique_ptr<juce::AudioProcessor> p, Kind k,
     editorAvailable = processor->hasEditor();
     makesMidi = processor->producesMidi();
     numIns = processor->getTotalNumInputChannels();
+    tapeListener = dynamic_cast<TapeFeedListener*> (processor.get());
     processor->addListener (this);
 }
 
@@ -376,6 +378,13 @@ void ProcessorBlock::process (juce::AudioBuffer<float>& stereo, int numSamples, 
             view.addFrom (0, 0, stereo, 1, start, len, 0.5f);
         }
 
+        if (tapeListener != nullptr)
+        {
+            // this piece of each track's tape
+            const int count = tapeTracks != nullptr ? std::min (tapeCount, (int) tapePiece.size()) : 0;
+            for (int t = 0; t < count; ++t) tapePiece[(size_t) t] = tapeTracks[t] != nullptr ? tapeTracks[t] + start : nullptr;
+            tapeListener->tapeFeed (tapePiece.data(), count);
+        }
         processor->processBlock (view, pieceMidi);
 
         if (outs >= 2)
@@ -477,7 +486,7 @@ PendingBlock::PendingBlock (std::unique_ptr<juce::XmlElement> s) : saved (std::m
 }
 
 //==============================================================================
-juce::String BuiltIn::synthName (int which) { return which == epiano ? "TF ELECTRIC PIANO" : "TF TRANSISTOR"; }
+juce::String BuiltIn::synthName (int which) { return which == epiano ? "TF ELECTRIC PIANO" : which == sampler ? "TF PHRASE SAMPLER" : "TF TRANSISTOR"; }
 
 juce::String BuiltIn::fxName (int which)
 {
@@ -494,6 +503,13 @@ std::unique_ptr<Block> BuiltIn::createSynth (int which)
     which = juce::jlimit (0, numSynths - 1, which);
     if (which == epiano)
         return std::make_unique<ProcessorBlock> (std::make_unique<ep::Processor>(), ProcessorBlock::Kind::builtInSynth, which);
+    if (which == sampler)
+    {
+        // it samples the track's input, so it takes it (and plays it on in CROSSFADER and the EXTERNAL modes)
+        auto b = std::make_unique<ProcessorBlock> (std::make_unique<sampler::Processor>(), ProcessorBlock::Kind::builtInSynth, which);
+        b->processInput = true;
+        return b;
+    }
     return std::make_unique<ProcessorBlock> (std::make_unique<organ::Processor>(), ProcessorBlock::Kind::builtInSynth, which);
 }
 
@@ -513,6 +529,12 @@ tf::organ::Processor* BuiltIn::transistorOrgan (Block* b) noexcept
 {
     auto* pb = dynamic_cast<ProcessorBlock*> (b);
     return pb != nullptr ? dynamic_cast<organ::Processor*> (pb->getProcessor()) : nullptr;
+}
+
+sampler::Processor* BuiltIn::phraseSampler (Block* b) noexcept
+{
+    auto* pb = dynamic_cast<ProcessorBlock*> (b);
+    return pb != nullptr ? dynamic_cast<sampler::Processor*> (pb->getProcessor()) : nullptr;
 }
 
 ep::Processor* BuiltIn::electricPiano (Block* b) noexcept

@@ -882,6 +882,7 @@ AudioEngine::ChainResult AudioEngine::runChain (int t, const float* const* input
                 // A block that doesn't make MIDI leaves the stream as it was, whatever it does with its copy.
                 midiWork.clear();
                 midiWork.addEvents (trackMidi, 0, n, 0);
+                b.setTapeFeed (tapeOutPtr, numTracks);
                 b.process (audio, n, midiWork);
                 if (b.producesMidi())
                     trackMidi.swapWith (midiWork);

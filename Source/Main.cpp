@@ -5,6 +5,7 @@
 #include "InstrumentEditor.h"
 #include "ElectricPianoPanel.h"
 #include "TransistorPanel.h"
+#include "PhraseSamplerPanel.h"
 
 namespace tf
 {
@@ -87,6 +88,76 @@ public:
         return tf::PluginScan::isHelperCommandLine (getCommandLineParameters());
     }
 
+    /** For the manual: --render-sampler <folder> fills a phrase sampler with made-up sounds and draws its window, tab by tab. */
+    static bool renderSampler (const juce::File& folder)
+    {
+        folder.createDirectory();
+        constexpr double sr = 48000.0;
+        tf::sampler::Processor p;
+        p.setRateAndBufferSizeDetails (sr, 512);
+        p.prepareToPlay (sr, 512);
+        auto run = [&p] (int blocks) { juce::AudioBuffer<float> b (2, 512); juce::MidiBuffer m; for (int k = 0; k < blocks; ++k) { b.clear(); p.processBlock (b, m); } };
+        // made-up sounds, synthesised: a kick, a snare, a drum loop, a chord stab, a bass note
+        juce::Random rnd (7);
+        auto make = [&] (const char* name, double seconds, std::function<double (double)> f, int pad)
+        {
+            auto file = folder.getChildFile (juce::String (name) + ".wav");
+            {
+                std::unique_ptr<juce::OutputStream> os (file.createOutputStream());
+                juce::WavAudioFormat wav;
+                auto w = wav.createWriterFor (os, juce::AudioFormatWriterOptions().withSampleRate (44100.0).withNumChannels (1).withBitsPerSample (16));
+                std::vector<float> v ((size_t) (seconds * 44100.0));
+                for (size_t i = 0; i < v.size(); ++i) v[i] = (float) f ((double) i / 44100.0);
+                const float* ch[] { v.data() };
+                w->writeFromFloatArrays (ch, 1, (int) v.size());
+            }
+            juce::String e;
+            p.importFile (file, pad, e);
+            file.deleteFile();
+        };
+        auto kick = [] (double t) { return 0.9 * std::exp (-t * 9.0) * std::sin (2.0 * juce::MathConstants<double>::pi * (50.0 * t + 90.0 * (1.0 - std::exp (-t * 30.0)) / 30.0)); };
+        auto snare = [&rnd] (double t) { return std::exp (-t * 18.0) * (0.5 * (rnd.nextDouble() * 2.0 - 1.0) + 0.4 * std::sin (2.0 * juce::MathConstants<double>::pi * 190.0 * t)); };
+        const double beat = 60.0 / 94.0;
+        auto loop = [&] (double t)
+        {
+            const double inBar = std::fmod (t, beat * 4.0);
+            const double k = std::fmod (inBar, beat * 2.0), s = std::fmod (inBar + beat, beat * 2.0), h = std::fmod (inBar, beat * 0.5);
+            return 0.8 * kick (k) + 0.6 * snare (s) + 0.15 * std::exp (-h * 60.0) * (rnd.nextDouble() * 2.0 - 1.0);
+        };
+        auto stab = [] (double t) { double v = 0; for (double f : { 261.6, 329.6, 392.0, 493.9 }) v += std::sin (2.0 * juce::MathConstants<double>::pi * f * t); return 0.2 * v * std::exp (-t * 4.0); };
+        auto bass = [] (double t) { const double ph = std::fmod (55.0 * t, 1.0); return 0.6 * (2.0 * ph - 1.0) * std::exp (-t * 2.0); };
+        make ("kick", 0.5, kick, 0);
+        make ("snare", 0.4, snare, 1);
+        make ("drums 94", beat * 8.0, loop, 2);
+        make ("stab", 1.0, stab, 5);
+        make ("bass", 1.2, bass, 6);
+        make ("loop 2", beat * 4.0, loop, 3);
+        auto q = p.pad (2);
+        q.loop = tf::sampler::Loop::partialLoop; q.loopPoint = q.frames / 4; q.start = q.frames / 40; q.sounding = tf::sampler::Sounding::toggle;
+        p.setPad (2, q);
+        p.editorPad = 2;
+        p.pressKey ("FILTER");
+        p.pressPad (2, 1.0f);
+        p.setRibbon (0.62f, false);
+        run (20);
+        auto rs = p.recordSettings(); rs.toPad = 7; p.setRecordSettings (rs);
+        const char* names[] { "play", "sample", "edit", "songs", "setup" };
+        for (int t = 0; t < 5; ++t)
+        {
+            p.editorTab = t;
+            std::unique_ptr<juce::AudioProcessorEditor> ed (p.createEditor());
+            if (ed == nullptr) return false;
+            run (8);
+            const auto img = ed->createComponentSnapshot (ed->getLocalBounds(), true, 2.0f);
+            juce::PNGImageFormat png;
+            auto f = folder.getChildFile (juce::String ("sampler_") + names[t] + ".png");
+            f.deleteFile();
+            std::unique_ptr<juce::OutputStream> os (f.createOutputStream());
+            if (os == nullptr || ! png.writeImageToStream (img, *os)) return false;
+        }
+        return true;
+    }
+
     static bool renderCassettes (const juce::File& folder)
     {
         folder.createDirectory();
@@ -147,8 +218,26 @@ public:
                 return std::unique_ptr<juce::Component> (std::move (e));
             });
         };
+        tf::sampler::Processor::editorFactory = [] (tf::sampler::Processor& p) -> juce::AudioProcessorEditor*
+        {
+            return new tf::InstrumentEditor (p, p, "TF PHRASE SAMPLER", [&p] (tf::InstrumentEditor::Say say)
+            {
+                auto e = std::make_unique<tf::PhraseSamplerPanel> (p, p.editorTab);
+                e->onMessage = say;
+                return std::unique_ptr<juce::Component> (std::move (e));
+            }, 516);
+        };
 
         // A tool for making artwork: --render-cassettes <folder> draws each formulation's cassette, at full size, as a PNG.
+        if (commandLine.contains ("--render-sampler"))
+        {
+            auto args = juce::StringArray::fromTokens (commandLine, true);
+            auto i = args.indexOf ("--render-sampler");
+            auto folder = juce::File::getCurrentWorkingDirectory().getChildFile (args[i + 1].unquoted());
+            setApplicationReturnValue (renderSampler (folder) ? 0 : 1);
+            quit();
+            return;
+        }
         if (commandLine.contains ("--render-cassettes"))
         {
             auto args = juce::StringArray::fromTokens (commandLine, true);

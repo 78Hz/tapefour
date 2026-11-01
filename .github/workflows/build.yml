@@ -43,6 +43,9 @@ jobs:
       - name: Test the transistor organ
         run: build/TransistorOrganTest_artefacts/Release/TransistorOrganTest.exe
 
+      - name: Test the phrase sampler
+        run: build/PhraseSamplerTest_artefacts/Release/PhraseSamplerTest.exe
+
       - name: Test the full audio path
         run: build/MixerTest_artefacts/Release/MixerTest.exe
 
@@ -112,6 +115,9 @@ jobs:
       - name: Test the transistor organ
         run: xvfb-run -a build/TransistorOrganTest_artefacts/Release/TransistorOrganTest
 
+      - name: Test the phrase sampler
+        run: xvfb-run -a build/PhraseSamplerTest_artefacts/Release/PhraseSamplerTest
+
       - name: Test the full audio path
         run: xvfb-run -a build/MixerTest_artefacts/Release/MixerTest
 
@@ -175,6 +181,9 @@ jobs:
 
       - name: Test the transistor organ
         run: build/TransistorOrganTest_artefacts/Release/TransistorOrganTest
+
+      - name: Test the phrase sampler
+        run: build/PhraseSamplerTest_artefacts/Release/PhraseSamplerTest
 
       - name: Test the full audio path
         run: build/MixerTest_artefacts/Release/MixerTest
@@ -326,7 +335,7 @@ jobs:
       - name: Build the tests
         run: |
           set -o pipefail
-          cmake --build build --parallel --target FormatTest NoiseReductionTest EngineTest ElectricPianoTest TransistorOrganTest MixerTest PlayerTest 2>&1 | tee build.log || {
+          cmake --build build --parallel --target FormatTest NoiseReductionTest EngineTest ElectricPianoTest TransistorOrganTest PhraseSamplerTest MixerTest PlayerTest 2>&1 | tee build.log || {
             # Compile errors as annotations, so they show on the run's page without the log.
             grep -E ": (fatal )?error:|^ld: |Undefined symbols|undefined reference|error LNK|: error [A-Z]+[0-9]+" build.log | sort -u | head -10 | sed 's/^/::error::/'
             exit 1; }
@@ -342,5 +351,6 @@ jobs:
           xvfb-run -a build/EngineTest_artefacts/RelWithDebInfo/EngineTest
           xvfb-run -a build/ElectricPianoTest_artefacts/RelWithDebInfo/ElectricPianoTest
           xvfb-run -a build/TransistorOrganTest_artefacts/RelWithDebInfo/TransistorOrganTest
+          xvfb-run -a build/PhraseSamplerTest_artefacts/RelWithDebInfo/PhraseSamplerTest
           xvfb-run -a build/MixerTest_artefacts/RelWithDebInfo/MixerTest
           xvfb-run -a build/PlayerTest_artefacts/RelWithDebInfo/PlayerTest

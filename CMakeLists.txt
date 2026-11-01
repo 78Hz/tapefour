@@ -130,6 +130,7 @@ set(TAPEFOUR_ENGINE_SOURCES
     Source/Blocks.cpp
     Source/ElectricPiano.cpp
     Source/TransistorOrgan.cpp
+    Source/PhraseSampler.cpp
     Source/InstrumentPresets.cpp
     Source/Tuning.cpp
     Source/MidiHub.cpp
@@ -157,6 +158,7 @@ target_sources(TapeFour PRIVATE
     Source/ChainEditor.cpp
     Source/ElectricPianoPanel.cpp
     Source/TransistorPanel.cpp
+    Source/PhraseSamplerPanel.cpp
     Source/InstrumentWidgets.cpp
     Source/PresetPanel.cpp
     Source/InstrumentEditor.cpp
@@ -309,6 +311,7 @@ if(TAPEFOUR_TESTS AND NOT TAPEFOUR_ONLY_PLAYER)
 
     tapefour_test(ElectricPianoTest Tests/ElectricPianoTest.cpp Source/ElectricPiano.cpp Source/InstrumentPresets.cpp Source/Tuning.cpp)
     tapefour_test(TransistorOrganTest Tests/TransistorOrganTest.cpp Source/TransistorOrgan.cpp Source/InstrumentPresets.cpp Source/Tuning.cpp)
+    tapefour_test(PhraseSamplerTest Tests/PhraseSamplerTest.cpp Source/PhraseSampler.cpp Source/InstrumentPresets.cpp)
     tapefour_test(EngineTest Tests/EngineTest.cpp Source/Tape.cpp Source/TapeEngine.cpp Source/NoiseReduction.cpp)
     tapefour_test(MixerTest Tests/MixerTest.cpp ${TAPEFOUR_ENGINE_SOURCES})
     tapefour_test(ScanTest Tests/ScanTest.cpp Source/PluginScan.cpp Source/ClapFormat.cpp)

@@ -6,6 +6,8 @@ namespace tf
 {
 namespace ep { class Processor; }
 namespace organ { class Processor; }
+namespace sampler { class Processor; }
+struct TapeFeedListener;
 
 /**
     What a block does with the two streams that run through a track's chain:
@@ -45,6 +47,8 @@ public:
     /** Audio thread: processes the stereo buffer in place; midi is the MIDI in, and the MIDI out if producesMidi(). */
     virtual void process (juce::AudioBuffer<float>& /*stereo*/, int /*numSamples*/, juce::MidiBuffer& /*midi*/) {}
     virtual void applyMpe (bool /*on*/, int /*bendRange*/) noexcept {}
+    /** Audio thread, before process(): every track's tape playback for this block (for a sampler). */
+    virtual void setTapeFeed (const float* const* /*tracks*/, int /*numTracks*/) noexcept {}
     virtual int latencySamples() const { return 0; }
 
     /** For EDIT and MIDI learn; nullptr for blocks with no parameters. */
@@ -85,6 +89,7 @@ public:
     void prepare (double sampleRate, int blockSize) override;
     void process (juce::AudioBuffer<float>& stereo, int numSamples, juce::MidiBuffer& midi) override;
     void applyMpe (bool on, int bendRange) noexcept override;
+    void setTapeFeed (const float* const* tracks, int count) noexcept override { tapeTracks = tracks; tapeCount = count; }
     int latencySamples() const override     { return processor->getLatencySamples(); }
 
     juce::AudioProcessor* getProcessor() noexcept override { return processor.get(); }
@@ -117,6 +122,10 @@ private:
     juce::String name, maker;
     bool editorAvailable = false, makesMidi = false;
     int numIns = 0;
+    TapeFeedListener* tapeListener = nullptr;
+    const float* const* tapeTracks = nullptr;
+    int tapeCount = 0;
+    std::array<const float*, 8> tapePiece {};   // (kept here: the listener holds on to it for the block)
 
     juce::AudioBuffer<float> work;
     juce::MidiBuffer pieceMidi, midiOut;
@@ -178,7 +187,7 @@ private:
 /** TAPE·FOUR's own instruments and effects. */
 namespace BuiltIn
 {
-    enum Synth { transistor = 0, epiano = 1, numSynths };
+    enum Synth { transistor = 0, epiano = 1, sampler = 2, numSynths };
     enum Fx { plate = 0, spring = 1, tapeEcho = 2, numFx };
 
     juce::String synthName (int which);
@@ -189,6 +198,8 @@ namespace BuiltIn
     ep::Processor* electricPiano (Block*) noexcept;
     /** The transistor organ behind a block, or nullptr. */
     tf::organ::Processor* transistorOrgan (Block*) noexcept;
+    /** The phrase sampler behind a block, or nullptr. */
+    tf::sampler::Processor* phraseSampler (Block*) noexcept;
     /** A block from its saved BLOCK element, if it's a built-in (nullptr for plug-ins and external synths). */
     std::unique_ptr<Block> restore (const juce::XmlElement& block);
 }

@@ -3,6 +3,7 @@
 #include "../Source/AudioEngine.h"
 #include "../Source/ElectricPiano.h"
 #include "../Source/TransistorOrgan.h"
+#include "../Source/PhraseSampler.h"
 #include "../Source/TapeWriter.h"
 #include "../Source/ClapFormat.h"
 #include "../Source/TapeShelf.h"
@@ -1211,6 +1212,43 @@ int main()
         me.injectMidi (juce::MidiMessage::noteOff (1, 60));
         check (std::abs (db (sent / (ToneSynth::peak * std::sqrt (2.0)))) < 0.3, "gain: the block's meter reads what it sends into the track (dB)",
                db (sent / (ToneSynth::peak * std::sqrt (2.0))), 0.0);
+    }
+
+    // ---- The phrase sampler in a chain: it takes the track's input, and can sample the tape ----
+    {
+        Rig m;
+        auto& me = *m.engine;
+        audioIn (me, 0, 0);
+        me.insertBlock (0, -1, BuiltIn::createSynth (BuiltIn::sampler));
+        auto* blk = me.findBlock (0, me.getChain (0)[0].id);
+        auto* smp = BuiltIn::phraseSampler (blk);
+        check (smp != nullptr && blk->processInput.load(), "sampler: made with PROCESS INPUT on (it samples the track's input)", blk->processInput.load() ? 1 : 0, 1);
+        me.track[0].armed = true;
+        m.f[0] = 700.0; m.amp[0] = 0.3f;
+        auto out = m.run (0.3);
+        check (tone (out, 700.0, 0.1, 0.3) < 1.0e-3, "sampler: the input isn't heard through it (no effect on)", tone (out, 700.0, 0.1, 0.3), 0.0);
+        juce::String err;
+        auto rs = smp->recordSettings(); rs.toPad = 0; rs.trigger = 0; smp->setRecordSettings (rs);
+        smp->armRecord (err);
+        m.run (0.5);
+        smp->stopRecord();
+        check (smp->pad (0).used && std::abs (smp->pad (0).frames - 10022) < 300, "sampler: half a second of the track's input sampled into A1 at LONG (frames)", smp->pad (0).frames, 10022);
+        m.amp[0] = 0.0f;
+        smp->pressPad (0, 1.0f);
+        out = m.run (0.3);
+        smp->releasePad (0);
+        check (tone (out, 700.0, 0.05, 0.25) > 0.02, "sampler: pad A1 plays it back into the track", tone (out, 700.0, 0.05, 0.25), 0.1);
+        // from the tape: track 2's playback (a blank tape here), not the input
+        m.amp[0] = 0.3f;
+        rs.toPad = 1; rs.source = sampler::Source::tape; rs.tapeTrack = 1; smp->setRecordSettings (rs);
+        smp->armRecord (err);
+        m.run (0.3);
+        smp->stopRecord();
+        double sum = 0.0;
+        for (auto v : smp->padAudio (1)) sum += std::abs ((double) v);
+        check (smp->pad (1).used && sum / (double) std::max<size_t> (1, smp->padAudio (1).size()) < 50.0, "sampler: sampling the tape takes the tape, not the input (mean, int16)",
+               sum / (double) std::max<size_t> (1, smp->padAudio (1).size()), 0.0);
+        me.track[0].armed = false;
     }
 
     // ---- The chain: MIDI and audio streams through blocks ----

@@ -4,7 +4,7 @@
 namespace tf
 {
 InstrumentEditor::InstrumentEditor (juce::AudioProcessor& p, presets::Presettable& i, const juce::String& t,
-                                    std::function<std::unique_ptr<juce::Component> (Say)> make)
+                                    std::function<std::unique_ptr<juce::Component> (Say)> make, int height)
     : juce::AudioProcessorEditor (p), inst (i), title (t), makePanel (std::move (make)), display (i)
 {
     display.onClick = [this] { showPresets (list == nullptr); };
