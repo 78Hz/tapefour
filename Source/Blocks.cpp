@@ -2,6 +2,7 @@
 #include "ElectricPiano.h"
 #include "TransistorOrgan.h"
 #include "PhraseSampler.h"
+#include "SpringReverb.h"
 
 namespace tf
 {
@@ -142,72 +143,6 @@ private:
     juce::Reverb reverb;
     juce::AudioBuffer<float> pre;
     int prePos = 0;
-};
-
-/** A spring tank: a chain of all-passes inside a feedback loop gives the drip and the boing. */
-class SpringFx : public FxProcessor
-{
-public:
-    SpringFx()
-    {
-        decay = param ("decay", "Decay", 0.0f, 1.0f, 0.55f);
-        tone = param ("tone", "Tone", 1500.0f, 7000.0f, 3800.0f, "Hz");
-        drip = param ("drip", "Drip", 0.0f, 1.0f, 0.6f);
-    }
-    const juce::String getName() const override { return BuiltIn::fxName (BuiltIn::spring); }
-
-    void prepareToPlay (double rate, int) override
-    {
-        sr = rate;
-        for (int c = 0; c < 2; ++c)
-        {
-            auto& s = springs[c];
-            s.line.assign ((size_t) (rate * (c == 0 ? 0.0331 : 0.0417)) + 1, 0.0f);
-            s.pos = 0;
-            s.lp = s.hp = s.hpIn = 0.0f;
-            for (auto& z : s.ap) z = 0.0f;
-        }
-    }
-
-    using juce::AudioProcessor::processBlock;   // the double-precision overload stays the base one
-    void processBlock (juce::AudioBuffer<float>& b, juce::MidiBuffer&) override
-    {
-        const auto fb = 0.45f + 0.47f * decay->get();
-        const auto lpC = (float) std::exp (-juce::MathConstants<double>::twoPi * tone->get() / sr);
-        const auto hpC = (float) std::exp (-juce::MathConstants<double>::twoPi * 180.0 / sr);
-        const auto a = -(0.35f + 0.5f * drip->get());   // stronger dispersion, more drip
-        const int n = b.getNumSamples();
-        auto* l = b.getWritePointer (0);
-        auto* r = b.getWritePointer (1);
-        for (int i = 0; i < n; ++i)
-        {
-            const auto in = 0.5f * (l[i] + r[i]);
-            for (int c = 0; c < 2; ++c)
-            {
-                auto& s = springs[c];
-                // springs barely carry bass
-                s.hp = hpC * (s.hp + in - s.hpIn);
-                s.hpIn = in;
-                auto y = s.line[(size_t) s.pos];
-                s.lp = y * (1.0f - lpC) + s.lp * lpC;
-                auto x = 0.6f * s.hp + fb * s.lp;
-                for (auto& z : s.ap)
-                {
-                    auto o = a * x + z;
-                    z = x - a * o;
-                    x = o;
-                }
-                s.line[(size_t) s.pos] = std::tanh (x);
-                s.pos = (s.pos + 1) % (int) s.line.size();
-                (c == 0 ? l : r)[i] = y;
-            }
-        }
-    }
-
-private:
-    struct Spring { std::vector<float> line; int pos = 0; float lp = 0, hp = 0, hpIn = 0; float ap[12] {}; };
-    juce::AudioParameterFloat *decay, *tone, *drip;
-    Spring springs[2];
 };
 
 /** A tape echo: the repeats darken and saturate, and the tape wobbles a little. */
@@ -517,7 +452,7 @@ std::unique_ptr<Block> BuiltIn::createFx (int which)
 {
     which = juce::jlimit (0, numFx - 1, which);
     std::unique_ptr<juce::AudioProcessor> p;
-    if (which == spring)        p = std::make_unique<SpringFx>();
+    if (which == spring)        p = std::make_unique<spring::Processor>();
     else if (which == tapeEcho) p = std::make_unique<TapeEchoFx>();
     else                        p = std::make_unique<PlateFx>();
     auto b = std::make_unique<ProcessorBlock> (std::move (p), ProcessorBlock::Kind::builtInFx, which);

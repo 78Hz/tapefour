@@ -6,6 +6,7 @@
 #include "ElectricPianoPanel.h"
 #include "TransistorPanel.h"
 #include "PhraseSamplerPanel.h"
+#include "SpringPanel.h"
 
 namespace tf
 {
@@ -218,6 +219,7 @@ public:
                 return std::unique_ptr<juce::Component> (std::move (e));
             });
         };
+        tf::spring::Processor::editorFactory = [] (tf::spring::Processor& p) -> juce::AudioProcessorEditor* { return new tf::SpringEditor (p); };
         tf::sampler::Processor::editorFactory = [] (tf::sampler::Processor& p) -> juce::AudioProcessorEditor*
         {
             return new tf::InstrumentEditor (p, p, "TF PHRASE SAMPLER", [&p] (tf::InstrumentEditor::Say say)
@@ -229,6 +231,33 @@ public:
         };
 
         // A tool for making artwork: --render-cassettes <folder> draws each formulation's cassette, at full size, as a PNG.
+        if (commandLine.contains ("--render-spring"))
+        {
+            // for the manual: the spring reverb's window, one picture a tank
+            auto args = juce::StringArray::fromTokens (commandLine, true);
+            auto folder = juce::File::getCurrentWorkingDirectory().getChildFile (args[args.indexOf ("--render-spring") + 1].unquoted());
+            folder.createDirectory();
+            bool ok = true;
+            for (int t = 0; t < tf::spring::numTanks; ++t)
+            {
+                tf::spring::Processor p;
+                p.setRateAndBufferSizeDetails (48000.0, 512);
+                p.prepareToPlay (48000.0, 512);
+                auto* tp = p.param ("tank");
+                tp->setValueNotifyingHost (tp->convertTo0to1 ((float) t));
+                std::unique_ptr<juce::AudioProcessorEditor> ed (p.createEditor());
+                if (auto* se = dynamic_cast<tf::SpringEditor*> (ed.get())) se->refreshForSnapshot();
+                const auto img = ed->createComponentSnapshot (ed->getLocalBounds(), true, 2.0f);
+                juce::PNGImageFormat png;
+                auto f = folder.getChildFile ("spring_" + juce::String (t) + ".png");
+                f.deleteFile();
+                std::unique_ptr<juce::OutputStream> os (f.createOutputStream());
+                ok = ok && os != nullptr && png.writeImageToStream (img, *os);
+            }
+            setApplicationReturnValue (ok ? 0 : 1);
+            quit();
+            return;
+        }
         if (commandLine.contains ("--render-sampler"))
         {
             auto args = juce::StringArray::fromTokens (commandLine, true);

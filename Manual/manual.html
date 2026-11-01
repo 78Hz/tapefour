@@ -566,7 +566,7 @@ td:first-child { font-weight: 600; }
     <tr><td>TF Electric Piano</td><td>Instrument</td><td>A reed electric piano after the Wurlitzer 200 and 200A, built from its mechanism: reeds, felt hammers, the charged pickup that makes it bark, dampers, the preamp's vibrato and the little speakers. It has its own editor (below).</td></tr>
     <tr><td>TF Phrase Sampler</td><td>Instrument</td><td>A phrase sampler after the 1995 Yamaha SU10: 48 pads of samples in its small memory, as grainy as the original's, played from the mouse or MIDI, with the ribbon's filter, pitch, scratch and crossfade, and four songs. It samples the track's input, the tape or a file. It has its own window (below).</td></tr>
     <tr><td>TF Plate</td><td>Audio effect</td><td>A smooth, dense plate reverb with pre-delay. Size, damping and pre-delay.</td></tr>
-    <tr><td>TF Spring Reverb</td><td>Audio effect</td><td>The boingy, dripping reverb of a guitar amp's spring tank.</td></tr>
+    <tr><td>TF Spring Reverb</td><td>Audio effect</td><td>The boingy, dripping reverb of a guitar amp's spring tank, physically modelled: three real tanks, and the valve that drives them. It has its own window (below).</td></tr>
     <tr><td>TF Tape Echo</td><td>Audio effect</td><td>A tape delay whose repeats darken and wobble as they fade. Time, feedback, tone and wow.</td></tr>
   </tbody>
 </table>
@@ -645,6 +645,21 @@ td:first-child { font-weight: 600; }
 <p><span class="ctl">PITCH</span> tunes every sample at once (it changes the sample rate, recording included); <span class="ctl">VOLUME</span> is the output level. The filter's type and resonance are here too. <span class="ctl">MIDI CHANNEL</span> is <span class="lcd">ANY</span> or one channel. The ribbon can follow your controller's pitch bend or a controller number (to begin with CC 1, the mod wheel): let go and it lets go. <span class="ctl">PADS ON C1–B4</span> puts every pad back on its own note.</p>
 <figure><img src="images/sampler_setup.png" alt="The phrase sampler's window, SETUP tab"><figcaption><b>SETUP.</b></figcaption></figure>
 <p>A preset keeps everything: every sample, the pads, the songs and the settings. Presets work as the piano's do (above), in <span class="lcd">Documents/TapeFour/Presets/Phrase Sampler</span>. The deck keeps them too, so the sampler's sounds are still there when you open the deck again.</p>
+
+<h2>The spring reverb</h2>
+<p><strong>TF Spring Reverb</strong> is a spring reverb tank, the kind inside guitar amplifiers: a sound drives one end of a few long springs, and a pickup at the other end hears what arrives. Select it in a chain and press <span class="ctl">EDIT</span> (or double-click it) for its window. Its <span class="ctl">MIX</span> is on the chain, as for the other effects.</p>
+<p>Sound travels along a spring at different speeds for different pitches, so a click arrives as a "chirp", and comes back again and again as it bounces between the ends. That is the drip and splash of spring reverb. Here the springs are worked out from their physics, so the chirps, echoes and decay come from the springs themselves.</p>
+<figure><img src="images/spring.png" alt="The spring reverb's window"><figcaption><b>TF Spring Reverb.</b> The Fender tank, from above, and a click through it: each curve is a chirp, and the chirps keep coming as the sound goes back and forth along the springs.</figcaption></figure>
+<table>
+  <thead><tr><th>Control</th><th>What it does</th></tr></thead>
+  <tbody>
+    <tr><td>TANK</td><td>Three real tanks: <span class="ctl">2 SPRING LONG</span>, the one in Fender amps, with the longest decay; <span class="ctl">3 SPRING</span>, denser; <span class="ctl">3 SPRING SHORT</span>, a small tank, tighter and quicker.</td></tr>
+    <tr><td>MODEL</td><td><span class="ctl">SIMULATED SPRINGS</span> works out each spring's vibration; <span class="ctl">WAVEGUIDE</span> is a simpler model of the same springs, a little brighter.</td></tr>
+    <tr><td>DWELL</td><td>How hard the valve drives the springs. Low settings are clean; towards 10 the valve clips and the springs crash and splash, the surf sound.</td></tr>
+    <tr><td>TONE</td><td>Darker to the left, brighter to the right.</td></tr>
+  </tbody>
+</table>
+<p>The window's picture shows what a click turns into, pitch upwards and time across. Like a real tank, it plays in mono.</p>
 
 <h2>Hardware synths</h2>
 <figure><img src="images/chain_external.png" alt="An external instrument block selected"><figcaption><b>An external instrument</b>, on a USB MIDI interface.</figcaption></figure>
