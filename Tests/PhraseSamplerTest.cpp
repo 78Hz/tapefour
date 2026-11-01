@@ -8,6 +8,7 @@
 // With TF_SAMPLER_RENDER=<folder> it also writes WAVs to listen to.
 
 #include "../Source/PhraseSampler.h"
+#include "../Source/EditorHosting.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -386,6 +387,32 @@ int main()
         r.set ("grade", 0.0f);
         r.p.pressKey ("SCRATCH"); r.run (0.01);
         check (r.p.panel().scratchPad < 0, "effects: SCRATCH can't be had at HI", r.p.panel().scratchPad, -1);
+    }
+
+    // ---------------------------------------------------------------- its window, opened again
+    {
+        // An editor window closed and opened again gets the editor again: the processor is told the first went
+        // (the way PluginWindow takes and lets go of an editor).
+        struct Plain : juce::AudioProcessorEditor { explicit Plain (juce::AudioProcessor& p) : juce::AudioProcessorEditor (p) { setSize (400, 300); } };
+        Processor::editorFactory = [] (Processor& p) -> juce::AudioProcessorEditor* { return new Plain (p); };
+        Processor p;
+        int opened = 0;
+        for (int k = 0; k < 3; ++k)
+        {
+            std::unique_ptr<juce::AudioProcessorEditor> ed (takeEditor (p));
+            if (ed != nullptr && p.getActiveEditor() == ed.get()) ++opened;
+            editorGoing (p, ed.get());
+            ed.reset();
+        }
+        check (opened == 3 && p.getActiveEditor() == nullptr, "window: opened, closed and opened again, it has its editor each time", opened, 3);
+        // and one the processor still points at (closed without telling it) doesn't stop the next
+        std::unique_ptr<juce::AudioProcessorEditor> lost (p.createEditorIfNeeded());
+        std::unique_ptr<juce::AudioProcessorEditor> next (takeEditor (p));
+        check (next != nullptr, "window: an editor left behind doesn't make the next window empty", next != nullptr ? 1 : 0, 1);
+        editorGoing (p, next.get());
+        next.reset();
+        lost.reset();
+        Processor::editorFactory = nullptr;
     }
 
     std::printf ("\n%s (%d failed)\n", failures == 0 ? "ALL PASSED" : "FAILURES", failures);

@@ -9,6 +9,7 @@ class PluginWindow : public juce::DocumentWindow
 {
 public:
     PluginWindow (juce::AudioProcessor& plugin, const juce::String& title, std::function<void()> onClose);
+    ~PluginWindow() override;
     void closeButtonPressed() override { if (closeCallback) closeCallback(); }
 
     /** Transport keys typed while the plug-in has the keyboard still reach the deck. */
@@ -16,6 +17,7 @@ public:
     bool keyPressed (const juce::KeyPress& k) override { return onDeckKey != nullptr && onDeckKey (k); }
 
 private:
+    juce::AudioProcessor& processor;
     std::function<void()> closeCallback;
 };
 } // namespace tf
