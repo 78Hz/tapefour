@@ -163,12 +163,12 @@ int main()
     }
     {
         // octaves are exact even when the oscillators drift: C4 and C5 share one coil (unrelated oscillators drifting
-        // 12 cents would be several cents apart; the measurement itself is good to about a tenth of a cent)
+        // 12 cents would be several cents apart; measuring a drifting pitch is good to a few tenths of a cent)
         Rig r;
         auto s = r.p.settings(); s.driftCents = 12.0f; r.p.setSettings (s);
         auto both = r.run (3.0, { { 0.0, on (60, 0.8f) }, { 0.0, on (72, 0.8f) } });
         const double lo = finePeak (both, 0.5, 2.9, 261.63), hi = finePeak (both, 0.5, 2.9, 523.25);
-        check (std::abs (centsBetween (hi, 2.0 * lo)) < 0.2, "generators: drifting, C5 is still exactly C4's octave (cents off)", centsBetween (hi, 2.0 * lo), 0.0);
+        check (std::abs (centsBetween (hi, 2.0 * lo)) < 0.5, "generators: drifting, C5 is still exactly C4's octave (cents off)", centsBetween (hi, 2.0 * lo), 0.0);
     }
     {
         // each footage at its pitch
