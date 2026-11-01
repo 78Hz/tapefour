@@ -7,6 +7,7 @@
 #include "TransistorPanel.h"
 #include "PhraseSamplerPanel.h"
 #include "SpringPanel.h"
+#include "N5Panel.h"
 
 namespace tf
 {
@@ -219,6 +220,15 @@ public:
                 return std::unique_ptr<juce::Component> (std::move (e));
             });
         };
+        tf::n5::Processor::editorFactory = [] (tf::n5::Processor& p) -> juce::AudioProcessorEditor*
+        {
+            return new tf::InstrumentEditor (p, p, "TF N5", [&p] (tf::InstrumentEditor::Say say)
+            {
+                auto e = std::make_unique<tf::N5Panel> (p);
+                e->onMessage = say;
+                return std::unique_ptr<juce::Component> (std::move (e));
+            }, 640);
+        };
         tf::spring::Processor::editorFactory = [] (tf::spring::Processor& p) -> juce::AudioProcessorEditor* { return new tf::SpringEditor (p); };
         tf::sampler::Processor::editorFactory = [] (tf::sampler::Processor& p) -> juce::AudioProcessorEditor*
         {
@@ -231,6 +241,50 @@ public:
         };
 
         // A tool for making artwork: --render-cassettes <folder> draws each formulation's cassette, at full size, as a PNG.
+        if (commandLine.contains ("--render-n5"))
+        {
+            // for the manual: TF N5's window, tab by tab
+            auto args = juce::StringArray::fromTokens (commandLine, true);
+            auto folder = juce::File::getCurrentWorkingDirectory().getChildFile (args[args.indexOf ("--render-n5") + 1].unquoted());
+            folder.createDirectory();
+            bool ok = true;
+            const char* names[] { "osc", "pitch", "vdf", "vda", "control", "waves", "effects", "combi", "arp" };
+            tf::n5::Processor p;
+            p.setRateAndBufferSizeDetails (48000.0, 512);
+            p.prepareToPlay (48000.0, 512);
+            auto& b = p.bank();
+            // something to look at: a double program, a filter sweep, a combination
+            b.programs[0].global[tf::n5::gOscMode] = 1;
+            b.programs[0].layer[0][tf::n5::feAttackLevel] = 90; b.programs[0].layer[0][tf::n5::feBreak] = 40; b.programs[0].layer[0][tf::n5::feSustain] = 20;
+            b.programs[0].layer[0][tf::n5::feInt] = 60; b.programs[0].layer[0][tf::n5::fCutoff] = 64; b.programs[0].layer[0][tf::n5::fColor] = 40;
+            b.programs[0].layer[0][tf::n5::peStart] = 30; b.programs[0].layer[0][tf::n5::peAttackTime] = 30; b.programs[0].layer[0][tf::n5::peAttackLevel] = -20;
+            b.programs[0].layer[0][tf::n5::peDecayTime] = 50; b.programs[0].layer[0][tf::n5::peInt] = 20;
+            b.programs[0].layer[0][tf::n5::oWave] = tf::n5::drawn; b.programs[0].layer[0][tf::n5::oDrawn] = 3;
+            p.setProgramName (0, "GLASSPAD");
+            p.setProgramName (1, "HOLLOW SAW");
+            b.combis[0].timbre[0][tf::n5::tProgram] = 0; b.combis[0].timbre[0][tf::n5::tNoteHi] = 71;
+            b.combis[0].timbre[1][tf::n5::tProgram] = 1; b.combis[0].timbre[1][tf::n5::tNoteLo] = 60; b.combis[0].timbre[1][tf::n5::tPan] = 44;
+            p.setCombiName (0, "SPLIT PAD");
+            b.arp[tf::n5::aOn] = 1; b.arp[tf::n5::aType] = 6;
+            p.editorDrawn = 2;
+            p.changed();
+            for (int t = 0; t < 9; ++t)
+            {
+                p.editorTab = t;
+                b.combiMode = t == 7 ? 1 : 0;
+                std::unique_ptr<juce::AudioProcessorEditor> ed (p.createEditor());
+                if (ed == nullptr) { ok = false; break; }
+                const auto img = ed->createComponentSnapshot (ed->getLocalBounds(), true, 2.0f);
+                juce::PNGImageFormat png;
+                auto f = folder.getChildFile (juce::String ("n5_") + names[t] + ".png");
+                f.deleteFile();
+                std::unique_ptr<juce::OutputStream> os (f.createOutputStream());
+                ok = ok && os != nullptr && png.writeImageToStream (img, *os);
+            }
+            setApplicationReturnValue (ok ? 0 : 1);
+            quit();
+            return;
+        }
         if (commandLine.contains ("--render-spring"))
         {
             // for the manual: the spring reverb's window, one picture a tank

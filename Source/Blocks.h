@@ -187,7 +187,7 @@ private:
 /** TAPE·FOUR's own instruments and effects. */
 namespace BuiltIn
 {
-    enum Synth { transistor = 0, epiano = 1, sampler = 2, numSynths };
+    enum Synth { transistor = 0, epiano = 1, sampler = 2, n5 = 3, numSynths };
     enum Fx { plate = 0, spring = 1, tapeEcho = 2, numFx };
 
     juce::String synthName (int which);
