@@ -484,6 +484,64 @@ int main()
         check (take (4, Source::track, 0, true, true) < 1.0e-3, "sources: its own track's output isn't taken (it would feed back)", take (5, Source::track, 0, true, true), 0.0);
     }
 
+
+    // ---------------------------------------------------------------- volume while playing, monitoring, too short
+    {
+        Rig r;
+        r.record (0, 0.8, 300.0);
+        auto p = r.p.pad (0);
+        p.loop = Loop::wholeLoop; p.volume = 127;
+        r.p.setPad (0, p);
+        r.p.pressPad (0, 1.0f);
+        const auto full = r.run (0.3);
+        p.volume = 64;
+        r.p.setPad (0, p);
+        const auto half = r.run (0.3);
+        r.p.releasePad (0);
+        const double ratio = rms (half, 0.05, 0.3) / std::max (1.0e-9, rms (full, 0.05, 0.3));
+        check (std::abs (ratio - 64.0 / 127.0) < 0.03, "volume: a playing pad follows its volume at once, not when played again", ratio, 64.0 / 127.0);
+        r.run (0.1);
+
+        // monitoring THIS TRACK IN (a VST before it, say): off, while recording, always
+        auto rs = r.p.recordSettings();
+        rs.source = Source::input; rs.monitor = Monitor::off; rs.gain = 8; rs.toPad = 5; rs.trigger = 0;
+        r.p.setRecordSettings (rs);
+        const double off = rms (r.run (0.3, 700.0, 0.4), 0.1, 0.3);
+        rs.monitor = Monitor::whileRecording; r.p.setRecordSettings (rs);
+        const double idle = rms (r.run (0.3, 700.0, 0.4), 0.1, 0.3);
+        r.p.setRecordSetup (true);
+        const double setup = rms (r.run (0.3, 700.0, 0.4), 0.1, 0.3);
+        r.p.setRecordSetup (false);
+        juce::String e;
+        r.p.armRecord (e);
+        const double recording = rms (r.run (0.3, 700.0, 0.4), 0.1, 0.3);
+        r.p.stopRecord();
+        rs = r.p.recordSettings(); rs.monitor = Monitor::always; rs.toPad = 6; r.p.setRecordSettings (rs);
+        const double always = rms (r.run (0.3, 700.0, 0.4), 0.1, 0.3);
+        const double in = 0.4 / std::sqrt (2.0);
+        check (off < 1.0e-4 && idle < 1.0e-4, "monitor: OFF, and WHILE RECORDING with nothing being recorded: the input isn't heard", std::max (off, idle), 0.0);
+        check (std::abs (setup - in) < 0.02 && std::abs (recording - in) < 0.02, "monitor: WHILE RECORDING, from REC (setting up) and recording: heard at the gain", recording, in);
+        check (std::abs (always - in) < 0.02, "monitor: ALWAYS: heard", always, in);
+        rs.gain = 11; r.p.setRecordSettings (rs);
+        const double louder = rms (r.run (0.3, 700.0, 0.4), 0.1, 0.3);
+        check (std::abs (20.0 * std::log10 (louder / always) - 9.0) < 0.5, "monitor: after the GAIN (3 steps: 9 dB louder), as it's recorded", 20.0 * std::log10 (louder / always), 9.0);
+        rs.monitor = Monitor::off; rs.gain = 8; r.p.setRecordSettings (rs);
+
+        // a recording too short to be a pad (under 128 frames) isn't kept
+        rs.toPad = 7; r.p.setRecordSettings (rs);
+        r.p.armRecord (e);
+        r.run (bs / sr);   // one block: about 107 frames at LONG
+        r.p.stopRecord();
+        check (! r.p.pad (7).used, "too short: under 128 frames, nothing is kept", r.p.pad (7).used ? 1 : 0, 0);
+        // and a pad's points always stay inside its sample
+        auto q = r.p.pad (0);
+        q.start = q.frames + 50; q.end = -10; q.loopPoint = q.frames * 2;
+        r.p.setPad (0, q);
+        q = r.p.pad (0);
+        check (q.start >= 0 && q.end <= q.frames && q.end - q.start >= 128 && q.loopPoint >= q.start && q.loopPoint < q.end,
+               "points: whatever's asked, start < end inside the sample, 128 apart", q.end - q.start, 128);
+    }
+
     // ---------------------------------------------------------------- the front panel's modes
     {
         Rig r;

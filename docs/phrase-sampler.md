@@ -53,7 +53,8 @@ them.
 | Trigger | MANUAL, or levels 1–7: recording starts when the input reaches the level | Published. The levels, −42 to −6 dBFS in 6 dB steps, set by ear |
 | ADPCM | Yamaha's four-bit ADPCM: each sample a step up or down of 1/8 to 15/8 of the step size, which then grows or shrinks | The tables are Yamaha's (see Sources). Silence encodes as a faint ±15 (of 32768) idle tone, as ADPCM does |
 | Playback | Each sample at the clock, linearly interpolated, through a reconstruction filter at 45 % of the clock | The interpolation and filter are a choice: they stand in for the DAC and its filtering, which aren't published |
-| Pads | Start, loop and end points; ONE SHOT, WHOLE LOOP, PARTIAL LOOP, REVERSE SHOT, REVERSE LOOP; NOTE (while held), TOGGLE, TRIGGER (plays to its end, held or not, no looping); volume 0–127; alternate group 1–3; a MIDI note | Published |
+| Monitoring | THIS TRACK IN heard through the sampler: OFF, WHILE RECORDING (from REC until STOP), ALWAYS; after the gain; a 10 ms fade in and out | Not on the unit (its manual only has the input heard in CROSSFADER and the EXT modes): TAPE·FOUR's, since the sampler replaces what reaches it in the chain |
+| Pads | Start, loop and end points; ONE SHOT, WHOLE LOOP, PARTIAL LOOP, REVERSE SHOT, REVERSE LOOP; NOTE (while held), TOGGLE, TRIGGER (plays to its end, held or not, no looping); volume 0–127 (a playing pad follows a change at once, over 5 ms); alternate group 1–3; a MIDI note | Published |
 | HOLD, REV | HOLD latches NOTE pads; REV plays forward modes backwards and reverse ones forwards | Published. HOLD on when a song starts repeats the song: this model's choice |
 | Voices | The owner's manual's table. When a pad needs more voices than are free, the oldest unheld one is cut | The table is published; which voice goes isn't: oldest first is a choice |
 | Ribbon: PITCH | The clock, −20 % to +10 % across the ribbon | Published range |

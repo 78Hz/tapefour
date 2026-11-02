@@ -92,7 +92,9 @@ namespace
         double ms = 0.0;   // when it was pressed: a press the audio didn't take in time is dropped, not played late
     };
 
-    enum class Message { none, padEmpty, notAtGrade, memoryFull, songFull, songNotEmpty, recStandby, recording, selectPad, padNotEmpty };
+    enum class Message { none, padEmpty, notAtGrade, memoryFull, songFull, songNotEmpty, recStandby, recording, selectPad, padNotEmpty, tooShort };
+
+    constexpr int minimumFrames = 128;   // the shortest a pad's start-to-end can be
 }
 
 const char* gradeName (Grade g) { static const char* n[] { "HI", "STD", "LONG", "EXLG" }; return n[(int) g]; }
@@ -201,7 +203,7 @@ struct Processor::Impl : private juce::Timer
         int dir = 1;
         bool looping = false, latched = false, keyDown = false, fromSong = false, stopping = false;
         Loop loop = Loop::oneShot;
-        float gain = 1.0f, fade = 1.0f;
+        float gain = 0.0f, velocity = 1.0f, fade = 1.0f;   // gain follows the pad's volume as it changes
         int64_t age = 0;
     };
     std::array<Voice, 8> voices {};
@@ -229,6 +231,8 @@ struct Processor::Impl : private juce::Timer
     bool haveFeed = false;
     std::atomic<int> ownTrack { -1 };
     std::atomic<bool> repeatSetting { false };
+    std::atomic<bool> recSetup { false };
+    float monitorGain = 0.0f;   // glides in and out, so monitoring starting or stopping doesn't click
     std::atomic<double> lastMidiMs { 0.0 };
 
     // recording
@@ -330,6 +334,7 @@ struct Processor::Impl : private juce::Timer
         v.keyDown = true;
         v.latched = hold && p.sounding == Sounding::note;
         v.age = now;
+        v.velocity = velocity;
         v.gain = (float) (p.volume / 127.0) * velocity;
         auto loop = p.sounding == Sounding::trigger ? (p.loop == Loop::reverseShot || p.loop == Loop::reverseLoop ? Loop::reverseShot : Loop::oneShot) : p.loop;
         // REV: forward modes play backwards, reverse modes forwards (not in SCALE)
@@ -534,6 +539,16 @@ struct Processor::Impl : private juce::Timer
         filter.set (cutoff, q, sr);
         const float volume = (float) volumeP->get() / 127.0f;
         const double recGain = gainOf (recNow.gain), meterGain = gainOf (record.gain);
+        // monitoring this track's input (after the gain), unless an effect is already passing it
+        const auto rsNow = recState.load();
+        const auto& mon = rsNow == Rec::armed || rsNow == Rec::recording ? recNow : record;
+        const bool ownInput = mon.source == Source::input || (mon.source == Source::track && haveFeed && mon.track == feed.ownTrack);
+        const bool inputPassed = effect == Effect::crossfade || effect == Effect::extFilter || effect == Effect::extScratch;
+        const bool monitoring = ownInput && ! inputPassed
+                             && (mon.monitor == Monitor::always
+                                 || (mon.monitor == Monitor::whileRecording && (recSetup.load() || rsNow == Rec::armed || rsNow == Rec::recording)));
+        const float monTarget = monitoring ? 1.0f : 0.0f, monStep = 1.0f / (0.01f * (float) sr);
+        const float volumeGlide = 1.0f - std::exp (-1.0f / (0.005f * (float) sr));
 
         for (int start = 0; start < n; start += 512)
         {
@@ -570,6 +585,8 @@ struct Processor::Impl : private juce::Timer
                 else if (src.source == Source::input || src.source == Source::track) { sl = inL[i]; sr2 = inR[i]; }
                 const double gain = taking ? recGain : meterGain;
                 sl *= gain; sr2 *= gain;
+                monitorGain = monitorGain < monTarget ? std::min (monTarget, monitorGain + monStep) : std::max (monTarget, monitorGain - monStep);
+                const double heardL = ownInput ? sl * monitorGain : 0.0, heardR = ownInput ? sr2 * monitorGain : 0.0;
                 const float pk = (float) std::max (std::abs (sl), std::abs (sr2));
                 if (pk > inputPeak.load()) inputPeak = pk;
                 if (taking)
@@ -615,6 +632,9 @@ struct Processor::Impl : private juce::Timer
                     const double a = (data[(size_t) (ip * ch)] + (data[(size_t) (ip2 * ch)] - data[(size_t) (ip * ch)]) * fr) / 32768.0;
                     const double b = p.stereo ? (data[(size_t) (ip * ch + 1)] + (data[(size_t) (ip2 * ch + 1)] - data[(size_t) (ip * ch + 1)]) * fr) / 32768.0 : a;
                     if (v.stopping) { v.fade -= 1.0f / (0.004f * (float) sr); if (v.fade <= 0.0f) { v.on = false; continue; } }
+                    // the pad's volume now (EDIT, PadVol), gliding over a few ms so a change doesn't click
+                    const float target = (float) (p.volume / 127.0) * v.velocity;
+                    v.gain += (target - v.gain) * volumeGlide;
                     const double gv = v.gain * v.fade;
                     l += a * gv; r += b * gv;
                     // move on, at this clock against the one it was recorded at
@@ -693,6 +713,7 @@ struct Processor::Impl : private juce::Timer
                     }
                     extWasTouched = ribbonTouched;
                 }
+                l += heardL; r += heardR;
                 outL[start + i] = (float) l;
                 if (outR != nullptr) outR[start + i] = (float) r;
                 ++now;
@@ -813,7 +834,8 @@ struct Processor::Impl : private juce::Timer
     {
         if (recState.exchange (Rec::idle) != Rec::done) return;
         const int frames = recFrames;
-        if (frames < 16) return;
+        // shorter than a pad's shortest (128 frames, a few ms): nothing is kept
+        if (frames < minimumFrames) { showMessage (Message::tooShort); return; }
         const int ch = recNow.stereo ? 2 : 1;
         std::vector<int16_t> pcm (recBuf.begin(), recBuf.begin() + frames * ch);
         Pad p;
@@ -929,8 +951,8 @@ juce::String Processor::flashMessage() const
 {
     if (juce::Time::getMillisecondCounterHiRes() >= impl->messageUntil.load()) return {};
     static const char* m[] { "", "Pad Empty", "Not at this grade", "Memory Full", "Song memory full", "Song not empty",
-                             "Rec standby", "Recording", "Select a pad", "Pad not empty" };
-    return m[std::clamp (impl->message.load(), 0, 9)];
+                             "Rec standby", "Recording", "Select a pad", "Pad not empty", "Too short" };
+    return m[std::clamp (impl->message.load(), 0, 10)];
 }
 
 const juce::String Processor::getName() const { return "TF PHRASE SAMPLER"; }
@@ -992,9 +1014,12 @@ void Processor::setPad (int index, const Pad& p)
     const juce::SpinLock::ScopedLockType sl (impl->dataLock);
     auto& q = impl->pads[(size_t) std::clamp (index, 0, numPads - 1)];
     if (! q.used) { q.note = p.note; return; }
-    q.start = std::clamp (p.start, 0, std::max (0, q.frames - 128));
-    q.end = std::clamp (p.end, q.start + 128, q.frames);
-    q.loopPoint = std::clamp (p.loopPoint, q.start, std::max (q.start, q.end - 128));   // a loop of at least 128
+    // a pad's start to end is at least 128 frames (a loop too), and the points stay inside its sample
+    // (a pad is never shorter than 128 frames: recordings and files that short aren't kept)
+    const int shortest = std::min (minimumFrames, q.frames);
+    q.start = std::clamp (p.start, 0, q.frames - shortest);
+    q.end = std::clamp (p.end, q.start + shortest, q.frames);
+    q.loopPoint = std::clamp (p.loopPoint, q.start, std::max (q.start, q.end - shortest));
     q.loop = p.loop;
     q.sounding = p.sounding;
     q.volume = std::clamp (p.volume, 0, 127);
@@ -1141,7 +1166,7 @@ bool Processor::importFile (const juce::File& f, int toPad, juce::String& error)
         }
         prev[0] = fl; prev[1] = fr;
     }
-    if (pcm.size() < (size_t) (16 * ch)) { error = "MEMORY FULL"; return false; }
+    if (pcm.size() < (size_t) (minimumFrames * ch)) { error = (int) pcm.size() / ch >= freeFrames ? "MEMORY FULL" : "TOO SHORT"; return false; }
     Pad p;
     p.used = true;
     p.stereo = rs.stereo;
@@ -1268,6 +1293,8 @@ bool Processor::armRecord (juce::String& error)
     return true;
 }
 
+void Processor::setRecordSetup (bool on) { impl->recSetup = on; }
+
 void Processor::stopRecord()
 {
     impl->push ({ Command::stopRecord, 0, 0.0f });
@@ -1322,8 +1349,8 @@ juce::String Processor::lcdLine (int line) const
         if (juce::Time::getMillisecondCounterHiRes() < impl->messageUntil.load())
         {
             static const char* m[] { "", "Pad Empty", "Not at this grade", "Memory Full", "Song memory full", "Song not empty: delete it first",
-                                     "Rec standby", "Recording", "Select a pad", "Pad not empty" };
-            return m[std::clamp (impl->message.load(), 0, 9)];
+                                     "Rec standby", "Recording", "Select a pad", "Pad not empty", "Too short" };
+            return m[std::clamp (impl->message.load(), 0, 10)];
         }
         if (s.armed) return "Rec standby";
         if (s.recording) return "Recording " + juce::String (s.recordSeconds, 1) + " s";
@@ -1412,6 +1439,7 @@ std::unique_ptr<juce::XmlElement> Processor::toXml (bool) const
     rec->setAttribute ("track", impl->record.track);
     rec->setAttribute ("postFader", impl->record.postFader);
     rec->setAttribute ("defaultLoop", (int) impl->record.defaultLoop);
+    rec->setAttribute ("monitor", (int) impl->record.monitor);
     x->setAttribute ("songRepeat", impl->repeatSetting.load());
     rec->setAttribute ("stereo", impl->record.stereo);
     rec->setAttribute ("gain", impl->record.gain);
@@ -1493,6 +1521,7 @@ void Processor::fromXml (const juce::XmlElement& x)
         rs.track = std::clamp (r->getIntAttribute ("track", r->getIntAttribute ("tapeTrack")), 0, 3);
         rs.postFader = r->getBoolAttribute ("postFader", true);
         rs.defaultLoop = (Loop) std::clamp (r->getIntAttribute ("defaultLoop"), 0, 4);
+        rs.monitor = (Monitor) std::clamp (r->getIntAttribute ("monitor", 1), 0, 2);
         rs.stereo = r->getBoolAttribute ("stereo");
         rs.gain = std::clamp (r->getIntAttribute ("gain", 8), 1, 16);
         rs.trigger = std::clamp (r->getIntAttribute ("trigger"), 0, 7);

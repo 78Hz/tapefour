@@ -50,6 +50,10 @@ enum class Resonance { flat = 0, weak, strong };
 /** What's sampled: the track's own input (what reaches the sampler in its chain), another track as it leaves
     its channel strip (before or after its fader), the mix of the other tracks, or a file. */
 enum class Source { input = 0, track, file, mix };
+/** Whether the sampler's own input (THIS TRACK IN: a VST before it, say) is heard through it: never (only
+    CROSSFADER and the EXT modes pass it, as on the unit), from REC to STOP, or always. After the GAIN, so
+    what's heard is what's recorded. The other tracks and the mix are in the mix already: not monitored. */
+enum class Monitor { off = 0, whileRecording, always };
 
 const char* loopName (Loop);
 const char* soundingName (Sounding);
@@ -178,11 +182,14 @@ public:
         int trigger = 0;
         int toPad = 0;
         Loop defaultLoop = Loop::oneShot;   // a new sample's loop mode (the unit's Defalt)
+        Monitor monitor = Monitor::whileRecording;   // hearing THIS TRACK IN through the sampler
     };
     RecordSettings recordSettings() const;
     void setRecordSettings (const RecordSettings&);
     bool armRecord (juce::String& error);         // waits for the trigger level (or starts at once, manual)
     void stopRecord();                            // ends it; the sample goes into the pad
+    /** The panel is setting a recording up (REC pressed, not yet PLAY): WHILE RECORDING monitors from here. */
+    void setRecordSetup (bool);
 
     // ---- the front panel (message thread; the audio thread acts on them) ----
     void pressPad (int padInBank, float velocity = 0.8f);

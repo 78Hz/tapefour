@@ -30,6 +30,9 @@ public:
 private:
     void timerCallback() override;
     void build();
+    /** Builds the page again once the click that asked for it is over (building deletes the controls). */
+    void buildSoon();
+    bool rebuildPending = false;
     void say (const juce::String& m) { if (onMessage) onMessage (m); }
     void edited();
 

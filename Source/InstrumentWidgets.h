@@ -75,7 +75,13 @@ public:
         {
             auto* c = chips.add (new LcdChip (labels[i]));
             c->textSize = 11.0f;
-            c->onClick = [this, i] { pick (i); refresh(); };
+            c->onClick = [this, i]
+            {
+                // (pick may rebuild the panel and delete this row: nothing of it is touched after, unless it's still here)
+                juce::Component::SafePointer<Chips> safe (this);
+                pick (i);
+                if (safe != nullptr) safe->refresh();
+            };
             addAndMakeVisible (c);
         }
         refresh();

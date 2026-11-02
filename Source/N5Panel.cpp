@@ -509,7 +509,7 @@ N5Panel::FieldRow& N5Panel::layerRow (int f, juce::Rectangle<int> r)
 
 N5Panel::FieldRow& N5Panel::globalRow (int f, juce::Rectangle<int> r)
 {
-    auto* fieldRow = new FieldRow (globalField (f), [this, f] { return program().global[f]; }, [this, f] (int v) { program().global[f] = v; edited(); if (f == gOscMode) build(); });
+    auto* fieldRow = new FieldRow (globalField (f), [this, f] { return program().global[f]; }, [this, f] (int v) { program().global[f] = v; edited(); if (f == gOscMode) buildSoon(); });
     parts.add (fieldRow);
     live.push_back (fieldRow);
     addAndMakeVisible (fieldRow);
@@ -627,6 +627,16 @@ void N5Panel::drawnTool (int which)
 }
 
 //==============================================================================
+void N5Panel::buildSoon()
+{
+    if (rebuildPending) return;
+    rebuildPending = true;
+    juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<N5Panel> (this)]
+    {
+        if (safe != nullptr) { safe->rebuildPending = false; safe->build(); }
+    });
+}
+
 void N5Panel::build()
 {
     parts.clear();
@@ -646,8 +656,8 @@ void N5Panel::build()
                                    : "PROGRAM " + juce::String (b.program).paddedLeft ('0', 2) + " " + synth.programName (b.program)) + "  v", [this] { chooseProgram(); });
         sel.setBounds (0, 0, 260, 24);
         button ("RENAME", [this] { rename(); }).setBounds (266, 0, 70, 24);
-        auto& prog = button ("PROGRAM", [this] { synth.bank().combiMode = 0; edited(); build(); });
-        auto& comb = button ("COMBI", [this] { synth.bank().combiMode = 1; edited(); build(); });
+        auto& prog = button ("PROGRAM", [this] { synth.bank().combiMode = 0; edited(); buildSoon(); });
+        auto& comb = button ("COMBI", [this] { synth.bank().combiMode = 1; edited(); buildSoon(); });
         prog.chosen = ! combi; comb.chosen = combi;
         prog.setBounds (getWidth() - 160, 0, 78, 24);
         comb.setBounds (getWidth() - 78, 0, 78, 24);
@@ -667,8 +677,8 @@ void N5Panel::build()
     auto layerSwitch = [&]
     {
         if (! dbl) return 0;
-        auto& o1 = button ("OSC 1", [this] { synth.editorLayer = 0; build(); });
-        auto& o2 = button ("OSC 2", [this] { synth.editorLayer = 1; build(); });
+        auto& o1 = button ("OSC 1", [this] { synth.editorLayer = 0; buildSoon(); });
+        auto& o2 = button ("OSC 2", [this] { synth.editorLayer = 1; buildSoon(); });
         o1.chosen = synth.editorLayer == 0; o2.chosen = synth.editorLayer == 1;
         o1.setBounds (area.getX(), area.getY(), 70, 22);
         o2.setBounds (area.getX() + 76, area.getY(), 70, 22);
@@ -764,7 +774,7 @@ void N5Panel::build()
                     synth.editorDrawn = k;
                     layerValues()[oDrawn] = k + 1;
                     if (layerValues()[oWave] == drawn) edited();
-                    build();
+                    buildSoon();
                 });
                 c.chosen = k == synth.editorDrawn;
                 c.setBounds (area.getX() + FieldRow::captionWidth + k * 40, y, 36, 22);
@@ -825,7 +835,7 @@ void N5Panel::build()
             auto& f = fx();
             static const Field placementField { "placement", "PLACEMENT", 0, 3, 1, Fmt::choice, "SERIAL|PARA.1|PARA.2|PARA.3" };
             auto chipsRow = new FieldRow (placementField,
-                                          [this] { return fx().placement; }, [this] (int v) { fx().placement = v; edited(); repaint (diagramArea); build(); });
+                                          [this] { return fx().placement; }, [this] (int v) { fx().placement = v; edited(); repaint (diagramArea); buildSoon(); });
             parts.add (chipsRow); live.push_back (chipsRow); addAndMakeVisible (chipsRow);
             chipsRow->setBounds (area.getX(), area.getY(), 560, row);
             diagramArea = { area.getX(), area.getY() + 28, area.getWidth(), 78 };
@@ -837,7 +847,7 @@ void N5Panel::build()
                 note ({ x0, y0, 70, 24 }, "EFFECT " + juce::String (u + 1));
                 auto& type = button (juce::String (f.unit[u].type).paddedLeft ('0', 2) + " " + effectType (f.unit[u].type).name + "  v", [this, u] { chooseEffect (u); });
                 type.setBounds (x0 + 70, y0, cw - 140, 24);
-                auto& onB = button (f.unit[u].on ? "ON" : "OFF", [this, u] { fx().unit[u].on = fx().unit[u].on ? 0 : 1; edited(); build(); });
+                auto& onB = button (f.unit[u].on ? "ON" : "OFF", [this, u] { fx().unit[u].on = fx().unit[u].on ? 0 : 1; edited(); buildSoon(); });
                 onB.chosen = f.unit[u].on != 0;
                 onB.setBounds (x0 + cw - 62, y0, 62, 24);
                 const auto& et = effectType (f.unit[u].type);
@@ -891,7 +901,7 @@ void N5Panel::build()
             auto* table = new TimbreTable (synth, [this] { edited(); });
             parts.add (table); live.push_back (table); addAndMakeVisible (table);
             table->setBounds (area.getX(), area.getY(), area.getWidth(), TimbreTable::headH + numTimbres * TimbreTable::rowH);
-            table->onSelect = [this] { build(); };
+            table->onSelect = [this] { buildSoon(); };
             const int y = area.getY() + TimbreTable::headH + numTimbres * TimbreTable::rowH + 10;
             note ({ area.getX(), y, area.getWidth(), 18 }, "TIMBRE " + juce::String (synth.editorTimbre + 1) + dot + "DRAG A NUMBER UP OR DOWN, CLICK A PROGRAM TO CHOOSE IT; THE PROGRAM PAGES EDIT THIS TIMBRE'S PROGRAM");
             int k = 0;

@@ -669,6 +669,16 @@ void PhraseSamplerPanel::setRecord (std::function<void (Processor::RecordSetting
     sampler.setRecordSettings (r);
 }
 
+void PhraseSamplerPanel::buildSoon()
+{
+    if (rebuildPending) return;
+    rebuildPending = true;
+    juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<PhraseSamplerPanel> (this)]
+    {
+        if (safe != nullptr) { safe->rebuildPending = false; safe->build(); }
+    });
+}
+
 void PhraseSamplerPanel::build()
 {
     parts.clear();
@@ -740,10 +750,14 @@ void PhraseSamplerPanel::build()
                                        else if (i == 0) r.source = Source::input;
                                        else { r.source = Source::track; r.track = trackOf[(size_t) i]; }
                                    });
-                                   build();
+                                   buildSoon();
                                }));
             placeChips (chips ("TAKEN", { "BEFORE THE FADER", "AFTER THE FADER" }, [this] { return sampler.recordSettings().postFader ? 1 : 0; },
                                [this] (int i) { setRecord ([i] (auto& r) { r.postFader = i == 1; }); }));
+            placeChips (chips ("MONITOR", { "OFF", "WHILE RECORDING", "ALWAYS" }, [this] { return (int) sampler.recordSettings().monitor; },
+                               [this] (int i) { setRecord ([i] (auto& r) { r.monitor = (Monitor) i; }); }));
+            note ({ area.getX() + captionW, y - 4, w - captionW, 12 }, "HEARING THIS TRACK IN THROUGH THE SAMPLER (A PLUG-IN BEFORE IT, SAY), AFTER THE GAIN. THE OTHER TRACKS ARE HEARD ANYWAY.");
+            y += 10;
             placeChips (paramChips ("grade", "GRADE (ALL PADS)", { "HI", "STD", "LONG", "EXLG" }));
             placeChips (chips ("FORMAT", { "STEREO", "MONO" }, [this] { return sampler.recordSettings().stereo ? 0 : 1; },
                                [this] (int i) { setRecord ([i] (auto& r) { r.stereo = i == 0; }); }));
@@ -786,9 +800,9 @@ void PhraseSamplerPanel::build()
         {
             const int index = sampler.editorPad;
             placeChips (chips ("BANK", { "A", "B", "C", "D" }, [this] { return sampler.editorPad / padsPerBank; },
-                               [this] (int i) { sampler.editorPad = i * padsPerBank + sampler.editorPad % padsPerBank; build(); }));
+                               [this] (int i) { sampler.editorPad = i * padsPerBank + sampler.editorPad % padsPerBank; buildSoon(); }));
             auto& padRow = chips ("PAD", nums, [this] { return sampler.editorPad % padsPerBank; },
-                                  [this] (int i) { sampler.editorPad = (sampler.editorPad / padsPerBank) * padsPerBank + i; build(); });
+                                  [this] (int i) { sampler.editorPad = (sampler.editorPad / padsPerBank) * padsPerBank + i; buildSoon(); });
             placeChips (padRow);
             dimRows.push_back ({ &padRow, [this] (int i) { return ! sampler.pad ((sampler.editorPad / padsPerBank) * padsPerBank + i).used; } });
             note ({ area.getX() + captionW, y - 4, w - captionW, 12 }, "DIMMED: EMPTY");
@@ -814,7 +828,7 @@ void PhraseSamplerPanel::build()
             fine->setBounds (area.getX(), y, w, 96);
             wave->onChange = [this, fine] { fine->repaint(); repaint (headArea); };
             y += 102;
-            auto setPad = [this, index] (std::function<void (Pad&)> change) { auto q = sampler.pad (index); change (q); sampler.setPad (index, q); build(); };
+            auto setPad = [this, index] (std::function<void (Pad&)> change) { auto q = sampler.pad (index); change (q); sampler.setPad (index, q); buildSoon(); };
             placeChips (chips ("LOOP", { "ONE SHOT", "WHOLE LOOP", "PARTIAL LOOP", "REVERSE SHOT", "REVERSE LOOP" },
                                [this, index] { return (int) sampler.pad (index).loop; }, [setPad] (int i) { setPad ([i] (Pad& q) { q.loop = (Loop) i; }); }));
             placeChips (chips ("PAD PLAYS", { "NOTE (WHILE HELD)", "TOGGLE", "TRIGGER" },
@@ -833,16 +847,16 @@ void PhraseSamplerPanel::build()
                 b.setBounds (x, y, b.idealWidth() + 8, chipH + 2);
                 x += b.idealWidth() + 14;
             };
-            act (utf ("COPY TO\xe2\x80\xa6"), [this, index] { choosePad ("COPY", [this, index] (int to) { juce::String e; if (! sampler.copyPad (index, to, e)) say (e); else { sampler.editorPad = to; build(); } }); });
-            act (utf ("MOVE TO\xe2\x80\xa6"), [this, index] { choosePad ("MOVE", [this, index] (int to) { juce::String e; if (! sampler.movePad (index, to, e)) say (e); else { sampler.editorPad = to; build(); } }); });
-            act (utf ("SPLIT AT END\xe2\x80\xa6"), [this, index] { choosePad ("SPLIT", [this, index] (int to) { juce::String e; if (! sampler.splitPad (index, to, e)) say (e); else build(); }); });
-            act ("COMPACT", [this, index] { if (sampler.compactPad (index)) { say ("COMPACTED: THE MEMORY'S BACK"); build(); } else say ("NOTHING TO TRIM: MOVE THE START OR END IN FIRST"); });
+            act (utf ("COPY TO\xe2\x80\xa6"), [this, index] { choosePad ("COPY", [this, index] (int to) { juce::String e; if (! sampler.copyPad (index, to, e)) say (e); else { sampler.editorPad = to; buildSoon(); } }); });
+            act (utf ("MOVE TO\xe2\x80\xa6"), [this, index] { choosePad ("MOVE", [this, index] (int to) { juce::String e; if (! sampler.movePad (index, to, e)) say (e); else { sampler.editorPad = to; buildSoon(); } }); });
+            act (utf ("SPLIT AT END\xe2\x80\xa6"), [this, index] { choosePad ("SPLIT", [this, index] (int to) { juce::String e; if (! sampler.splitPad (index, to, e)) say (e); else buildSoon(); }); });
+            act ("COMPACT", [this, index] { if (sampler.compactPad (index)) { say ("COMPACTED: THE MEMORY'S BACK"); buildSoon(); } else say ("NOTHING TO TRIM: MOVE THE START OR END IN FIRST"); });
             act ("DELETE " + Front::padName (index), [this, index, confirmed]
             {
                 if (! confirmed (index, "DELETE " + Front::padName (index) + "? CLICK AGAIN TO DELETE")) return;
                 sampler.deletePad (index);
                 say ("DELETED " + Front::padName (index));
-                build();
+                buildSoon();
             });
             confirmArea = { x + 4, y, w - x, chipH + 2 };
             y += chipH + 12;
@@ -924,7 +938,7 @@ void PhraseSamplerPanel::build()
                 if (! confirmed (201, "SAMPLES, SONGS AND SETTINGS, AS IT CAME: CLICK AGAIN")) return;
                 sampler.resetEverything();
                 say ("RESET: AS IT CAME");
-                build();
+                buildSoon();
             });
             init.setBounds (all.getRight() + 10, y, init.idealWidth() + 8, chipH);
             confirmArea = { init.getRight() + 12, y, w - init.getRight() - 12, chipH };

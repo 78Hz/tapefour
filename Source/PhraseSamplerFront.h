@@ -56,6 +56,7 @@ public:
     int function() const { return fn; }
 
 private:
+    void keyNow (const juce::String& name, bool down, int repeat);
     void playKey (const juce::String& name, bool down);
     void shiftPad (int padInBank);
     void editKey (const juce::String& name, int repeat);

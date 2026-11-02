@@ -32,6 +32,10 @@ public:
 private:
     void timerCallback() override;
     void build();
+    /** Builds the tab again once the click (or drag) that asked for it is over: building deletes the
+        controls, and the one being clicked mustn't go while its own code is still running. */
+    void buildSoon();
+    bool rebuildPending = false;
     iw::Chips& chips (const juce::String& caption, juce::StringArray labels, std::function<int()> chosen, std::function<void (int)> pick);
     iw::Chips& paramChips (const juce::String& id, const juce::String& caption, juce::StringArray labels);
     iw::Bar& bar (const juce::String& id, const juce::String& caption, std::function<juce::String (float)> fmt);

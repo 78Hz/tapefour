@@ -320,6 +320,10 @@ if(TAPEFOUR_TESTS AND NOT TAPEFOUR_ONLY_PLAYER)
     tapefour_test(TransistorOrganTest Tests/TransistorOrganTest.cpp Source/TransistorOrgan.cpp Source/InstrumentPresets.cpp Source/Tuning.cpp)
     tapefour_test(PhraseSamplerTest Tests/PhraseSamplerTest.cpp Source/PhraseSampler.cpp Source/PhraseSamplerFront.cpp Source/InstrumentPresets.cpp)
     tapefour_test(SpringReverbTest Tests/SpringReverbTest.cpp Source/SpringReverb.cpp)
+    tapefour_test(PanelTest Tests/PanelTest.cpp Source/PhraseSamplerPanel.cpp Source/PhraseSampler.cpp Source/PhraseSamplerFront.cpp
+                  Source/N5Panel.cpp Source/N5Model.cpp Source/N5Effects.cpp Source/N5Synth.cpp Source/SpringReverb.cpp
+                  Source/InstrumentPresets.cpp Source/InstrumentWidgets.cpp Source/DeckLookAndFeel.cpp)
+    target_link_libraries(PanelTest PRIVATE TapeFourFonts)
     tapefour_test(N5Test Tests/N5Test.cpp Source/N5Model.cpp Source/N5Effects.cpp Source/N5Synth.cpp Source/SpringReverb.cpp Source/InstrumentPresets.cpp)
     tapefour_test(EngineTest Tests/EngineTest.cpp Source/Tape.cpp Source/TapeEngine.cpp Source/NoiseReduction.cpp)
     tapefour_test(MixerTest Tests/MixerTest.cpp ${TAPEFOUR_ENGINE_SOURCES})

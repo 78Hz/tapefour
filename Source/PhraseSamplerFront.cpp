@@ -8,8 +8,8 @@ namespace
                                     "CopyTo ?", "MoveTo ?", "SpltTo ?", "Compct ?", "Delete ?" };
     const char* const loopShort[] { "OneSht", "WLoop", "PLoop", "RShot", "RLoop" };
     const char* const soundShort[] { "Note", "Toggle", "Trigger" };
-    enum RecFn { rGain, rGrade, rPitch, rFormat, rInput, rFader, rTrigger, rDefault, numRec };
-    const char* const recNames[] { "Gain", "Grade", "Pitch", "Format", "Input", "Fader", "RecTrg", "Defalt" };
+    enum RecFn { rGain, rGrade, rPitch, rFormat, rInput, rFader, rMonitor, rTrigger, rDefault, numRec };
+    const char* const recNames[] { "Gain", "Grade", "Pitch", "Format", "Input", "Fader", "Monitr", "RecTrg", "Defalt" };
     enum UtilFn { uChannel, uRibbon, uRibbonCc, uSongDel, uInitData, uInitAll, numUtil };
     const char* const utilNames[] { "MIDI Ch", "Ribbon", "RbnCC#", "SongDel", "InitData", "InitAll" };
 
@@ -57,6 +57,12 @@ juce::String Front::inputName (const Processor::RecordSettings& r)
 
 //==============================================================================
 void Front::key (const juce::String& name, bool down, int repeat)
+{
+    keyNow (name, down, repeat);
+    proc.setRecordSetup (current == Mode::recPad || current == Mode::recSettings);
+}
+
+void Front::keyNow (const juce::String& name, bool down, int repeat)
 {
     if (name == "SHIFT")
     {
@@ -324,7 +330,12 @@ void Front::recKey (const juce::String& name, int repeat)
     }
     if (name == "STOP")
     {
-        if (st.armed || st.recording) { proc.stopRecord(); flash ("Complete"); current = Mode::play; }
+        if (st.armed || st.recording)
+        {
+            proc.stopRecord();
+            flash (proc.pad (proc.recordSettings().toPad).used ? "Complete" : "Too short");
+            current = Mode::play;
+        }
         return;
     }
     if (st.armed || st.recording) return;
@@ -352,6 +363,7 @@ void Front::recKey (const juce::String& name, int repeat)
             break;
         }
         case rFader: r.postFader = ! r.postFader; break;
+        case rMonitor: r.monitor = (Monitor) std::clamp ((int) r.monitor + d, 0, 2); break;
         case rTrigger: r.trigger = std::clamp (r.trigger + d, 0, 7); break;
         case rDefault: r.defaultLoop = (Loop) std::clamp ((int) r.defaultLoop + d, 0, 4); break;
         default: break;
@@ -451,6 +463,7 @@ Front::Lcd Front::lcd() const
                 case rFormat: l.bottom = rs.stereo ? "Stereo" : "Mono"; break;
                 case rInput: l.bottom = rs.source == Source::track ? "Trk" + juce::String (rs.track + 1) + " Out" : rs.source == Source::mix ? "Mix" : "This track"; break;
                 case rFader: l.bottom = rs.postFader ? "Post" : "Pre"; break;
+                case rMonitor: { static const char* m[] { "Off", "Rec", "Always" }; l.bottom = m[(int) rs.monitor]; break; }
                 case rTrigger: l.bottom = rs.trigger == 0 ? juce::String ("Manual") : "Level " + juce::String (rs.trigger); break;
                 case rDefault: l.bottom = loopShort[(int) rs.defaultLoop]; break;
                 default: break;
