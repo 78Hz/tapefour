@@ -157,6 +157,37 @@ public:
             std::unique_ptr<juce::OutputStream> os (f.createOutputStream());
             if (os == nullptr || ! png.writeImageToStream (img, *os)) return false;
         }
+        // the front panel in its other modes: SHIFT held, EDIT on the end point (the loop's tempo), DELETE's question
+        auto& front = p.front();
+        p.pressKey ("EXIT");
+        run (4);
+        auto snap = [&] (const char* name)
+        {
+            p.editorTab = 0;
+            std::unique_ptr<juce::AudioProcessorEditor> ed (p.createEditor());
+            if (ed == nullptr) return false;
+            run (4);
+            const auto img = ed->createComponentSnapshot (ed->getLocalBounds(), true, 2.0f);
+            juce::PNGImageFormat png;
+            auto f = folder.getChildFile (juce::String ("sampler_") + name + ".png");
+            f.deleteFile();
+            std::unique_ptr<juce::OutputStream> os (f.createOutputStream());
+            return os != nullptr && png.writeImageToStream (img, *os);
+        };
+        front.key ("SHIFT", true);
+        run (2);
+        if (! snap ("shift")) return false;
+        front.key ("SHIFT", true);   // (closing the window lets SHIFT go)
+        front.pad (4, true);
+        front.key ("SHIFT", false);
+        front.pad (2, true);
+        front.key ("ENTER", true);
+        front.key ("FWD", true);
+        if (! snap ("tempo")) return false;
+        for (int k = 0; k < 20 && front.function() != tf::sampler::Front::del; ++k) front.key ("<", true);
+        front.key ("ENTER", true);
+        if (! snap ("delete")) return false;
+        front.key ("EXIT", true);
         return true;
     }
 
@@ -237,7 +268,7 @@ public:
                 auto e = std::make_unique<tf::PhraseSamplerPanel> (p, p.editorTab);
                 e->onMessage = say;
                 return std::unique_ptr<juce::Component> (std::move (e));
-            }, 516);
+            }, 640);
         };
 
         // A tool for making artwork: --render-cassettes <folder> draws each formulation's cassette, at full size, as a PNG.

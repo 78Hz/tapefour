@@ -47,7 +47,9 @@ enum class Sounding { note = 0, toggle, trigger };
 enum class Effect { none = 0, scale, filter, crossfade, pitch, extScratch, extFilter };
 enum class FilterType { lpf = 0, bpf, hpf, bypass };
 enum class Resonance { flat = 0, weak, strong };
-enum class Source { input = 0, tape, file };
+/** What's sampled: the track's own input (what reaches the sampler in its chain), another track as it leaves
+    its channel strip (before or after its fader), the mix of the other tracks, or a file. */
+enum class Source { input = 0, track, file, mix };
 
 const char* loopName (Loop);
 const char* soundingName (Sounding);
@@ -108,7 +110,25 @@ struct PanelState
     uint64_t padsSounding = 0;      // a bit for each pad with a voice
     int scalePad = -1, scratchPad = -1;
     double ribbonPitch = 0.0;       // PITCH's percent from the ribbon
+    bool songRepeat = false;        // the song is playing round (the LCD's arrow)
+    bool midiIn = false;            // a MIDI message came in lately (the LCD's MIDI)
 };
+
+/** A loop's tempo as the SU10 shows it (owner's manual p. 46): the looped part only, 80.00 to 159.99 BPM;
+    to the hundredth, or the whole beat for reverse loops and very long forward ones; none under 0.375 s. */
+struct Tempo
+{
+    bool shown = false;
+    double bpm = 0.0;
+    bool wholeBeats = false;
+    juce::String text() const;      // "125.30", "97", or empty
+};
+inline constexpr double tempoShortestSeconds = 0.375;
+inline constexpr double tempoWholeBeatsSeconds = 6.0;   // "very long": not published, our choice (16 beats at 160 BPM)
+/** The tempo of a loop of this many seconds. */
+Tempo tempoOf (double loopSeconds, bool reverse);
+
+class Front;
 
 //==============================================================================
 class Processor : public juce::AudioProcessor,
@@ -136,9 +156,29 @@ public:
     bool importFile (const juce::File&, int toPad, juce::String& error);
     /** The loop's tempo (80..160 BPM), or 0. */
     double loopTempo (int index) const;
+    /** The loop's tempo as the unit shows it (at the current grade and pitch). */
+    Tempo tempo (int index) const;
+    /** Whether the pad loops (and so has a tempo). */
+    bool loops (int index) const;
+    /** Moves the end point so the loop plays steps hundredths of a BPM faster (or slower), to the nearest
+        frame, and always by at least one. False if the end can't move that way. */
+    bool nudgeTempo (int index, int steps);
+    /** The unit's INIT DATA (every sample and song goes) and INIT ALL (and the settings, as it came). */
+    void deleteAllSamples();
+    void resetEverything();
 
     // ---- recording ----
-    struct RecordSettings { Source source = Source::input; int tapeTrack = 0; bool stereo = false; int gain = 8; int trigger = 0; int toPad = 0; };
+    struct RecordSettings
+    {
+        Source source = Source::input;
+        int track = 0;                  // Source::track: which (0..3)
+        bool postFader = true;          // a track or the mix: after the fader, or before it
+        bool stereo = false;
+        int gain = 8;
+        int trigger = 0;
+        int toPad = 0;
+        Loop defaultLoop = Loop::oneShot;   // a new sample's loop mode (the unit's Defalt)
+    };
     RecordSettings recordSettings() const;
     void setRecordSettings (const RecordSettings&);
     bool armRecord (juce::String& error);         // waits for the trigger level (or starts at once, manual)
@@ -158,9 +198,16 @@ public:
     /** The input's peak since last asked (the SAMPLE tab's meter), after the gain. */
     float takeInputPeak();
     juce::String lcdLine (int line) const;
+    /** A message the unit is showing for a moment ("Pad Empty"), or empty. */
+    juce::String flashMessage() const;
+    /** The front panel's own keys and modes (PLAY, EDIT, UTILITY, recording): message thread. */
+    Front& front();
     float ribbonPosition() const;
 
     // ---- songs ----
+    /** REPEAT: PLAY plays the song round (as PLAY with HOLD does). */
+    void setSongRepeat (bool);
+    bool songRepeat() const;
     int songEvents (int song) const;
     int songEventsTotal() const;
     double songLength (int song) const;
@@ -197,13 +244,17 @@ public:
     void fromXml (const juce::XmlElement&) override;
     const presets::Kind& presetKind() const override;
 
+    /** The track the sampler is on (-1 not known yet): its own output can't be a source. */
+    int ownTrack() const;
+
     // TapeFeedListener
-    void tapeFeed (const float* const* tracks, int numTracks) noexcept override;
+    void tapeFeed (const TrackFeed&) noexcept override;
 
     struct Impl;
 
 private:
     std::unique_ptr<Impl> impl;
+    std::unique_ptr<Front> frontPanel;
 };
 
 /** The sampler's presets: one file each (.tfps) in Documents/TapeFour/Presets/Phrase Sampler. */

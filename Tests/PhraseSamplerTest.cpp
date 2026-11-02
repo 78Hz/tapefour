@@ -3,11 +3,14 @@
 //   The four grades' clocks and recording times, the ADPCM, the polyphony table, recording from the
 //   input, the tape and a file, playing (pitch, loop modes, NOTE / TOGGLE / TRIGGER, alternate groups,
 //   HOLD, REV), the voices cut, the ribbon's effects and the grades they're allowed at, songs, the edits
-//   (copy, move, split, compact, delete) and the whole memory's round trip.
+//   (copy, move, split, compact, delete) and the whole memory's round trip; the other tracks' outputs and the
+//   mix as sources; the loop tempo as the unit shows it and nudged; the front panel's modes (SHIFT's
+//   functions, EDIT, recording, UTILITY).
 //
 // With TF_SAMPLER_RENDER=<folder> it also writes WAVs to listen to.
 
 #include "../Source/PhraseSampler.h"
+#include "../Source/PhraseSamplerFront.h"
 #include "../Source/EditorHosting.h"
 
 #include <cstdio>
@@ -64,8 +67,16 @@ struct Rig
                 tapeBlock[(size_t) i] = onTape ? x : 0.0f;
             }
             t += bs / sr;
-            const float* tracks[4] { silent.data(), silent.data(), tapeBlock.data(), silent.data() };
-            p.tapeFeed (tracks, 4);
+            TrackFeed feed;
+            feed.numTracks = 4;
+            feed.ownTrack = 0;
+            for (int q = 0; q < 4; ++q)
+            {
+                feed.tape[q] = feed.preFader[q] = silent.data();
+                feed.postFader[q] = q == 2 ? tapeBlock.data() : silent.data();
+                feed.heard[q] = true;
+            }
+            p.tapeFeed (feed);
             juce::MidiBuffer m;
             while (e < events.size() && events[e].first * sr < (k + 1) * bs)
             {
@@ -82,8 +93,8 @@ struct Rig
     {
         auto r = p.recordSettings();
         r.toPad = pad; r.stereo = stereo; r.trigger = 0; r.gain = 8;
-        r.source = onTape ? Source::tape : Source::input;
-        r.tapeTrack = 2;
+        r.source = onTape ? Source::track : Source::input;
+        r.track = 2;
         p.setRecordSettings (r);
         juce::String error;
         if (! p.armRecord (error)) return false;
@@ -387,6 +398,147 @@ int main()
         r.set ("grade", 0.0f);
         r.p.pressKey ("SCRATCH"); r.run (0.01);
         check (r.p.panel().scratchPad < 0, "effects: SCRATCH can't be had at HI", r.p.panel().scratchPad, -1);
+    }
+
+
+    // ---------------------------------------------------------------- the loop tempo, as the unit shows it
+    {
+        check (! tempoOf (0.374, false).shown && tempoOf (0.376, false).shown, "tempo: none for a loop under 0.375 s (manual p. 46)", tempoOf (0.374, false).shown ? 1 : 0, 0);
+        check (tempoOf (0.5, false).text() == "120.00", "tempo: half a second is 120.00 BPM", tempoOf (0.5, false).bpm, 120.0);
+        check (tempoOf (60.0 / 125.34 * 4.0, false).text() == "125.34", "tempo: four beats at 125.34 read 125.34, to the hundredth", tempoOf (60.0 / 125.34 * 4.0, false).bpm, 125.34);
+        check (std::abs (tempoOf (3.0, false).bpm - 80.0) < 1.0e-9 && std::abs (tempoOf (2.0 * 60.0 / 170.0, false).bpm - 85.0) < 0.01, "tempo: always 80.00 to 159.99 (170 BPM over two beats reads 85)", tempoOf (2.0 * 60.0 / 170.0, false).bpm, 85.0);
+        check (tempoOf (2.0, true).text() == "120", "tempo: a reverse loop to the whole beat", tempoOf (2.0, true).bpm, 120.0);
+        check (tempoOf (8.0, false).wholeBeats && ! tempoOf (5.0, false).wholeBeats, "tempo: a very long forward loop (over 6 s) to the whole beat", tempoOf (8.0, false).wholeBeats ? 1 : 0, 1);
+        check (tempoOf (60.0 / 159.999, false).text() == "159.99" || tempoOf (60.0 / 159.999, false).text() == "80.00", "tempo: never shows 160", tempoOf (60.0 / 159.999, false).bpm, 159.99);
+
+        Rig r;
+        r.record (0, 2.2, 200.0);
+        auto p = r.p.pad (0);
+        p.loop = Loop::wholeLoop;
+        const double clock = clockHz (r.p.grade(), r.p.pitchPercent());
+        p.end = (int) std::lround (60.0 / 125.30 * 4.0 * clock);
+        r.p.setPad (0, p);
+        const double before = r.p.tempo (0).bpm;
+        r.p.nudgeTempo (0, 1);
+        const double up = r.p.tempo (0).bpm;
+        check (std::abs (up - before - 0.01) < 0.006 && r.p.pad (0).end < p.end, "tempo: + makes the loop 0.01 BPM faster (shorter), to the nearest sample", up - before, 0.01);
+        for (int k = 0; k < 100; ++k) r.p.nudgeTempo (0, -1);
+        check (std::abs (r.p.tempo (0).bpm - (up - 1.0)) < 0.02, "tempo: a hundred - make it 1 BPM slower", r.p.tempo (0).bpm, up - 1.0);
+        check (r.p.pad (0).start == p.start, "tempo: only the end moves", r.p.pad (0).start, p.start);
+    }
+
+    // ---------------------------------------------------------------- the other tracks and the mix as sources
+    {
+        // tracks 1-4 at 200, 300, 400, 500 Hz before the fader and half as loud after it; the sampler on track 1
+        Processor q;
+        q.setRateAndBufferSizeDetails (sr, bs);
+        q.prepareToPlay (sr, bs);
+        double ph = 0.0;
+        auto runFeed = [&] (double seconds, bool track4Heard)
+        {
+            std::vector<float> pre[4], post[4];
+            for (int k = 0; k < 4; ++k) { pre[k].resize (bs); post[k].resize (bs); }
+            juce::AudioBuffer<float> b (2, bs);
+            for (int blk = 0; blk < (int) (seconds * sr / bs); ++blk)
+            {
+                for (int i = 0; i < bs; ++i)
+                    for (int k = 0; k < 4; ++k)
+                    {
+                        pre[k][(size_t) i] = 0.4f * (float) std::sin (twoPi * (200.0 + 100.0 * k) * (ph + i / sr));
+                        post[k][(size_t) i] = 0.5f * pre[k][(size_t) i];
+                    }
+                ph += bs / sr;
+                TrackFeed f;
+                f.numTracks = 4;
+                f.ownTrack = 0;
+                for (int k = 0; k < 4; ++k) { f.tape[k] = nullptr; f.preFader[k] = pre[k].data(); f.postFader[k] = post[k].data(); f.heard[k] = k != 3 || track4Heard; }
+                q.tapeFeed (f);
+                b.clear();
+                juce::MidiBuffer m;
+                q.processBlock (b, m);
+            }
+        };
+        auto take = [&] (int pad, Source src, int track, bool post, bool track4Heard)
+        {
+            auto rs = q.recordSettings();
+            rs.toPad = pad; rs.source = src; rs.track = track; rs.postFader = post; rs.trigger = 0; rs.gain = 8; rs.stereo = false;
+            rs.defaultLoop = Loop::wholeLoop;
+            q.setRecordSettings (rs);
+            juce::String e;
+            q.armRecord (e);
+            runFeed (0.3, track4Heard);
+            q.stopRecord();
+            double sum = 0.0;
+            const auto a = q.padAudio (pad);
+            for (auto v : a) sum += (double) v * v;
+            return std::sqrt (sum / (double) std::max<size_t> (1, a.size())) / 32768.0;
+        };
+        const double postLevel = take (0, Source::track, 2, true, true), preLevel = take (1, Source::track, 2, false, true);
+        check (std::abs (preLevel / postLevel - 2.0) < 0.2, "sources: a track before its fader, and after it (here half: 6 dB down)", preLevel / postLevel, 2.0);
+        check (std::abs (preLevel - 0.4 / std::sqrt (2.0)) < 0.05, "sources: TRACK 3 OUT is track 3's sound (RMS)", preLevel, 0.4 / std::sqrt (2.0));
+        check (q.pad (0).loop == Loop::wholeLoop && q.pad (0).name == "track 3", "sources: the new sample gets the chosen loop mode, and the track's name", q.pad (0).loop == Loop::wholeLoop ? 1 : 0, 1);
+        // the mix: the other three (not its own track), as heard
+        const double mixAll = take (2, Source::mix, 0, false, true), mixMuted = take (3, Source::mix, 0, false, false);
+        check (std::abs (mixAll - 0.4 * std::sqrt (3.0 / 2.0)) < 0.06, "sources: MIX is the other three tracks, not its own (RMS)", mixAll, 0.4 * std::sqrt (3.0 / 2.0));
+        check (std::abs (mixMuted - 0.4) < 0.05, "sources: a muted track leaves the MIX", mixMuted, 0.4);
+        check (take (4, Source::track, 0, true, true) < 1.0e-3, "sources: its own track's output isn't taken (it would feed back)", take (5, Source::track, 0, true, true), 0.0);
+    }
+
+    // ---------------------------------------------------------------- the front panel's modes
+    {
+        Rig r;
+        r.record (0, 0.6, 300.0);
+        r.record (1, 0.6, 400.0);
+        auto& f = r.p.front();
+        // SHIFT + FILTER (pad 8) chooses the filter, as on the unit
+        f.key ("SHIFT", true); f.pad (7, true); f.pad (7, false); f.key ("SHIFT", false);
+        r.run (0.05);
+        check (r.p.panel().effect == Effect::filter, "panel: SHIFT + pad 8 is FILTER", (int) r.p.panel().effect, (int) Effect::filter);
+        f.key ("EXIT", true); r.run (0.05);
+        check (r.p.panel().effect == Effect::none, "panel: EXIT leaves it", (int) r.p.panel().effect, 0);
+        // BANK: one key, round the four
+        for (int k = 0; k < 5; ++k) { f.key ("BANK", true); r.run (0.02); }
+        check (r.p.panel().bank == 1, "panel: BANK five times is bank B", r.p.panel().bank, 1);
+        for (int k = 0; k < 3; ++k) { f.key ("BANK", true); r.run (0.02); }
+        // EDIT: SHIFT + pad 5, the pad, ENTER; +1 on the volume; < to Delete (it wraps), ENTER twice
+        f.key ("SHIFT", true); f.pad (4, true); f.key ("SHIFT", false);
+        check (f.mode() == Front::Mode::edit && f.lcd().top == "Which pad?", "edit: SHIFT + pad 5 asks which pad", f.mode() == Front::Mode::edit ? 1 : 0, 1);
+        f.pad (1, true); f.pad (1, false); f.key ("ENTER", true);
+        check (f.editPad() == 1 && f.lcd().top == "LpMode", "edit: the pad chosen, the first function", f.editPad(), 1);
+        f.key (">", true); f.key (">", true);
+        const int vol = r.p.pad (1).volume;
+        f.key ("-1", true);
+        check (r.p.pad (1).volume == vol - 1 && f.lcd().top == "PadVol", "edit: PadVol -1", r.p.pad (1).volume, vol - 1);
+        f.key ("FWD", true);
+        const int end = r.p.pad (1).end;
+        for (int k = 0; k < 40; ++k) f.key ("-1", true, k);   // held: faster
+        check (end - r.p.pad (1).end > 1000, "edit: -1 held moves the end point faster and faster (frames)", end - r.p.pad (1).end, 11110);
+        f.key ("<", true); f.key ("<", true); f.key ("<", true); f.key ("<", true);   // EdPnt (LpPnt skipped), StPnt.. back past the start
+        while (f.function() != Front::del) f.key ("<", true);
+        f.key ("ENTER", true);
+        check (r.p.pad (1).used && f.lcd().bottom == "Sure?", "edit: Delete asks Sure?", r.p.pad (1).used ? 1 : 0, 1);
+        f.key ("ENTER", true);
+        check (! r.p.pad (1).used && f.lcd().top == "Which pad?", "edit: ENTER again deletes it, and asks for a pad", r.p.pad (1).used ? 1 : 0, 0);
+        f.key ("EXIT", true);
+        check (f.mode() == Front::Mode::play, "edit: EXIT back to PLAY", (int) f.mode(), 0);
+        // recording: REC, a pad (full ones refused), ENTER, PLAY, STOP
+        f.key ("REC", true);
+        f.pad (0, true);
+        check (r.p.recordSettings().toPad != 0, "rec: a full pad is refused", r.p.recordSettings().toPad == 0 ? 0 : 1, 1);
+        f.pad (2, true); f.key ("ENTER", true);
+        check (f.mode() == Front::Mode::recSettings && f.lcd().top == "Gain", "rec: the settings, from Gain", (int) f.mode(), (int) Front::Mode::recSettings);
+        f.key ("PLAY", true);
+        r.run (0.4, 500.0, 0.5);
+        f.key ("STOP", true);
+        check (r.p.pad (2).used && f.mode() == Front::Mode::play, "rec: PLAY records into pad 3, STOP ends it", r.p.pad (2).used ? 1 : 0, 1);
+        // UTILITY: SHIFT + pad 6; InitData asks twice
+        f.key ("SHIFT", true); f.pad (5, true); f.key ("SHIFT", false);
+        while (f.lcd().top != "InitData") f.key (">", true);
+        f.key ("ENTER", true);
+        check (r.p.pad (0).used, "utility: InitData asks first", r.p.pad (0).used ? 1 : 0, 1);
+        f.key ("ENTER", true);
+        check (! r.p.pad (0).used && r.p.memoryUsedNibbles() == 0, "utility: then every sample goes", r.p.memoryUsedNibbles(), 0);
+        f.key ("EXIT", true);
     }
 
     // ---------------------------------------------------------------- its window, opened again

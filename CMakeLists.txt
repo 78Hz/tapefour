@@ -131,6 +131,7 @@ set(TAPEFOUR_ENGINE_SOURCES
     Source/ElectricPiano.cpp
     Source/TransistorOrgan.cpp
     Source/PhraseSampler.cpp
+    Source/PhraseSamplerFront.cpp
     Source/SpringReverb.cpp
     Source/N5Model.cpp
     Source/N5Effects.cpp
@@ -317,7 +318,7 @@ if(TAPEFOUR_TESTS AND NOT TAPEFOUR_ONLY_PLAYER)
 
     tapefour_test(ElectricPianoTest Tests/ElectricPianoTest.cpp Source/ElectricPiano.cpp Source/InstrumentPresets.cpp Source/Tuning.cpp)
     tapefour_test(TransistorOrganTest Tests/TransistorOrganTest.cpp Source/TransistorOrgan.cpp Source/InstrumentPresets.cpp Source/Tuning.cpp)
-    tapefour_test(PhraseSamplerTest Tests/PhraseSamplerTest.cpp Source/PhraseSampler.cpp Source/InstrumentPresets.cpp)
+    tapefour_test(PhraseSamplerTest Tests/PhraseSamplerTest.cpp Source/PhraseSampler.cpp Source/PhraseSamplerFront.cpp Source/InstrumentPresets.cpp)
     tapefour_test(SpringReverbTest Tests/SpringReverbTest.cpp Source/SpringReverb.cpp)
     tapefour_test(N5Test Tests/N5Test.cpp Source/N5Model.cpp Source/N5Effects.cpp Source/N5Synth.cpp Source/SpringReverb.cpp Source/InstrumentPresets.cpp)
     tapefour_test(EngineTest Tests/EngineTest.cpp Source/Tape.cpp Source/TapeEngine.cpp Source/NoiseReduction.cpp)

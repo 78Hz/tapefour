@@ -68,6 +68,9 @@ void AudioEngine::allocateBuffers (int size)
         tapeOut[t].assign ((size_t) size, 0.0f);
         src[t].assign ((size_t) size, 0.0f);
         chan[t].assign ((size_t) size, 0.0f);
+        pre[t].assign ((size_t) size, 0.0f);
+        feedPre[t].assign ((size_t) size, 0.0f);
+        feedPost[t].assign ((size_t) size, 0.0f);
         tapeOutPtr[t] = tapeOut[t].data();
     }
     mixL.assign ((size_t) size, 0.0f);
@@ -882,7 +885,8 @@ AudioEngine::ChainResult AudioEngine::runChain (int t, const float* const* input
                 // A block that doesn't make MIDI leaves the stream as it was, whatever it does with its copy.
                 midiWork.clear();
                 midiWork.addEvents (trackMidi, 0, n, 0);
-                b.setTapeFeed (tapeOutPtr, numTracks);
+                feedNow.ownTrack = t;
+                b.setTapeFeed (&feedNow);
                 b.process (audio, n, midiWork);
                 if (b.producesMidi())
                     trackMidi.swapWith (midiWork);
@@ -1054,7 +1058,31 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputs, 
     // A chain is only heard while its track is armed, or fading back to tape after. Otherwise it's
     // left alone (its plug-ins carry on from where they were when the track is armed again). It runs
     // one more block after its MIDI stops, so its notes-off reach every block and hardware synth.
-    auto chainHeard = [&] (int t) { return armed[t] || strips[t].liveAmount() > 0.0f || wasReceiving[t]; };
+    // An instrument whose window is open is heard too, armed or not, so it can be played from there.
+    bool auditioning[numTracks] {};
+    for (int t = 0; t < numTracks; ++t)
+    {
+        const juce::SpinLock::ScopedTryLockType cl (chains[t].lock);
+        if (cl.isLocked())
+            for (auto& b : chains[t].blocks) if (b->auditions()) { auditioning[t] = true; break; }
+    }
+    auto chainHeard = [&] (int t) { return armed[t] || strips[t].liveAmount() > 0.0f || wasReceiving[t] || auditioning[t]; };
+
+    // What a sampler can take: the tape now, and each track's output from the block before.
+    if (feedLength < n)
+        for (int t = 0; t < numTracks; ++t)
+        {
+            std::fill (feedPre[t].begin() + feedLength, feedPre[t].begin() + n, 0.0f);
+            std::fill (feedPost[t].begin() + feedLength, feedPost[t].begin() + n, 0.0f);
+        }
+    feedNow.numTracks = numTracks;
+    for (int t = 0; t < numTracks; ++t)
+    {
+        feedNow.tape[t] = tapeOutPtr[t];
+        feedNow.preFader[t] = feedPre[t].data();
+        feedNow.postFader[t] = feedPost[t].data();
+        feedNow.heard[t] = feedHeard[t];
+    }
     auto runOrRest = [&] (int t, const float* bounceIn)
     {
         if (chainHeard (t))
@@ -1064,7 +1092,9 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputs, 
             std::fill_n (src[t].begin(), n, 0.0f);
             chainResult[t] = {};
         }
-        strips[t].process (tapeOut[t].data(), src[t].data(), chan[t].data(), n, controls (t));
+        auto c = controls (t);
+        c.audition = auditioning[t] && ! armed[t];
+        strips[t].process (tapeOut[t].data(), src[t].data(), chan[t].data(), n, c, pre[t].data());
     };
 
     // ---- live tracks: their chains, then their strips ----
@@ -1120,11 +1150,15 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputs, 
         if (peak > track[t].meter.load()) track[t].meter = peak;
 
         const bool heard = ! muted[t] && (! soloing || track[t].solo.load());
+        feedHeard[t] = heard;
+        std::copy (pre[t].begin(), pre[t].begin() + n, feedPre[t].begin());
+        std::copy (c, c + n, feedPost[t].begin());
         // A bounce destination is fed by the other tracks, which you already hear: it leaves the
         // mix as it goes live.
         auto gain = heard ? (bounce[t] ? 1.0f - strips[t].liveAmount() : 1.0f) : 0.0f;
         strips[t].addToMix (c, mixL.data(), mixR.data(), n, track[t].pan.load(), gain);
     }
+    feedLength = n;
 
     // ---- the master bus: after the master fader, it's what you hear and what a mixdown takes ----
     auto mg = faderGain (masterFader.load());

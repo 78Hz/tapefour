@@ -316,10 +316,20 @@ void ProcessorBlock::process (juce::AudioBuffer<float>& stereo, int numSamples, 
 
         if (tapeListener != nullptr)
         {
-            // this piece of each track's tape
-            const int count = tapeTracks != nullptr ? std::min (tapeCount, (int) tapePiece.size()) : 0;
-            for (int t = 0; t < count; ++t) tapePiece[(size_t) t] = tapeTracks[t] != nullptr ? tapeTracks[t] + start : nullptr;
-            tapeListener->tapeFeed (tapePiece.data(), count);
+            // this piece of each track's tape and output
+            TrackFeed piece;
+            if (feed != nullptr)
+            {
+                piece = *feed;
+                auto at = [start] (const float* p) { return p != nullptr ? p + start : nullptr; };
+                for (int t = 0; t < piece.numTracks; ++t)
+                {
+                    piece.tape[t] = at (piece.tape[t]);
+                    piece.preFader[t] = at (piece.preFader[t]);
+                    piece.postFader[t] = at (piece.postFader[t]);
+                }
+            }
+            tapeListener->tapeFeed (piece);
         }
         processor->processBlock (view, pieceMidi);
 

@@ -1,4 +1,5 @@
 #include "PhraseSampler.h"
+#include "PhraseSamplerFront.h"
 
 namespace tf::sampler
 {
@@ -88,6 +89,7 @@ namespace
         enum Type : uint8_t { padDown, padUp, anyPadDown, anyPadUp, keyDown, keyUp, ribbon, armRecord, stopRecord, allOff } type = padDown;
         int a = 0;
         float f = 0.0f;
+        double ms = 0.0;   // when it was pressed: a press the audio didn't take in time is dropped, not played late
     };
 
     enum class Message { none, padEmpty, notAtGrade, memoryFull, songFull, songNotEmpty, recStandby, recording, selectPad, padNotEmpty };
@@ -175,6 +177,7 @@ struct Processor::Impl : private juce::Timer
     std::array<Command, 512> commands {};
     void push (Command c)
     {
+        c.ms = juce::Time::getMillisecondCounterHiRes();
         const auto scope = fifo.write (1);
         if (scope.blockSize1 > 0) commands[(size_t) scope.startIndex1] = c;
         else if (scope.blockSize2 > 0) commands[(size_t) scope.startIndex2] = c;
@@ -221,9 +224,12 @@ struct Processor::Impl : private juce::Timer
     int extWrite = 0;
     double extAnchor = 0.0, extPos = 0.0;
     bool extWasTouched = false;
-    // tape
-    const float* const* tapeTracks = nullptr;
-    int tapeCount = 0;
+    // the other tracks
+    TrackFeed feed;
+    bool haveFeed = false;
+    std::atomic<int> ownTrack { -1 };
+    std::atomic<bool> repeatSetting { false };
+    std::atomic<double> lastMidiMs { 0.0 };
 
     // recording
     enum class Rec { idle, armed, recording, done };
@@ -435,7 +441,12 @@ struct Processor::Impl : private juce::Timer
                 for (auto& v : voices) if (v.fromSong) stopVoice (v);
                 break;
             case kPlay:
-                if (song >= 0 && ! songs[(size_t) song].empty()) { songPlaying = true; songRepeat = holdKey; songIndex = 0; songPosMs = 0.0; }
+                // from where it stopped, or from the top once it's played through (the manual, p. 28)
+                if (song >= 0 && ! songs[(size_t) song].empty())
+                {
+                    if (songIndex >= songs[(size_t) song].size()) { songIndex = 0; songPosMs = 0.0; }
+                    songPlaying = true; songRepeat = holdKey || repeatSetting.load();
+                }
                 break;
             case kTop: songPosMs = 0.0; songIndex = 0; if (scratchPad >= 0) scratchStart = pads[(size_t) scratchPad].start; break;
             case kFwd: case kBwd:
@@ -540,12 +551,23 @@ struct Processor::Impl : private juce::Timer
                 const bool taking = rs == Rec::armed || rs == Rec::recording;
                 const auto& src = taking ? recNow : record;
                 double sl = 0, sr2 = 0;
-                if (src.source == Source::tape)
+                const int own = haveFeed ? feed.ownTrack : -1;
+                if (src.source == Source::track && src.track != own)
                 {
-                    const int tt = src.tapeTrack;
-                    sl = sr2 = tapeTracks != nullptr && tt < tapeCount && tapeTracks[tt] != nullptr ? tapeTracks[tt][start + i] : 0.0;
+                    const int tt = src.track;
+                    const float* t = ! haveFeed || tt >= feed.numTracks ? nullptr : (src.postFader ? feed.postFader[tt] : feed.preFader[tt]);
+                    sl = sr2 = t != nullptr ? t[start + i] : 0.0;
                 }
-                else if (src.source == Source::input) { sl = inL[i]; sr2 = inR[i]; }
+                else if (src.source == Source::mix)
+                {
+                    // the other tracks as the mix has them (mute and solo), in mono
+                    if (haveFeed)
+                        for (int k = 0; k < feed.numTracks; ++k)
+                            if (k != own && feed.heard[k])
+                                if (const float* t = src.postFader ? feed.postFader[k] : feed.preFader[k]) sl += t[start + i];
+                    sr2 = sl;
+                }
+                else if (src.source == Source::input || src.source == Source::track) { sl = inL[i]; sr2 = inR[i]; }
                 const double gain = taking ? recGain : meterGain;
                 sl *= gain; sr2 *= gain;
                 const float pk = (float) std::max (std::abs (sl), std::abs (sr2));
@@ -680,6 +702,9 @@ struct Processor::Impl : private juce::Timer
 
     void handle (const Command& c)
     {
+        // (presses from before the audio ran, the track not playing its chain, would all go off at once)
+        const bool press = c.type == Command::padDown || c.type == Command::anyPadDown || c.type == Command::keyDown;
+        if (press && c.ms > 0.0 && juce::Time::getMillisecondCounterHiRes() - c.ms > 250.0) return;
         switch (c.type)
         {
             case Command::padDown: startPad (bank * padsPerBank + c.a, c.f, false, revKey, holdKey); break;
@@ -751,6 +776,7 @@ struct Processor::Impl : private juce::Timer
         for (int i = 0; i < scope.blockSize1; ++i) handle (commands[(size_t) (scope.startIndex1 + i)]);
         for (int i = 0; i < scope.blockSize2; ++i) handle (commands[(size_t) (scope.startIndex2 + i)]);
         for (const auto m : midi) midiIn (m.getMessage());
+        if (! midi.isEmpty()) lastMidiMs = juce::Time::getMillisecondCounterHiRes();
         // effects not at this grade go off
         if (! effectAllowed (grade(), effect, false)) effect = Effect::none;
         if (scratchPad >= 0 && ! effectAllowed (grade(), Effect::none, true)) scratchPad = -1;
@@ -768,6 +794,8 @@ struct Processor::Impl : private juce::Timer
             shown.recordSeconds = (double) recFrames / std::max (1.0, recClock);
             shown.scalePad = scalePad; shown.scratchPad = scratchPad;
             shown.ribbonPitch = pitchFromRibbon;
+            shown.songRepeat = songPlaying && songRepeat;
+            shown.midiIn = juce::Time::getMillisecondCounterHiRes() - lastMidiMs.load() < 250.0;
             shown.padsSounding = 0;
             for (auto& v : voices) if (v.on && ! v.stopping) shown.padsSounding |= (uint64_t) 1 << v.pad;
         }
@@ -795,8 +823,10 @@ struct Processor::Impl : private juce::Timer
         p.pitchPercent = recPitch;
         p.frames = frames;
         p.start = 0; p.loopPoint = 0; p.end = frames;
+        p.loop = recNow.defaultLoop;
         p.note = defaultNote (recNow.toPad);
-        p.name = recNow.source == Source::tape ? "tape " + juce::String (recNow.tapeTrack + 1) : juce::String ("sample");
+        p.name = recNow.source == Source::track ? "track " + juce::String (recNow.track + 1)
+               : recNow.source == Source::mix ? juce::String ("mix") : juce::String ("sample");
         store (recNow.toPad, p, pcm);
     }
 
@@ -889,6 +919,20 @@ Processor::Processor()
 
 Processor::~Processor() = default;
 
+Front& Processor::front()
+{
+    if (frontPanel == nullptr) frontPanel = std::make_unique<Front> (*this);
+    return *frontPanel;
+}
+
+juce::String Processor::flashMessage() const
+{
+    if (juce::Time::getMillisecondCounterHiRes() >= impl->messageUntil.load()) return {};
+    static const char* m[] { "", "Pad Empty", "Not at this grade", "Memory Full", "Song memory full", "Song not empty",
+                             "Rec standby", "Recording", "Select a pad", "Pad not empty" };
+    return m[std::clamp (impl->message.load(), 0, 9)];
+}
+
 const juce::String Processor::getName() const { return "TF PHRASE SAMPLER"; }
 
 juce::RangedAudioParameter* Processor::param (const juce::String& id) const
@@ -909,11 +953,16 @@ void Processor::prepareToPlay (double sampleRate, int)
     impl->prepareBuffers();
 }
 
-void Processor::tapeFeed (const float* const* tracks, int numTracks) noexcept
+void Processor::tapeFeed (const TrackFeed& f) noexcept
 {
-    impl->tapeTracks = tracks;
-    impl->tapeCount = numTracks;
+    impl->feed = f;
+    impl->haveFeed = true;
+    impl->ownTrack = f.ownTrack;
 }
+
+int Processor::ownTrack() const { return impl->ownTrack.load(); }
+void Processor::setSongRepeat (bool on) { impl->repeatSetting = on; }
+bool Processor::songRepeat() const { return impl->repeatSetting.load(); }
 
 void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
@@ -926,7 +975,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         i.push ({ Command::ribbon, 1, rp });
     }
     i.process (buffer, midi);
-    i.tapeTracks = nullptr;
+    i.haveFeed = false;
     midi.clear();
 }
 
@@ -1121,6 +1170,92 @@ double Processor::loopTempo (int index) const
     return bpm;
 }
 
+juce::String Tempo::text() const
+{
+    if (! shown) return {};
+    return wholeBeats ? juce::String (juce::roundToInt (bpm)) : juce::String (bpm, 2);
+}
+
+Tempo tempoOf (double secs, bool reverse)
+{
+    Tempo t;
+    if (secs < tempoShortestSeconds) return t;
+    double bpm = 60.0 / secs;
+    while (bpm < 80.0) bpm *= 2.0;
+    while (bpm >= 160.0) bpm /= 2.0;
+    t.shown = true;
+    t.wholeBeats = reverse || secs > tempoWholeBeatsSeconds;
+    // to the hundredth (or the beat), never showing 160
+    t.bpm = t.wholeBeats ? std::min (159.0, std::floor (bpm + 0.5)) : std::min (159.99, std::round (bpm * 100.0) / 100.0);
+    return t;
+}
+
+bool Processor::loops (int index) const
+{
+    const auto p = pad (index);
+    return p.used && (p.loop == Loop::wholeLoop || p.loop == Loop::partialLoop || p.loop == Loop::reverseLoop);
+}
+
+Tempo Processor::tempo (int index) const
+{
+    const auto p = pad (index);
+    if (! loops (index)) return {};
+    const int from = p.loop == Loop::partialLoop ? p.loopPoint : p.start;
+    return tempoOf ((p.end - from) / clockHz (grade(), pitchPercent()), p.loop == Loop::reverseLoop);
+}
+
+bool Processor::nudgeTempo (int index, int steps)
+{
+    auto p = pad (index);
+    if (! p.used || steps == 0) return false;
+    const int from = p.loop == Loop::partialLoop ? p.loopPoint : p.start;
+    const double clock = clockHz (grade(), pitchPercent());
+    const double secs = (p.end - from) / clock;
+    if (secs <= 0.0) return false;
+    // the beats the display counts in the loop (a power of two), held while the tempo moves
+    double bpm = 60.0 / secs, beats = 1.0;
+    while (bpm < 80.0) { bpm *= 2.0; beats *= 2.0; }
+    while (bpm >= 160.0) { bpm /= 2.0; beats /= 2.0; }
+    const double target = std::max (1.0, std::round (bpm * 100.0) / 100.0 + steps * 0.01);
+    int end = from + (int) std::lround (beats * 60.0 / target * clock);
+    // faster is shorter: at least one frame each way
+    if (steps > 0 && end >= p.end) end = p.end - 1;
+    if (steps < 0 && end <= p.end) end = p.end + 1;
+    end = std::clamp (end, from + 1, p.frames);
+    if (end == p.end) return false;
+    p.end = end;
+    setPad (index, p);
+    return true;
+}
+
+void Processor::deleteAllSamples()
+{
+    const juce::SpinLock::ScopedLockType sl (impl->dataLock);
+    for (int i = 0; i < numPads; ++i)
+    {
+        const int note = impl->pads[(size_t) i].note;
+        impl->pads[(size_t) i] = Pad();
+        impl->pads[(size_t) i].note = note;
+        impl->decoded[(size_t) i].clear();
+    }
+    impl->used = 0;
+    for (auto& s : impl->songs) s.clear();
+    impl->noteSongs();
+    for (auto& v : impl->voices) v.on = false;
+}
+
+void Processor::resetEverything()
+{
+    deleteAllSamples();
+    for (auto* p : getParameters())
+        if (auto* r = dynamic_cast<juce::RangedAudioParameter*> (p))
+            r->setValueNotifyingHost (r->getDefaultValue());
+    const juce::SpinLock::ScopedLockType sl (impl->dataLock);
+    for (int i = 0; i < numPads; ++i) impl->pads[(size_t) i].note = Impl::defaultNote (i);
+    impl->record = {};
+    impl->repeatSetting = false;
+}
+
 Processor::RecordSettings Processor::recordSettings() const { return impl->record; }
 void Processor::setRecordSettings (const RecordSettings& r) { const juce::SpinLock::ScopedLockType sl (impl->dataLock); impl->record = r; }
 
@@ -1274,7 +1409,10 @@ std::unique_ptr<juce::XmlElement> Processor::toXml (bool) const
     }
     auto* rec = x->createNewChildElement ("RECORD");
     rec->setAttribute ("source", (int) impl->record.source);
-    rec->setAttribute ("tapeTrack", impl->record.tapeTrack);
+    rec->setAttribute ("track", impl->record.track);
+    rec->setAttribute ("postFader", impl->record.postFader);
+    rec->setAttribute ("defaultLoop", (int) impl->record.defaultLoop);
+    x->setAttribute ("songRepeat", impl->repeatSetting.load());
     rec->setAttribute ("stereo", impl->record.stereo);
     rec->setAttribute ("gain", impl->record.gain);
     rec->setAttribute ("trigger", impl->record.trigger);
@@ -1351,8 +1489,10 @@ void Processor::fromXml (const juce::XmlElement& x)
     Processor::RecordSettings rs;
     if (auto* r = x.getChildByName ("RECORD"))
     {
-        rs.source = (Source) std::clamp (r->getIntAttribute ("source"), 0, 2);
-        rs.tapeTrack = std::clamp (r->getIntAttribute ("tapeTrack"), 0, 3);
+        rs.source = (Source) std::clamp (r->getIntAttribute ("source"), 0, 3);   // (1 was a track's tape: now its output)
+        rs.track = std::clamp (r->getIntAttribute ("track", r->getIntAttribute ("tapeTrack")), 0, 3);
+        rs.postFader = r->getBoolAttribute ("postFader", true);
+        rs.defaultLoop = (Loop) std::clamp (r->getIntAttribute ("defaultLoop"), 0, 4);
         rs.stereo = r->getBoolAttribute ("stereo");
         rs.gain = std::clamp (r->getIntAttribute ("gain", 8), 1, 16);
         rs.trigger = std::clamp (r->getIntAttribute ("trigger"), 0, 7);
@@ -1366,6 +1506,7 @@ void Processor::fromXml (const juce::XmlElement& x)
     impl->decoded.swap (decoded);
     impl->songs.swap (songs);
     impl->record = rs;
+    impl->repeatSetting = x.getBoolAttribute ("songRepeat");
     impl->noteSongs();
     for (auto& v : impl->voices) v.on = false;
 }

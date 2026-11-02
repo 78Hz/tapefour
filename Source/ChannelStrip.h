@@ -20,12 +20,14 @@ public:
         float trimDb, low, mid, midFreqHz, high, fader, pan;
         bool live;   // armed: hear the input instead of the tape
         float noiseRms = 0.0f;   // the strip's own electronics: noise added at its input, before EQ and fader
+        bool audition = false;   // an instrument's window is open: the live input is heard on top of the tape, unarmed
     };
 
     void prepare (double sampleRate) noexcept;
 
-    /** Mixes tape and live by the crossfade, then trim (on the live part), EQ and fader, into out. */
-    void process (const float* tape, const float* live, float* out, int numSamples, const Controls&) noexcept;
+    /** Mixes tape and live by the crossfade, then trim (on the live part), EQ and fader, into out;
+        preFader (if given) gets the same before the fader. */
+    void process (const float* tape, const float* live, float* out, int numSamples, const Controls&, float* preFader = nullptr) noexcept;
 
     /** Adds out to the stereo mix with constant-power pan; gain scales it (a bounce destination
         fades out of the mix as it goes live, since you already hear its sources). */

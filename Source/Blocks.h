@@ -8,6 +8,7 @@ namespace ep { class Processor; }
 namespace organ { class Processor; }
 namespace sampler { class Processor; }
 struct TapeFeedListener;
+struct TrackFeed;
 
 /**
     What a block does with the two streams that run through a track's chain:
@@ -47,8 +48,12 @@ public:
     /** Audio thread: processes the stereo buffer in place; midi is the MIDI in, and the MIDI out if producesMidi(). */
     virtual void process (juce::AudioBuffer<float>& /*stereo*/, int /*numSamples*/, juce::MidiBuffer& /*midi*/) {}
     virtual void applyMpe (bool /*on*/, int /*bendRange*/) noexcept {}
-    /** Audio thread, before process(): every track's tape playback for this block (for a sampler). */
-    virtual void setTapeFeed (const float* const* /*tracks*/, int /*numTracks*/) noexcept {}
+    /** Audio thread, before process(): the tracks' tape and outputs for this block (for a sampler). */
+    virtual void setTapeFeed (const TrackFeed* /*feed*/) noexcept {}
+    /** An instrument whose own window is open: its track's chain is heard (not recorded) while it is,
+        armed or not, so it can be played from the window. */
+    std::atomic<bool> windowOpen { false };
+    bool auditions() const noexcept { return windowOpen.load() && ! bypass.load() && (role() == BlockRole::instrument); }
     virtual int latencySamples() const { return 0; }
 
     /** For EDIT and MIDI learn; nullptr for blocks with no parameters. */
@@ -89,12 +94,12 @@ public:
     void prepare (double sampleRate, int blockSize) override;
     void process (juce::AudioBuffer<float>& stereo, int numSamples, juce::MidiBuffer& midi) override;
     void applyMpe (bool on, int bendRange) noexcept override;
-    void setTapeFeed (const float* const* tracks, int count) noexcept override { tapeTracks = tracks; tapeCount = count; }
+    void setTapeFeed (const TrackFeed* f) noexcept override { feed = f; }
     int latencySamples() const override     { return processor->getLatencySamples(); }
 
     juce::AudioProcessor* getProcessor() noexcept override { return processor.get(); }
     bool hasEditor() const override         { return editorAvailable; }
-    void setEditorOpen (bool open) override { editorOpen = open; if (! open) stateMaybeChanged = true; }
+    void setEditorOpen (bool open) override { editorOpen = open; windowOpen = open; if (! open) stateMaybeChanged = true; }
     int stateRequests = 0;   // for tests: how often the plug-in was asked for its state
     int takeTouchedParameter() override     { return touched.exchange (-1); }
 
@@ -123,9 +128,7 @@ private:
     bool editorAvailable = false, makesMidi = false;
     int numIns = 0;
     TapeFeedListener* tapeListener = nullptr;
-    const float* const* tapeTracks = nullptr;
-    int tapeCount = 0;
-    std::array<const float*, 8> tapePiece {};   // (kept here: the listener holds on to it for the block)
+    const TrackFeed* feed = nullptr;
 
     juce::AudioBuffer<float> work;
     juce::MidiBuffer pieceMidi, midiOut;

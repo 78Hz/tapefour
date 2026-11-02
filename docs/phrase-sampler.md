@@ -48,7 +48,7 @@ them.
 | Part | What it does | Values |
 | --- | --- | --- |
 | Memory | 786,432 four-bit samples (384 KB), shared by all 48 pads, kept with the deck | Published. A stereo frame takes two |
-| Recording | The source through an anti-alias filter (fourth-order, at 45 % of the clock), sampled at the clock, encoded as ADPCM into the memory after what's there | The filter's order and corner are a choice (not published). Sources: the track's input, a track's playback from the tape, or a file, all through the same path |
+| Recording | The source through an anti-alias filter (fourth-order, at 45 % of the clock), sampled at the clock, encoded as ADPCM into the memory after what's there | The filter's order and corner are a choice (not published). Sources: the track's input, another track as it leaves its channel strip (before or after its fader), the other tracks' mix, or a file, all through the same path |
 | Gain | 1 to 16 | Published range. 3 dB a step with 8 at unity: set by ear |
 | Trigger | MANUAL, or levels 1–7: recording starts when the input reaches the level | Published. The levels, −42 to −6 dBFS in 6 dB steps, set by ear |
 | ADPCM | Yamaha's four-bit ADPCM: each sample a step up or down of 1/8 to 15/8 of the step size, which then grows or shrinks | The tables are Yamaha's (see Sources). Silence encodes as a faint ±15 (of 32768) idle tone, as ADPCM does |
@@ -63,6 +63,8 @@ them.
 | CROSSFADER | The samples against the track's input, equal power | Published |
 | EXT SCRATCH | The input plays through; touch the ribbon and it stops, and the ribbon moves through what just came in | The 1.5 s buffer set by ear |
 | EXT FILTER | The input through the ribbon's filter; pads 1–4 choose its type, 7–9 its resonance | Published |
+| Loop tempo | The looped part (from the loop point in PARTIAL LOOP) as 80.00 to 159.99 BPM, to the hundredth; to the whole beat for reverse loops and very long forward ones; none under 0.375 s; shown while a loop's points are edited | Published (owner's manual p. 46), except where "very long" starts: not published, set here at 6 s (16 beats at 160 BPM). The unit writes the decimal point as an underscore (124_34); TAPE·FOUR shows a point |
+| Front panel | SHIFT with pads 1-12: SONG 1-4, EDIT, UTILITY, SCALE, FILTER, CROSSFADER, PITCH, EXT SCRATCH, EXT FILTER; one BANK key; EXIT, ENTER, +1/-1, < >; EDIT's 13 functions (LpMode .. Delete, COMPACT and DELETE asking "Sure?"); recording: REC, a pad, ENTER, the settings, PLAY, STOP; UTILITY's MIDI settings, song delete, Init Data and Init All | Published (manual pp. 7-12, 31-54). Which pad carries which SHIFT function isn't in the manual's text (its drawing is): the order the manual lists them is used, and agrees with EXT FILTER's pads. UTILITY's Bulk, MSDS and Lock aren't here |
 | Songs | Four, in real time from the pads (here, the mouse or MIDI): presses and releases, their velocity, REV and HOLD, to the millisecond; 1000 events in all; no overdub | Published. The ribbon isn't recorded, as on the unit |
 | MIDI | Pads on C1–B4 (MIDI 36–83) by default, each pad's note changeable; velocity sets the level; the ribbon from pitch bend or a controller | The defaults are published |
 | Level | A sample recorded at unity gain comes back, at volume 127, at the level it went in | A choice |
@@ -71,7 +73,15 @@ them.
 
 The sampler is an instrument that takes the track's audio (PROCESS INPUT), as the unit has a line input.
 With no effect on, the input isn't heard through it; CROSSFADER and the EXTERNAL effects play it. It can
-sample any of the four tracks from the tape while it plays.
+sample the other tracks as they leave their channel strips (their plug-ins, live when armed or from the
+tape when not, and EQ; before or after the fader), or their mix (as heard: mute and solo count). Those
+arrive a block late (the tracks are worked out one after another). Its own track's output can't be a
+source: it would feed back.
+
+While its window is open, its track's chain runs and is heard on top of the tape even when the track
+isn't armed (any instrument's does), so it can be played from the window; only an armed track records.
+A pad or key pressed while nothing is running is dropped after a quarter of a second rather than played
+late.
 
 ## Presets
 

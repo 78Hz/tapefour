@@ -2,6 +2,7 @@
 
 #include "TapeEngine.h"
 #include "Blocks.h"
+#include "TapeFeed.h"
 #include "MidiHub.h"
 #include "MidiMapper.h"
 #include "ChannelStrip.h"
@@ -272,7 +273,11 @@ private:
     double sampleRate = 0.0;
     int bufferSize = 0, maxBlock = 8192, inputLatency = 0, outputLatency = 0;
 
-    std::vector<float> tapeOut[numTracks], src[numTracks], chan[numTracks], mixL, mixR, bounceSum, masterL, masterR;
+    std::vector<float> tapeOut[numTracks], src[numTracks], chan[numTracks], pre[numTracks], mixL, mixR, bounceSum, masterL, masterR;
+    std::vector<float> feedPre[numTracks], feedPost[numTracks];   // each track's output in the block before, for a sampler
+    int feedLength = 0;
+    bool feedHeard[numTracks] {};
+    TrackFeed feedNow;
     float* tapeOutPtr[numTracks] {};
     juce::AudioBuffer<float> acc, scratch, dry;
     juce::MidiBuffer trackMidi, midiWork;

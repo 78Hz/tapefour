@@ -27,7 +27,7 @@ void ChannelStrip::updateFilters (bool force) noexcept
     if (moved (3, 1.0e-4f)) { eq[2].setHighShelf (sr, 4500.0, value[3] * 12.0); applied[3] = value[3]; }
 }
 
-void ChannelStrip::process (const float* tape, const float* live, float* out, int n, const Controls& c) noexcept
+void ChannelStrip::process (const float* tape, const float* live, float* out, int n, const Controls& c, float* preFader) noexcept
 {
     target[0] = c.low; target[1] = c.mid; target[2] = c.midFreqHz; target[3] = c.high;
     const auto trimTarget = dbToGain (c.trimDb);
@@ -70,9 +70,13 @@ void ChannelStrip::process (const float* tape, const float* live, float* out, in
                 liveMix = liveTarget > liveMix ? std::min (liveTarget, liveMix + liveStep) : std::max (liveTarget, liveMix - liveStep);
 
             // The trim only acts on the live input; the tape comes back at the level it was recorded.
-            auto x = tape[k] * (1.0f - liveMix) + live[k] * liveMix * (trim0 + (trim1 - trim0) * f);
+            // (an instrument played from its window on an unarmed track is heard on top of the tape)
+            const auto liveAmount = c.audition ? 1.0f : liveMix;
+            auto x = tape[k] * (1.0f - liveMix) + live[k] * liveAmount * (trim0 + (trim1 - trim0) * f);
             if (c.noiseRms > 0.0f) x += c.noiseRms * 1.7320508f * noise.next();   // uniform noise: RMS 1/sqrt 3
-            out[k] = eq[2].process (eq[1].process (eq[0].process (x))) * (fad0 + (fad1 - fad0) * f);
+            const auto eqd = eq[2].process (eq[1].process (eq[0].process (x)));
+            if (preFader != nullptr) preFader[k] = eqd;
+            out[k] = eqd * (fad0 + (fad1 - fad0) * f);
         }
         trimGain = trim1;
         faderGain = fad1;

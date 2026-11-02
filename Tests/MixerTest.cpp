@@ -1240,15 +1240,51 @@ int main()
         check (tone (out, 700.0, 0.05, 0.25) > 0.02, "sampler: pad A1 plays it back into the track", tone (out, 700.0, 0.05, 0.25), 0.1);
         // from the tape: track 2's playback (a blank tape here), not the input
         m.amp[0] = 0.3f;
-        rs.toPad = 1; rs.source = sampler::Source::tape; rs.tapeTrack = 1; smp->setRecordSettings (rs);
+        rs.toPad = 1; rs.source = sampler::Source::track; rs.track = 1; smp->setRecordSettings (rs);
         smp->armRecord (err);
         m.run (0.3);
         smp->stopRecord();
         double sum = 0.0;
         for (auto v : smp->padAudio (1)) sum += std::abs ((double) v);
-        check (smp->pad (1).used && sum / (double) std::max<size_t> (1, smp->padAudio (1).size()) < 50.0, "sampler: sampling the tape takes the tape, not the input (mean, int16)",
+        check (smp->pad (1).used && sum / (double) std::max<size_t> (1, smp->padAudio (1).size()) < 50.0, "sampler: TRACK 2 OUT takes track 2 (a blank tape here), not the input (mean, int16)",
                sum / (double) std::max<size_t> (1, smp->padAudio (1).size()), 0.0);
         me.track[0].armed = false;
+    }
+
+    // ---- The sampler on an unarmed track: heard while its window is open; another track's output sampled ----
+    {
+        Rig m;
+        auto& me = *m.engine;
+        audioIn (me, 0, 0);
+        audioIn (me, 1, 1);
+        me.insertBlock (0, -1, BuiltIn::createSynth (BuiltIn::sampler));
+        auto* blk = me.findBlock (0, me.getChain (0)[0].id);
+        auto* smp = BuiltIn::phraseSampler (blk);
+        // track 2 armed, playing its input (900 Hz); the sampler on track 1 takes TRACK 2 OUT
+        me.track[1].armed = true;
+        m.f[1] = 900.0; m.amp[1] = 0.3f;
+        blk->setEditorOpen (true);
+        auto rs = smp->recordSettings(); rs.toPad = 0; rs.trigger = 0; rs.source = sampler::Source::track; rs.track = 1; rs.postFader = true;
+        smp->setRecordSettings (rs);
+        juce::String err;
+        smp->armRecord (err);
+        m.run (0.5);
+        smp->stopRecord();
+        check (smp->pad (0).used, "sampler: unarmed with its window open, it records (TRACK 2 OUT into A1)", smp->pad (0).used ? 1 : 0, 1);
+        me.track[1].armed = false;
+        m.amp[1] = 0.0f;
+        m.run (0.1);
+        smp->pressPad (0, 1.0f);
+        auto out = m.run (0.3);
+        smp->releasePad (0);
+        check (tone (out, 900.0, 0.05, 0.25) > 0.02, "sampler: unarmed, its window open, a pad is heard (track 2's 900 Hz, sampled)", tone (out, 900.0, 0.05, 0.25), 0.1);
+        blk->setEditorOpen (false);
+        m.run (0.1);
+        smp->pressPad (0, 1.0f);
+        out = m.run (0.3);
+        smp->releasePad (0);
+        check (tone (out, 900.0, 0.05, 0.25) < 1.0e-3, "sampler: unarmed with its window shut, nothing (only an armed track's chain plays)", tone (out, 900.0, 0.05, 0.25), 0.0);
+        m.run (0.1);
     }
 
     // ---- The chain: MIDI and audio streams through blocks ----
