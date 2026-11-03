@@ -7,6 +7,7 @@
 
 #include "../Source/PhraseSamplerPanel.h"
 #include "../Source/N5Panel.h"
+#include "../Source/FmDrumsPanel.h"
 #include "../Source/DeckLookAndFeel.h"
 
 #include <algorithm>
@@ -156,6 +157,23 @@ int main()
             const int clicks = clickEverything (panel, 9);
             check (clicks >= 3, ("N5: tab " + juce::String (t + 1) + "'s buttons, all clicked").toRawUTF8(), clicks, clicks);
         }
+    }
+
+    // ---------------------------------------------------------------- FM drums
+    {
+        fmd::Processor p;
+        p.setRateAndBufferSizeDetails (48000.0, 512);
+        p.prepareToPlay (48000.0, 512);
+        for (int t = 0; t < 2; ++t)
+            for (int step : { -1, 4 })
+            {
+                p.editorTab = t; p.editorTrack = 1; p.editorStep = t == 0 ? step : -1;
+                FmDrumsPanel panel (p);
+                panel.setSize (832, 600);
+                juce::MessageManager::getInstance()->runDispatchLoopUntil (5);
+                const int clicks = clickEverything (panel, 2);
+                check (clicks >= 4, ("FM drums: " + juce::String (t == 0 ? "PATTERN" : "FX") + (step >= 0 && t == 0 ? " (a step locked)" : "") + "'s buttons, all clicked").toRawUTF8(), clicks, clicks);
+            }
     }
 
     std::printf ("\n%s (%d failed)\n", failures == 0 ? "ALL PASSED" : "FAILURES", failures);

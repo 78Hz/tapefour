@@ -8,6 +8,7 @@
 #include "PhraseSamplerPanel.h"
 #include "SpringPanel.h"
 #include "N5Panel.h"
+#include "FmDrumsPanel.h"
 
 namespace tf
 {
@@ -251,6 +252,15 @@ public:
                 return std::unique_ptr<juce::Component> (std::move (e));
             });
         };
+        tf::fmd::Processor::editorFactory = [] (tf::fmd::Processor& p) -> juce::AudioProcessorEditor*
+        {
+            return new tf::InstrumentEditor (p, p, "TF FM DRUMS", [&p] (tf::InstrumentEditor::Say say)
+            {
+                auto e = std::make_unique<tf::FmDrumsPanel> (p);
+                e->onMessage = say;
+                return std::unique_ptr<juce::Component> (std::move (e));
+            }, 690);
+        };
         tf::n5::Processor::editorFactory = [] (tf::n5::Processor& p) -> juce::AudioProcessorEditor*
         {
             return new tf::InstrumentEditor (p, p, "TF N5", [&p] (tf::InstrumentEditor::Say say)
@@ -272,6 +282,52 @@ public:
         };
 
         // A tool for making artwork: --render-cassettes <folder> draws each formulation's cassette, at full size, as a PNG.
+        if (commandLine.contains ("--render-fmdrums"))
+        {
+            // for the manual: TF FM DRUMS' window: the pattern, a step's locks, the effects
+            auto args = juce::StringArray::fromTokens (commandLine, true);
+            auto folder = juce::File::getCurrentWorkingDirectory().getChildFile (args[args.indexOf ("--render-fmdrums") + 1].unquoted());
+            folder.createDirectory();
+            bool ok = true;
+            tf::fmd::Processor p;
+            p.setRateAndBufferSizeDetails (48000.0, 512);
+            p.prepareToPlay (48000.0, 512);
+            auto& st = p.state();
+            auto& pat = st.patterns[0];
+            for (int k : { 3, 7, 10, 14 }) { pat.steps[2][k].on = 1; pat.steps[2][k].velocity = 70; }
+            for (int k : { 2, 11 }) pat.steps[3][k].on = 1;
+            pat.steps[3][11].lock[tf::fmd::pPitch] = 90; pat.steps[3][11].chance = 50;
+            pat.steps[4][0].on = 1; pat.steps[4][6].on = 1; pat.steps[4][6].lock[tf::fmd::pPitch] = 52;
+            pat.steps[5][8].on = 1;
+            pat.steps[1][15].on = 1; pat.steps[1][15].retrig = 2; pat.steps[1][15].velocity = 60;
+            st.patterns[1].steps[0][0].on = 1;
+            p.changed();
+            juce::AudioBuffer<float> b (2, 512);
+            juce::MidiBuffer m;
+            p.setPlaying (true);
+            for (int k = 0; k < 30; ++k) p.processBlock (b, m);
+            auto snap = [&] (const char* name)
+            {
+                std::unique_ptr<juce::AudioProcessorEditor> ed (p.createEditor());
+                if (ed == nullptr) return false;
+                const auto img = ed->createComponentSnapshot (ed->getLocalBounds(), true, 2.0f);
+                juce::PNGImageFormat png;
+                auto f = folder.getChildFile (juce::String ("fmdrums_") + name + ".png");
+                f.deleteFile();
+                std::unique_ptr<juce::OutputStream> os (f.createOutputStream());
+                return os != nullptr && png.writeImageToStream (img, *os);
+            };
+            p.editorTab = 0; p.editorTrack = 0; p.editorStep = -1;
+            ok = snap ("pattern");
+            p.editorTrack = 3; p.editorStep = 11;
+            ok = ok && snap ("locks");
+            p.editorTab = 1; p.editorStep = -1;
+            ok = ok && snap ("fx");
+            p.setPlaying (false);
+            setApplicationReturnValue (ok ? 0 : 1);
+            quit();
+            return;
+        }
         if (commandLine.contains ("--render-n5"))
         {
             // for the manual: TF N5's window, tab by tab

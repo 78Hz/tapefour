@@ -4,6 +4,7 @@
 #include "PhraseSampler.h"
 #include "SpringReverb.h"
 #include "N5Synth.h"
+#include "FmDrums.h"
 
 namespace tf
 {
@@ -432,7 +433,7 @@ PendingBlock::PendingBlock (std::unique_ptr<juce::XmlElement> s) : saved (std::m
 }
 
 //==============================================================================
-juce::String BuiltIn::synthName (int which) { return which == epiano ? "TF ELECTRIC PIANO" : which == sampler ? "TF PHRASE SAMPLER" : which == n5 ? "TF N5" : "TF TRANSISTOR"; }
+juce::String BuiltIn::synthName (int which) { return which == epiano ? "TF ELECTRIC PIANO" : which == sampler ? "TF PHRASE SAMPLER" : which == n5 ? "TF N5" : which == fmDrums ? "TF FM DRUMS" : "TF TRANSISTOR"; }
 
 juce::String BuiltIn::fxName (int which)
 {
@@ -451,6 +452,8 @@ std::unique_ptr<Block> BuiltIn::createSynth (int which)
         return std::make_unique<ProcessorBlock> (std::make_unique<ep::Processor>(), ProcessorBlock::Kind::builtInSynth, which);
     if (which == n5)
         return std::make_unique<ProcessorBlock> (std::make_unique<n5::Processor>(), ProcessorBlock::Kind::builtInSynth, which);
+    if (which == fmDrums)
+        return std::make_unique<ProcessorBlock> (std::make_unique<fmd::Processor>(), ProcessorBlock::Kind::builtInSynth, which);
     if (which == sampler)
     {
         // it samples the track's input, so it takes it (and plays it on in CROSSFADER and the EXTERNAL modes)
