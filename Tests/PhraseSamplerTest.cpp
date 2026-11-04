@@ -597,6 +597,23 @@ int main()
         f.key ("ENTER", true);
         check (! r.p.pad (0).used && r.p.memoryUsedNibbles() == 0, "utility: then every sample goes", r.p.memoryUsedNibbles(), 0);
         f.key ("EXIT", true);
+        // as a player would: REC, an empty pad, PLAY (no ENTER), STOP
+        f.key ("REC", true);
+        f.pad (4, true); f.pad (4, false);
+        f.key ("PLAY", true);
+        r.run (0.4, 500.0, 0.5);
+        check (r.p.panel().recording, "rec: REC, a pad, PLAY: recording (ENTER isn't needed)", r.p.panel().recording ? 1 : 0, 1);
+        f.key ("STOP", true);
+        check (r.p.pad (4).used && f.mode() == Front::Mode::play, "rec: STOP: the sample's in the pad, back to playing", r.p.pad (4).used ? 1 : 0, 1);
+        // and REC again, before PLAY, lets it go
+        r.run (0.05);
+        f.key ("REC", true);
+        f.key ("REC", true);
+        r.run (0.05);
+        check (f.mode() == Front::Mode::play && ! f.lcd().rec, "rec: REC again before PLAY: not after all (the lamp goes out)", (int) f.mode(), 0);
+        f.key ("REC", true); f.key ("ENTER", true);
+        f.key ("STOP", true);
+        check (f.mode() == Front::Mode::play, "rec: STOP in the settings, before PLAY: not after all", (int) f.mode(), 0);
     }
 
     // ---------------------------------------------------------------- its window, opened again

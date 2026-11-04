@@ -296,7 +296,7 @@ void Front::recKey (const juce::String& name, int repeat)
     if (current == Mode::songRec)
     {
         if (name == "PLAY") { proc.pressKey ("REC"); current = Mode::play; }   // records from the first pad
-        else if (name == "STOP") current = Mode::play;
+        else if (name == "STOP" || name == "REC") current = Mode::play;      // (REC again: not after all)
         return;
     }
     if (current == Mode::recPad)
@@ -312,12 +312,19 @@ void Front::recKey (const juce::String& name, int repeat)
             r.toPad = k;
             proc.setRecordSettings (r);
         }
-        else if (name == "ENTER")
+        else if (name == "ENTER" || name == "PLAY")
         {
+            // ENTER goes on to the settings; PLAY, with the settings as they are, records straight away
             if (proc.pad (r.toPad).used) { flash ("Pad not empty"); return; }
             current = Mode::recSettings;
             recFn = 0;
+            if (name == "PLAY")
+            {
+                juce::String error;
+                if (! proc.armRecord (error)) flash (error);
+            }
         }
+        else if (name == "REC" || name == "STOP") current = Mode::play;   // not after all
         return;
     }
     // the recording settings
@@ -328,14 +335,14 @@ void Front::recKey (const juce::String& name, int repeat)
         if (! proc.armRecord (error)) flash (error);
         return;
     }
-    if (name == "STOP")
+    if (name == "STOP" || name == "REC")
     {
         if (st.armed || st.recording)
         {
             proc.stopRecord();
             flash (proc.pad (proc.recordSettings().toPad).used ? "Complete" : "Too short");
-            current = Mode::play;
         }
+        current = Mode::play;   // (REC or STOP before PLAY: not after all)
         return;
     }
     if (st.armed || st.recording) return;
@@ -444,8 +451,8 @@ Front::Lcd Front::lcd() const
             l.meterLabel = "LEFT"; l.meter = juce::String (songEventLimit - proc.songEventsTotal());
             break;
         case Mode::recPad:
-            l.top = "Rec: Which pad?";
-            l.bottom = padName (rs.toPad) + (proc.pad (rs.toPad).used ? "  full" : "");
+            l.top = "Rec: pad, then PLAY";
+            l.bottom = padName (rs.toPad) + (proc.pad (rs.toPad).used ? "  full" : "  ENTER: setup");
             freeMeter();
             l.bar = -2.0f;   // the input level
             break;

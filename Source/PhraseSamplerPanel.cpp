@@ -793,7 +793,7 @@ void PhraseSamplerPanel::build()
             button (utf ("IMPORT FILE\xe2\x80\xa6"), [this] { importFile(); }).setBounds (area.getX() + 140, y, 130, chipH + 4);
             y += chipH + 12;
             note ({ area.getX(), y, w, 14 }, "A FILE OR A TRACK IS RECORDED AS IF THROUGH THE INPUT: AT THE GRADE, THROUGH ITS FILTER, AS ADPCM, INTO THE SAME MEMORY.");
-            note ({ area.getX(), y + 16, w, 14 }, "ON THE PANEL: REC, A PAD, ENTER; < > THROUGH THE SAME SETTINGS; PLAY STARTS, STOP ENDS.");
+            note ({ area.getX(), y + 16, w, 14 }, "ON THE PANEL: REC, A PAD, PLAY; STOP ENDS IT. (ENTER AFTER THE PAD: THESE SETTINGS, WITH < >.) REC AGAIN CANCELS.");
             break;
         }
         case 2:   // EDIT
