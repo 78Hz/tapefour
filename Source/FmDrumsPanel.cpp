@@ -96,8 +96,19 @@ public:
             g.setColour (Pal::lamp.withAlpha (0.15f + 0.85f * lv));
             g.fillEllipse ((float) head.getX() + 6.0f, (float) head.getCentreY() - 4.0f, 8.0f, 8.0f);
             iw::text (g, juce::String (t + 1), head.withX (head.getX() + 20).withWidth (16), sel ? Pal::lcdText : Pal::lcdDim, 11.0f);
-            iw::text (g, machineName (st.sound[t][pMachine]), head.withX (head.getX() + 38).withWidth (70), st.mute[t] ? Pal::lcdDim.withAlpha (0.5f) : (sel ? Pal::lcdText : Pal::lcdDim), 11.0f);
+            iw::text (g, machineName (st.sound[t][pMachine]), head.withX (head.getX() + 38).withWidth (56), st.mute[t] ? Pal::lcdDim.withAlpha (0.5f) : (sel ? Pal::lcdText : Pal::lcdDim), 11.0f);
             muteBox (t) = { headW - 58, t * rowH + 5, 46, rowH - 10 };
+            // the track's own play key: hear it on its own (choosing the track doesn't play it)
+            playBox (t) = { headW - 86, t * rowH + 5, 24, rowH - 10 };
+            g.setColour (Pal::lcdRule);
+            g.drawRoundedRectangle (playBox (t).toFloat(), 3.0f, 1.0f);
+            {
+                const auto b = playBox (t).toFloat().withSizeKeepingCentre (7.0f, 8.0f);
+                juce::Path tri;
+                tri.addTriangle (b.getX(), b.getY(), b.getX(), b.getBottom(), b.getRight(), b.getCentreY());
+                g.setColour (Pal::lcdText);
+                g.fillPath (tri);
+            }
             g.setColour (st.mute[t] ? Pal::lamp : Pal::lcdRule);
             g.drawRoundedRectangle (muteBox (t).toFloat(), 3.0f, 1.0f);
             iw::text (g, "MUTE", muteBox (t), st.mute[t] ? Pal::lamp : Pal::lcdDim, 9.0f, juce::Justification::centred);
@@ -142,10 +153,10 @@ public:
         if (e.x < headW)
         {
             if (muteBox (t).contains (e.getPosition())) { st.mute[t] = ! st.mute[t]; onChange(); repaint(); return; }
-            // the track's name: chosen, and heard
+            if (playBox (t).contains (e.getPosition())) { s.hit (t, 110); return; }   // heard, nothing else
+            // the track's name: chosen, silently (it may be playing: no extra hit while you work on it)
             s.editorTrack = t;
             s.editorStep = -1;
-            s.hit (t, 110);
             onSelect();
             repaint();
             return;
@@ -178,9 +189,10 @@ public:
 
 private:
     juce::Rectangle<int>& muteBox (int t) { return mutes[(size_t) t]; }
+    juce::Rectangle<int>& playBox (int t) { return plays[(size_t) t]; }
     Processor& s;
     std::function<void()> onChange, onSelect;
-    std::array<juce::Rectangle<int>, fmd::numTracks> mutes {};
+    std::array<juce::Rectangle<int>, fmd::numTracks> mutes {}, plays {};
 };
 
 //==============================================================================
@@ -367,7 +379,7 @@ void FmDrumsPanel::build()
     addAndMakeVisible (grid);
     grid->setBounds (area.getX(), y, w, Grid::rowH * fmd::numTracks);
     y += Grid::rowH * fmd::numTracks + 2;
-    note ({ area.getX() + Grid::headW, y, w - Grid::headW, 12 }, utf ("CLICK: A STEP ON OR OFF \xc2\xb7 RIGHT-CLICK (OR ALT-CLICK): LOCK ITS SOUND \xc2\xb7 A TRACK'S NAME: CHOOSE IT, AND HEAR IT"));
+    note ({ area.getX() + Grid::headW, y, w - Grid::headW, 12 }, utf ("CLICK: A STEP ON OR OFF \xc2\xb7 RIGHT-CLICK (OR ALT-CLICK): LOCK ITS SOUND \xc2\xb7 A TRACK'S NAME: CHOOSE IT \xc2\xb7 \xe2\x96\xb6: HEAR IT"));
     y += 14;
 
     // ---- the track's sound, or the step's locks ----
@@ -381,7 +393,6 @@ void FmDrumsPanel::build()
                            if (auto* s = lockedStep()) s->lock[pMachine] = (int16_t) i;
                            else synth.state().sound[synth.editorTrack][pMachine] = i;
                            edited();
-                           synth.hit (synth.editorTrack, 110);
                            buildSoon();
                        }));
     const int colW = (w - 20) / 2;
