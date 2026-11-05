@@ -604,8 +604,9 @@ std::unique_ptr<Block> AudioEngine::takeBlock (int t, int blockId, int* index)
     for (int i = 0; i < (int) v.size(); ++i)
     {
         if (v[(size_t) i]->id != blockId) continue;
-        // Its window and its MIDI mappings go before it does.
+        // Its window and its MIDI mappings go before it does; what it was playing stops.
         if (onBlockRemoving) onBlockRemoving (t, blockId);
+        if (v[(size_t) i]->producesMidi()) notesOffPending[t] = true;
         mapper.forgetBlock (t, blockId);
         std::unique_ptr<Block> out;
         {
@@ -659,6 +660,7 @@ void AudioEngine::moveBlock (int t, int blockId, int newIndex)
     {
         if (v[(size_t) i]->id != blockId) continue;
         auto b = std::move (v[(size_t) i]);
+        if (b->producesMidi()) notesOffPending[t] = true;
         v.erase (v.begin() + i);
         newIndex = juce::jlimit (0, (int) v.size(), newIndex);
         v.insert (v.begin() + newIndex, std::move (b));
@@ -678,6 +680,7 @@ void AudioEngine::setBlockBypass (int t, int blockId, bool bypassed)
     if (auto* b = findBlock (t, blockId))
     {
         b->bypass = bypassed;
+        if (b->producesMidi()) notesOffPending[t] = true;   // a sequencer switched off leaves nothing sounding after it
         if (bypassed)
             if (auto* e = dynamic_cast<ExternalBlock*> (b))
                 midi.allNotesOffNow (e->outPort.load());
@@ -1101,6 +1104,9 @@ AudioEngine::ChainResult AudioEngine::runChain (int t, const float* const* input
     }
     if (mpeConfigPending[t].exchange (false))
         MidiHub::addMpeConfiguration (trackMidi, mpe, bend);
+    if (notesOffPending[t].exchange (false))
+        for (int ch = 1; ch <= 16; ++ch)
+            trackMidi.addEvent (juce::MidiMessage::allNotesOff (ch), 0);
     if (receives)
     {
         trackMidi.addEvents (*in, 0, n, 0);
@@ -1112,6 +1118,7 @@ AudioEngine::ChainResult AudioEngine::runChain (int t, const float* const* input
     wasReceiving[t] = receives;
 
     // ---- the blocks, left to right ----
+    bool generated = false;   // a block in the chain makes MIDI of its own (a sequencer): a hardware synth plays it, armed or not
     const juce::SpinLock::ScopedTryLockType sl (chains[t].lock);
     if (sl.isLocked())
     {
@@ -1132,7 +1139,10 @@ AudioEngine::ChainResult AudioEngine::runChain (int t, const float* const* input
                 b.setTapeFeed (&feedNow);
                 b.process (audio, n, midiWork);
                 if (b.producesMidi())
+                {
                     trackMidi.swapWith (midiWork);
+                    generated = true;
+                }
             };
 
             switch (role)
@@ -1147,7 +1157,7 @@ AudioEngine::ChainResult AudioEngine::runChain (int t, const float* const* input
                     int outPort = e.outPort.load();
                     if (! midi.isOutputActive (outPort)) outPort = -1;
                     const int channel = e.channel.load();
-                    const bool sending = outPort >= 0 && receives;
+                    const bool sending = outPort >= 0 && (receives || generated);
                     // The route changed or the playing stopped: nothing left hanging.
                     if ((outPort != e.lastPort || channel != e.lastChannel || (e.wasSending && ! sending)) && e.lastPort >= 0)
                         for (int ch = 1; ch <= 16; ++ch)
@@ -1287,6 +1297,20 @@ AudioEngine::ChainResult AudioEngine::runChain (int t, const float* const* input
     return r;
 }
 
+void AudioEngine::silenceExternals (int t)
+{
+    // the chain stopped running (its track disarmed, a window closed): nothing left hanging on a hardware synth
+    const juce::SpinLock::ScopedTryLockType sl (chains[t].lock);
+    if (! sl.isLocked()) return;
+    for (auto& bp : chains[t].blocks)
+        if (auto* e = dynamic_cast<ExternalBlock*> (bp.get()); e != nullptr && e->lastPort >= 0 && e->wasSending)
+        {
+            for (int ch = 1; ch <= 16; ++ch)
+                midi.outBuffer (e->lastPort).addEvent (juce::MidiMessage::allNotesOff (ch), 0);
+            e->wasSending = false;
+        }
+}
+
 void AudioEngine::sendToTrack (int from, int dest, const juce::AudioBuffer<float>& stereo, int n, float gain, const ChainResult& info)
 {
     // Only to a track that runs later in this block (the order puts every track after those feeding it).
@@ -1421,6 +1445,8 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputs, 
         routeFrom[t] = {};
         const int p = track[t].stereoPartner.load();
         pairNow[t] = juce::isPositiveAndBelow (p, numTracks) && ! bounce[t] && ! bounce[p] && edge (t, p) && orderPos[p] > orderPos[t];
+        if (ranLast[t] && ! needed[t]) silenceExternals (t);
+        ranLast[t] = needed[t];
     }
 
     // What a sampler can take: the tape now, and each track's output from the block before.

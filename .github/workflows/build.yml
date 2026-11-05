@@ -55,6 +55,9 @@ jobs:
       - name: Test the FM drums
         run: build/FmDrumsTest_artefacts/Release/FmDrumsTest.exe
 
+      - name: Test the step sequencer
+        run: build/StepSeqTest_artefacts/Release/StepSeqTest.exe
+
       - name: Test the instruments' windows, clicked
         run: build/PanelTest_artefacts/Release/PanelTest.exe
 
@@ -139,6 +142,9 @@ jobs:
       - name: Test the FM drums
         run: xvfb-run -a build/FmDrumsTest_artefacts/Release/FmDrumsTest
 
+      - name: Test the step sequencer
+        run: xvfb-run -a build/StepSeqTest_artefacts/Release/StepSeqTest
+
       - name: Test the instruments' windows, clicked
         run: xvfb-run -a build/PanelTest_artefacts/Release/PanelTest
 
@@ -217,6 +223,9 @@ jobs:
 
       - name: Test the FM drums
         run: build/FmDrumsTest_artefacts/Release/FmDrumsTest
+
+      - name: Test the step sequencer
+        run: build/StepSeqTest_artefacts/Release/StepSeqTest
 
       - name: Test the instruments' windows, clicked
         run: build/PanelTest_artefacts/Release/PanelTest
@@ -371,7 +380,7 @@ jobs:
       - name: Build the tests
         run: |
           set -o pipefail
-          cmake --build build --parallel --target FormatTest NoiseReductionTest EngineTest ElectricPianoTest TransistorOrganTest PhraseSamplerTest SpringReverbTest N5Test FmDrumsTest PanelTest MixerTest PlayerTest 2>&1 | tee build.log || {
+          cmake --build build --parallel --target FormatTest NoiseReductionTest EngineTest ElectricPianoTest TransistorOrganTest PhraseSamplerTest SpringReverbTest N5Test FmDrumsTest StepSeqTest PanelTest MixerTest PlayerTest 2>&1 | tee build.log || {
             # Compile errors as annotations, so they show on the run's page without the log.
             grep -E ": (fatal )?error:|^ld: |Undefined symbols|undefined reference|error LNK|: error [A-Z]+[0-9]+" build.log | sort -u | head -10 | sed 's/^/::error::/'
             exit 1; }
@@ -391,6 +400,7 @@ jobs:
           xvfb-run -a build/SpringReverbTest_artefacts/RelWithDebInfo/SpringReverbTest
           xvfb-run -a build/N5Test_artefacts/RelWithDebInfo/N5Test
           xvfb-run -a build/FmDrumsTest_artefacts/RelWithDebInfo/FmDrumsTest
+          xvfb-run -a build/StepSeqTest_artefacts/RelWithDebInfo/StepSeqTest
           xvfb-run -a build/PanelTest_artefacts/RelWithDebInfo/PanelTest
           xvfb-run -a build/MixerTest_artefacts/RelWithDebInfo/MixerTest
           xvfb-run -a build/PlayerTest_artefacts/RelWithDebInfo/PlayerTest

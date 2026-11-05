@@ -9,6 +9,7 @@
 #include "../Source/TapeShelf.h"
 #include "../Source/Exporter.h"
 #include "../Source/FmDrums.h"
+#include "../Source/StepSeq.h"
 #include <cstdio>
 #include <thread>
 
@@ -1836,6 +1837,70 @@ int main()
         auto chained = levels ({ 0, 3 });
         check (chained[0] > 0.05f && std::abs (chained[3] - chained[0]) < 0.01f * chained[0], "routing: a chain out copies the track's sound", chained[3], chained[0]);
         me.setChainOut (0, 3, false);
+    }
+
+    // ---- TF STEP: a sequencer in the chain plays what's after it, a hardware synth too ----
+    {
+        Rig m;
+        auto& me = *m.engine;
+        for (int t = 0; t < numTracks; ++t) { me.clearChain (t); me.setTrackInput (t, -1); me.setTrackMidiPort (t, AudioEngine::midiNone); }
+        auto seqId = me.insertBlock (0, -1, BuiltIn::createFx (BuiltIn::stepSeq));
+        auto* seqBlock = me.findBlock (0, seqId);
+        auto* seq = dynamic_cast<step::Processor*> (seqBlock->getProcessor());
+        check (seq != nullptr && me.getChain (0)[0].role == BlockRole::midiFx && me.getChain (0)[0].name == "TF STEP",
+               "TF STEP: a built-in MIDI effect", seq != nullptr, 1);
+        seq->state().length = 2;
+        for (auto& st : seq->state().steps) { st.ms = 100; st.gate = 50; }
+        seq->changed();
+        seq->setPlaying (true);
+        me.insertBlock (0, -1, std::make_unique<ProcessorBlock> (std::make_unique<ToneSynth> (false), ProcessorBlock::Kind::hosted));
+
+        me.track[0].armed = false;
+        seqBlock->setEditorOpen (true);
+        m.run (0.1);
+        me.track[0].meter = 0.0f;
+        m.run (0.3);
+        check (me.track[0].meter.load() > 0.05f, "TF STEP: with its window open it plays the synth after it, unarmed", me.track[0].meter.load(), 0.35);
+        seqBlock->setEditorOpen (false);
+
+        // a hardware synth after it: the notes go out, armed or not, and nothing is left hanging
+        auto kobol = me.addVirtualMidiOutput ("Kobol");
+        std::vector<juce::MidiMessage> sent;
+        juce::SpinLock sentLock;
+        me.setMidiOutTapForTests ([&] (int slot, const juce::MidiBuffer& b)
+        {
+            if (slot != kobol) return;
+            const juce::SpinLock::ScopedLockType sl (sentLock);
+            for (const auto meta : b) sent.push_back (meta.getMessage());
+        });
+        me.removeBlock (0, me.getChain (0)[1].id);
+        auto extId = me.addExternal (0, -1, kobol);
+        dynamic_cast<ExternalBlock*> (me.findBlock (0, extId))->channel = 3;
+        seqBlock->setEditorOpen (true);
+        m.run (0.5);
+        int onsCh3 = 0;
+        for (auto& msg : sent) if (msg.isNoteOn() && msg.getChannel() == 3) ++onsCh3;
+        check (onsCh3 >= 4, "TF STEP: a hardware synth after it gets its notes (on its channel), unarmed with the window open", onsCh3, 5);
+        sent.clear();
+        seqBlock->setEditorOpen (false);
+        m.run (0.1);
+        int offs = 0;
+        for (auto& msg : sent) if (msg.isAllNotesOff()) ++offs;
+        check (offs >= 16, "TF STEP: when the chain stops (window closed, unarmed), the hardware synth is silenced", offs, 16);
+        sent.clear();
+        me.track[0].armed = true;
+        m.run (0.2);
+        me.setBlockBypass (0, seqId, true);
+        m.run (0.05);
+        offs = 0;
+        for (auto& msg : sent) if (msg.isAllNotesOff()) ++offs;
+        check (offs >= 16, "TF STEP: bypassed, all notes off down the chain", offs, 16);
+        me.setMidiOutTapForTests (nullptr);
+
+        auto deck = me.createDeckState();
+        me.applyDeckState (*deck);
+        auto c = me.getChain (0);
+        check (c.size() == 2 && c[0].name == "TF STEP" && c[0].role == BlockRole::midiFx, "TF STEP: saved with the deck", (double) c.size(), 2);
     }
 
     // ---- Stereo pairs: the left side on its own track, the right side into another's ----

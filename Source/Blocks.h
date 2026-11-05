@@ -55,7 +55,7 @@ public:
     /** An instrument whose own window is open: its track's chain is heard (not recorded) while it is,
         armed or not, so it can be played from the window. */
     std::atomic<bool> windowOpen { false };
-    bool auditions() const noexcept { return windowOpen.load() && ! bypass.load() && (role() == BlockRole::instrument); }
+    bool auditions() const noexcept { return windowOpen.load() && ! bypass.load() && (role() == BlockRole::instrument || role() == BlockRole::midiFx); }
     virtual int latencySamples() const { return 0; }
 
     /** For EDIT and MIDI learn; nullptr for blocks with no parameters. */
@@ -253,7 +253,7 @@ public:
 namespace BuiltIn
 {
     enum Synth { transistor = 0, epiano = 1, sampler = 2, n5 = 3, fmDrums = 4, numSynths };
-    enum Fx { plate = 0, spring = 1, tapeEcho = 2, numFx };
+    enum Fx { plate = 0, spring = 1, tapeEcho = 2, stepSeq = 3, numFx };   // stepSeq: a MIDI effect
 
     juce::String synthName (int which);
     juce::String fxName (int which);

@@ -1,4 +1,4 @@
-// The built-in instruments' windows (Source/PhraseSamplerPanel.cpp, Source/N5Panel.cpp), clicked.
+// The built-in instruments' windows (Source/PhraseSamplerPanel.cpp, Source/N5Panel.cpp, FM Drums, TF Step), clicked.
 //
 //   Every button and chip on every tab is clicked, one after another, letting the window rebuild in
 //   between as it does in the app. Many clicks rebuild the tab, deleting the controls, the clicked one
@@ -8,6 +8,7 @@
 #include "../Source/PhraseSamplerPanel.h"
 #include "../Source/N5Panel.h"
 #include "../Source/FmDrumsPanel.h"
+#include "../Source/StepPanel.h"
 #include "../Source/DeckLookAndFeel.h"
 
 #include <algorithm>
@@ -174,6 +175,26 @@ int main()
                 const int clicks = clickEverything (panel, 2);
                 check (clicks >= 4, ("FM drums: " + juce::String (t == 0 ? "PATTERN" : "FX") + (step >= 0 && t == 0 ? " (a step locked)" : "") + "'s buttons, all clicked").toRawUTF8(), clicks, clicks);
             }
+    }
+
+    // ---------------------------------------------------------------- TF STEP
+    {
+        step::Processor p;
+        p.setRateAndBufferSizeDetails (48000.0, 512);
+        p.prepareToPlay (48000.0, 512);
+        {
+            StepPanel panel (p);
+            panel.setSize (832, 510);
+            juce::MessageManager::getInstance()->runDispatchLoopUntil (5);
+            const bool len = clickLabel (panel, "4", 0) && p.state().length == 4;
+            const bool doubled = clickLabel (panel, juce::String (juce::CharPointer_UTF8 ("\xc3\x97" "2")), 0) && std::abs (p.state().steps[0].ms - 2 * step::defaultMs) < 1e-6;
+            const bool off = clickLabel (panel, "OFF", 0) && ! p.state().transpose;
+            check (len && doubled && off, "TF STEP: LENGTH, STEP TIMES x2 and KEYS OFF do what they say", len + doubled + off, 3);
+        }
+        StepPanel panel (p);
+        panel.setSize (832, 510);
+        const int clicks = clickEverything (panel, 0);
+        check (clicks >= 20, "TF STEP: every button clicked", clicks, clicks);
     }
 
     std::printf ("\n%s (%d failed)\n", failures == 0 ? "ALL PASSED" : "FAILURES", failures);

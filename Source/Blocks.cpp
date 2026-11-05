@@ -5,6 +5,7 @@
 #include "SpringReverb.h"
 #include "N5Synth.h"
 #include "FmDrums.h"
+#include "StepSeq.h"
 
 namespace tf
 {
@@ -264,7 +265,7 @@ ProcessorBlock::ProcessorBlock (std::unique_ptr<juce::AudioProcessor> p, Kind k,
     findOutputs();
 
     if (kind == Kind::builtInSynth)      naturalRole = BlockRole::instrument;
-    else if (kind == Kind::builtInFx)    naturalRole = BlockRole::audioFx;
+    else if (kind == Kind::builtInFx)    naturalRole = processor->isMidiEffect() ? BlockRole::midiFx : BlockRole::audioFx;
     else if (processor->isMidiEffect())  naturalRole = BlockRole::midiFx;
     else
     {
@@ -557,6 +558,7 @@ juce::String BuiltIn::fxName (int which)
     {
         case spring:   return "TF SPRING REVERB";
         case tapeEcho: return "TF TAPE ECHO";
+        case stepSeq:  return "TF STEP";
         default:       return "TF PLATE";
     }
 }
@@ -586,6 +588,7 @@ std::unique_ptr<Block> BuiltIn::createFx (int which)
     std::unique_ptr<juce::AudioProcessor> p;
     if (which == spring)        p = std::make_unique<spring::Processor>();
     else if (which == tapeEcho) p = std::make_unique<TapeEchoFx>();
+    else if (which == stepSeq)  return std::make_unique<ProcessorBlock> (std::make_unique<step::Processor>(), ProcessorBlock::Kind::builtInFx, which);
     else                        p = std::make_unique<PlateFx>();
     auto b = std::make_unique<ProcessorBlock> (std::move (p), ProcessorBlock::Kind::builtInFx, which);
     b->mix = which == tapeEcho ? 0.35f : 0.3f;   // send-like by default

@@ -338,6 +338,9 @@ private:
     juce::AudioBuffer<float> extraOut;
     float lastMaster = 0, lastPhones = 0;
     std::atomic<bool> mpeConfigPending[numTracks] {};
+    std::atomic<bool> notesOffPending[numTracks] {};   // a block that makes MIDI went: all notes off down the chain
+    bool ranLast[numTracks] {};                      // the chain ran in the last block (to silence its synths when it stops)
+    void silenceExternals (int t);
 
     bool restoringDevice = false;
     bool startingUp = true;

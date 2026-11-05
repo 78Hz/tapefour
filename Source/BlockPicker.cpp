@@ -107,7 +107,14 @@ void BlockPicker::gather (const juce::String& current)
 
     head (utf ("TAPE\xc2\xb7" "FOUR"));
     for (int k = 0; k < BuiltIn::numSynths; ++k) { Item it; it.name = BuiltIn::synthName (k); it.sub = "INSTRUMENT"; it.category = instruments; it.kind = Kind::synth; it.index = k; add (it); }
-    for (int k = 0; k < BuiltIn::numFx; ++k)     { Item it; it.name = BuiltIn::fxName (k);    it.sub = "AUDIO FX";   it.category = audioFx;     it.kind = Kind::fx;    it.index = k; add (it); }
+    for (int k = 0; k < BuiltIn::numFx; ++k)
+    {
+        Item it; it.name = BuiltIn::fxName (k); it.kind = Kind::fx; it.index = k;
+        const bool midi = k == BuiltIn::stepSeq;
+        it.sub = midi ? "MIDI FX" : "AUDIO FX";
+        it.category = midi ? midiFx : audioFx;
+        add (it);
+    }
 
     bool anyOut = false;
     for (auto& o : engine.getMidiOutputs())

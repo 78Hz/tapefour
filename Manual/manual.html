@@ -231,7 +231,7 @@ td:first-child { font-weight: 600; }
     <tr><td>LADSPA</td><td>Linux</td><td>The standard LADSPA folders. LADSPA plug-ins are effects only.</td></tr>
   </tbody>
 </table>
-<p>Many plug-ins come in several formats. The list in a track's chain shows each plug-in once, in the best format you have: CLAP, then VST3, then Audio Units, LV2 and LADSPA. A deck you saved keeps the format it was made with. TAPE·FOUR also has five built-in instruments, <strong>TF Transistor</strong> (an organ), <strong>TF Electric Piano</strong>, <strong>TF Phrase Sampler</strong>, <strong>TF N5</strong> (a synthesizer) and <strong>TF FM Drums</strong> (a drum machine), and three built-in effects, <strong>TF Plate</strong>, <strong>TF Spring Reverb</strong> and <strong>TF Tape Echo</strong>, so you can start without any plug-ins.</p>
+<p>Many plug-ins come in several formats. The list in a track's chain shows each plug-in once, in the best format you have: CLAP, then VST3, then Audio Units, LV2 and LADSPA. A deck you saved keeps the format it was made with. TAPE·FOUR also has five built-in instruments, <strong>TF Transistor</strong> (an organ), <strong>TF Electric Piano</strong>, <strong>TF Phrase Sampler</strong>, <strong>TF N5</strong> (a synthesizer) and <strong>TF FM Drums</strong> (a drum machine), three built-in effects, <strong>TF Plate</strong>, <strong>TF Spring Reverb</strong> and <strong>TF Tape Echo</strong>, and a step sequencer, <strong>TF Step</strong>, so you can start without any plug-ins.</p>
 <figure class="narrow"><img src="images/setup_inst.png" alt="Setup, Plug-ins tab"><figcaption><b>Setup → Plug-ins.</b> Scan once; the list is remembered.</figcaption></figure>
 <h2>Colours</h2>
 <p>In <strong>Setup → Display</strong>, choose the deck's colour theme. It changes at once and is remembered.</p>
@@ -576,6 +576,7 @@ td:first-child { font-weight: 600; }
     <tr><td>TF Plate</td><td>Audio effect</td><td>A smooth, dense plate reverb with pre-delay. Size, damping and pre-delay.</td></tr>
     <tr><td>TF Spring Reverb</td><td>Audio effect</td><td>The boingy, dripping reverb of a guitar amp's spring tank, physically modelled: three real tanks, and the valve that drives them. It has its own window (below).</td></tr>
     <tr><td>TF Tape Echo</td><td>Audio effect</td><td>A tape delay whose repeats darken and wobble as they fade. Time, feedback, tone and wow.</td></tr>
+    <tr><td>TF Step</td><td>MIDI effect</td><td>A 16-step sequencer with no tempo: each step has its own time, from 10 ms to 10 s, and a note (or a rest), a gate, a velocity and a tie. It plays whatever comes after it in the chain: a hardware synth through an external instrument block, or any instrument. It has its own window (below).</td></tr>
   </tbody>
 </table>
 
@@ -710,6 +711,29 @@ td:first-child { font-weight: 600; }
 <h3>Effects and MIDI</h3>
 <p>On <span class="ctl">FX</span>: the delay's time (in the tempo), feedback and tone, the reverb's size, decay and tone, and the master level. From MIDI, notes C1 to F1 (36 to 41) play the six tracks, at the velocity you play.</p>
 <p>A preset keeps everything: the kit, the 16 patterns and the settings, in <span class="lcd">Documents/TapeFour/Presets/FM Drums</span>.</p>
+
+<h2>The step sequencer</h2>
+<p><strong>TF Step</strong> plays 16 steps, one after another, each for its own time. There's no tempo: a step lasts 180 ms, or 700 ms, or 1.2 seconds, as you set it, so a sequence can speed up and slow down within itself. It's a MIDI effect, so it plays whatever comes after it in the chain. Put it in front of an <strong>external instrument</strong> block to play a hardware synth (a mono synth such as a Behringer Kobol Expander, on the MIDI output and channel it listens to), or in front of any instrument.</p>
+<figure><img src="images/step_chain.png" alt="TF Step in front of TF Transistor"><figcaption><b>In a chain.</b> TF Step first, then the organ it plays. The MIDI line after it is tagged <span class="lcd">CHANGES MIDI</span>.</figcaption></figure>
+<p>Double-click its block for its window, and press <span class="ctl">PLAY</span>. Like FM Drums, it has its own PLAY, not the tape's, and you hear it while its window is open, armed or not. Arm the track to record what it plays.</p>
+<figure><img src="images/step_window.png" alt="TF Step's window"><figcaption><b>TF Step.</b> Step 10 is selected. Step 4 is a rest, step 6 is tied into step 7, and a key on the keyboard has moved the whole sequence up three semitones (<span class="lcd">NOW +3</span>).</figcaption></figure>
+<table>
+  <thead><tr><th>Control</th><th>What it does</th></tr></thead>
+  <tbody>
+    <tr><td>Pitch row</td><td>Each step's note: drag up or down (the wheel steps a semitone). Drag below the lowest note, C0, for a <strong>rest</strong>. Shift-click for a <strong>tie</strong>: the note is held into the next step, the next note starting before it lets go, so a mono synth set to glide slides from one to the other. The thin line along the foot is the step's velocity.</td></tr>
+    <tr><td>Time row</td><td>How long the step lasts: drag up or down (each 40 pixels doubles or halves it; the wheel moves it a little). The wide column is its time, the thin one its <strong>gate</strong>: how much of that time the note sounds. Shift-drag to set the gate. Double-click for 180 ms.</td></tr>
+    <tr><td>Step <em>n</em></td><td>Click a step to select it. Its pitch, time, gate and velocity are underneath too, with their numbers. The arrow keys move to the steps either side.</td></tr>
+    <tr><td>CYCLE</td><td>How long the steps played take, end to end.</td></tr>
+    <tr><td>LENGTH</td><td>How many steps play, 1 to 16.</td></tr>
+    <tr><td>KEYS</td><td><span class="ctl">TRANSPOSE</span>: a key on the track's keyboard moves the whole sequence, from the home note (C2 to begin with; <span class="ctl">-</span> and <span class="ctl">+</span> move it). It stays moved after you let go, until the next key. <span class="ctl">OFF</span>: the keyboard is ignored. Other MIDI from the keyboard, such as a mod wheel or a controller, passes on to the synth.</td></tr>
+    <tr><td>STEP TIMES</td><td><span class="ctl">×½</span> and <span class="ctl">×2</span> halve or double every step's time at once: the sequence twice as fast, or half, with the same shape.</td></tr>
+  </tbody>
+</table>
+<ul>
+  <li><strong>Timing.</strong> Each step starts when the one before has had its time, to the sample. MIDI for a hardware synth is sent ahead and time-stamped, and the synth's audio coming back is recorded in time with the tape, as for any external instrument.</li>
+  <li><strong>Nothing left hanging.</strong> Stopping it, bypassing or removing it, or its track's chain stopping (the track disarmed with the window closed) sends all-notes-off to whatever it was playing.</li>
+  <li>Its notes go out on channel 1; an external instrument block sends them on its own channel. It's saved with the deck, and as presets, in <span class="lcd">Documents/TapeFour/Presets/Step</span>.</li>
+</ul>
 
 <h2>The spring reverb</h2>
 <p><strong>TF Spring Reverb</strong> is a spring reverb tank, the kind inside guitar amplifiers: a sound drives one end of a few long springs, and a pickup at the other end hears what arrives. Double-click it in a chain for its window. Its <span class="ctl">MIX</span> is on the chain, as for the other effects.</p>

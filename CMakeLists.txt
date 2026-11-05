@@ -133,6 +133,7 @@ set(TAPEFOUR_ENGINE_SOURCES
     Source/PhraseSampler.cpp
     Source/PhraseSamplerFront.cpp
     Source/FmDrums.cpp
+    Source/StepSeq.cpp
     Source/SpringReverb.cpp
     Source/N5Model.cpp
     Source/N5Effects.cpp
@@ -167,6 +168,7 @@ target_sources(TapeFour PRIVATE
     Source/TransistorPanel.cpp
     Source/PhraseSamplerPanel.cpp
     Source/FmDrumsPanel.cpp
+    Source/StepPanel.cpp
     Source/SpringPanel.cpp
     Source/N5Panel.cpp
     Source/InstrumentWidgets.cpp
@@ -324,9 +326,10 @@ if(TAPEFOUR_TESTS AND NOT TAPEFOUR_ONLY_PLAYER)
     tapefour_test(PhraseSamplerTest Tests/PhraseSamplerTest.cpp Source/PhraseSampler.cpp Source/PhraseSamplerFront.cpp Source/InstrumentPresets.cpp)
     tapefour_test(SpringReverbTest Tests/SpringReverbTest.cpp Source/SpringReverb.cpp)
     tapefour_test(FmDrumsTest Tests/FmDrumsTest.cpp Source/FmDrums.cpp Source/InstrumentPresets.cpp)
+    tapefour_test(StepSeqTest Tests/StepSeqTest.cpp Source/StepSeq.cpp Source/InstrumentPresets.cpp)
     tapefour_test(PanelTest Tests/PanelTest.cpp Source/FmDrumsPanel.cpp Source/FmDrums.cpp Source/PhraseSamplerPanel.cpp Source/PhraseSampler.cpp Source/PhraseSamplerFront.cpp
                   Source/N5Panel.cpp Source/N5Model.cpp Source/N5Effects.cpp Source/N5Synth.cpp Source/SpringReverb.cpp
-                  Source/InstrumentPresets.cpp Source/InstrumentWidgets.cpp Source/DeckLookAndFeel.cpp)
+                  Source/InstrumentPresets.cpp Source/InstrumentWidgets.cpp Source/DeckLookAndFeel.cpp Source/StepPanel.cpp Source/StepSeq.cpp)
     target_link_libraries(PanelTest PRIVATE TapeFourFonts)
     tapefour_test(N5Test Tests/N5Test.cpp Source/N5Model.cpp Source/N5Effects.cpp Source/N5Synth.cpp Source/SpringReverb.cpp Source/InstrumentPresets.cpp)
     tapefour_test(EngineTest Tests/EngineTest.cpp Source/Tape.cpp Source/TapeEngine.cpp Source/NoiseReduction.cpp)

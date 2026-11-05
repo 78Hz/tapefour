@@ -9,6 +9,7 @@
 #include "SpringPanel.h"
 #include "N5Panel.h"
 #include "FmDrumsPanel.h"
+#include "StepPanel.h"
 
 namespace tf
 {
@@ -261,6 +262,15 @@ public:
                 return std::unique_ptr<juce::Component> (std::move (e));
             }, 690);
         };
+        tf::step::Processor::editorFactory = [] (tf::step::Processor& p) -> juce::AudioProcessorEditor*
+        {
+            return new tf::InstrumentEditor (p, p, "TF STEP", [&p] (tf::InstrumentEditor::Say say)
+            {
+                auto e = std::make_unique<tf::StepPanel> (p);
+                e->onMessage = say;
+                return std::unique_ptr<juce::Component> (std::move (e));
+            }, 560);
+        };
         tf::n5::Processor::editorFactory = [] (tf::n5::Processor& p) -> juce::AudioProcessorEditor*
         {
             return new tf::InstrumentEditor (p, p, "TF N5", [&p] (tf::InstrumentEditor::Say say)
@@ -282,6 +292,53 @@ public:
         };
 
         // A tool for making artwork: --render-cassettes <folder> draws each formulation's cassette, at full size, as a PNG.
+        if (commandLine.contains ("--render-step"))
+        {
+            // for the manual: TF STEP's window, a sequence playing
+            auto args = juce::StringArray::fromTokens (commandLine, true);
+            auto folder = juce::File::getCurrentWorkingDirectory().getChildFile (args[args.indexOf ("--render-step") + 1].unquoted());
+            folder.createDirectory();
+            tf::step::Processor p;
+            p.setRateAndBufferSizeDetails (48000.0, 512);
+            p.prepareToPlay (48000.0, 512);
+            auto& st = p.state();
+            const int notes[] { 36, 36, 48, -1, 39, 43, 43, 46, 48, 36, 41, 41, 43, 44, 46, 48 };
+            const double ms[] { 180, 180, 90, 90, 360, 120, 120, 45, 45, 700, 180, 180, 240, 60, 60, 420 };
+            const int gates[] { 50, 50, 30, 50, 75, 50, 100, 40, 40, 90, 50, 50, 60, 50, 50, 85 };
+            const int vels[] { 100, 70, 100, 100, 110, 80, 90, 127, 100, 100, 70, 70, 100, 100, 100, 120 };
+            for (int i = 0; i < tf::step::numSteps; ++i)
+            {
+                auto& s = st.steps[(size_t) i];
+                s.rest = notes[i] < 0;
+                if (notes[i] >= 0) s.note = notes[i];
+                s.ms = ms[i]; s.gate = gates[i]; s.velocity = vels[i];
+            }
+            st.steps[5].tie = true;
+            p.editorStep = 9;
+            p.changed();
+            juce::AudioBuffer<float> b (2, 512);
+            juce::MidiBuffer m;
+            juce::MidiBuffer key;
+            p.setPlaying (true);
+            key.addEvent (juce::MidiMessage::noteOn (1, 39, (juce::uint8) 100), 0);
+            p.processBlock (b, key);
+            for (int k = 0; k < 120; ++k) { m.clear(); p.processBlock (b, m); }
+            std::unique_ptr<juce::AudioProcessorEditor> ed (p.createEditor());
+            bool ok = ed != nullptr;
+            if (ok)
+            {
+                const auto img = ed->createComponentSnapshot (ed->getLocalBounds(), true, 2.0f);
+                juce::PNGImageFormat png;
+                auto f = folder.getChildFile ("step_window.png");
+                f.deleteFile();
+                std::unique_ptr<juce::OutputStream> os (f.createOutputStream());
+                ok = os != nullptr && png.writeImageToStream (img, *os);
+            }
+            p.setPlaying (false);
+            setApplicationReturnValue (ok ? 0 : 1);
+            quit();
+            return;
+        }
         if (commandLine.contains ("--render-fmdrums"))
         {
             // for the manual: TF FM DRUMS' window: the pattern, a step's locks, the effects
