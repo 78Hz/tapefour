@@ -761,6 +761,20 @@ td:first-child { font-weight: 600; }
 <h3>A track's chain out: the tape block</h3>
 <p>Click a track's <span class="ctl">TO TAPE</span> block to send a copy of its finished sound into other tracks' inputs. It's the same setting as <span class="ctl">FROM TRACKS</span> on the track receiving it. The tape block then reads <span class="lcd">+ TRK 4</span> under its own track number.</p>
 <figure><img src="images/chain_tape.png" alt="The tape block selected"><figcaption><b>The tape block.</b> Track 1's finished sound also goes into track 4.</figcaption></figure>
+<h3>Everything at once: the patch bay</h3>
+<p>Press <span class="ctl">PATCH</span>, beside <span class="ctl">LEARN</span> at the top of the deck, for the whole routing on one card. Every source is a row (the interface's inputs, each instrument's outputs, each track's chain out) and the four tracks are the columns. Its lamp is lit while the card is open; <span class="key">Esc</span>, <span class="ctl">X</span> or a click outside closes it.</p>
+<figure><img src="images/patchbay.png" alt="The patch bay"><figcaption><b>The patch bay.</b> FM Drums' kick and perc are copied to track 3 and its snare moved to track 2; track 1's chain out is copied to track 4. Track 2 now takes the snare from track 1, so the piano on track 2 can't be sent back to track 1: that point is struck through.</figcaption></figure>
+<table>
+  <thead><tr><th>Point</th><th>Means</th><th>Click it to</th></tr></thead>
+  <tbody>
+    <tr><td>Filled dot</td><td>Sent to that track.</td><td>Stop sending it.</td></tr>
+    <tr><td>Small dot</td><td>Not connected.</td><td>Send it there (the first time, moved).</td></tr>
+    <tr><td>Ring, in the source's own column</td><td>It stays on its own track too. A dim ring: it has been moved away.</td><td>Switch between copied and moved.</td></tr>
+    <tr><td>Filled square</td><td>That track's audio input. A track takes one interface input.</td><td>Unplug it; clicking another input in the column replaces it.</td></tr>
+    <tr><td>Struck through</td><td>Not allowed: the track itself, a loop, or a track that bounces.</td><td>See why, on the status display.</td></tr>
+  </tbody>
+</table>
+<p>The line at the bottom of the card says what the row under the pointer does. With many outputs (a 16-output sampler, say) the card scrolls. The patch bay, an instrument's <span class="ctl">OUTS</span>, a track's inputs and its tape block are four views of the same routing: change it in one and the others follow.</p>
 <ul>
   <li><strong>The instrument plays while the track it feeds is armed.</strong> Arm only track 3 and you can still play the piano on track 1 into it: its notes reach it, and track 1 plays back its tape as usual.</li>
   <li><strong>No loops.</strong> If track 1 feeds track 2, track 2 can't feed track 1, by any way round. A track can't feed itself either. A route that would make a loop isn't made, and the status display says why.</li>

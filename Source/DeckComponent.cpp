@@ -53,6 +53,9 @@ DeckComponent::DeckComponent (AudioEngine& e, juce::PropertiesFile& settings)
     learnBtn.onClick = [this] { setLearnMode (learnLayer == nullptr); };
     learnBtn.setTooltip ("MIDI learn: click a control, then move a knob, fader or button on your controller. Right-click any control to learn or forget it.");
     addAndMakeVisible (learnBtn);
+    patchBtn.onClick = [this] { if (patchOpen) closeOverlay(); else openPatchBay(); };
+    patchBtn.setTooltip ("The patch bay: every source (inputs, instruments' outputs, tracks' chain outs) and the tracks it goes to");
+    addAndMakeVisible (patchBtn);
 
     // cassette bay
     cassette.onNameChanged = [this] (const juce::String& name)
@@ -233,6 +236,7 @@ void DeckComponent::resized()
 {
     setupLcd.setBounds (980, 16, 260, 46);
     learnBtn.setBounds (888, 16, 76, 46);
+    patchBtn.setBounds (804, 16, 76, 46);
 
     auto bp = bayPanel;
     cassette.setBounds (bp.getX() + 30, bp.getY() + 52, 400, 255);
@@ -1354,6 +1358,7 @@ void DeckComponent::closeOverlay()
 {
     if (overlay == nullptr) return;
     if (chainTrack >= 0) strips[chainTrack]->setChainOpen (false);
+    if (patchOpen) { patchOpen = false; patchBtn.setLed (false); }
     chainTrack = -1;
     overlay->setVisible (false);
     // Don't delete the card while one of its buttons is still on the call stack.
@@ -1392,6 +1397,23 @@ void DeckComponent::openChain (int t)
     strip->toFront (false);   // the track's display stays lit above the dimming
     overlay->toFront (false);
     editor->grabKeyboardFocus();
+}
+
+void DeckComponent::openPatchBay()
+{
+    closeOverlay();
+    auto card = std::make_unique<PatchBay> (engine);
+    card->onClose = [this] { closeOverlay(); };
+    card->onMessage = [this] (const juce::String& m) { say (m, 4.0); };
+    auto* bay = card.get();
+    const int h = card->getHeight();
+    showOverlay (std::move (card), { 20, 70, PatchBay::cardWidth, h });
+    overlay->cardShadow = true;
+    overlay->dimming = 0.35f;
+    patchOpen = true;
+    patchBtn.setLed (true);
+    patchBtn.toFront (false);
+    bay->grabKeyboardFocus();
 }
 
 void DeckComponent::openInlay()

@@ -162,6 +162,7 @@ target_sources(TapeFour PRIVATE
     Source/PluginWindow.cpp
     Source/BlockPicker.cpp
     Source/ChainEditor.cpp
+    Source/PatchBay.cpp
     Source/ElectricPianoPanel.cpp
     Source/TransistorPanel.cpp
     Source/PhraseSamplerPanel.cpp

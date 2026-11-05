@@ -4,6 +4,7 @@
 #include "CassetteComponent.h"
 #include "TapeShelf.h"
 #include "ChainEditor.h"
+#include "PatchBay.h"
 #include "InlayCard.h"
 #include "TapeWriter.h"
 #include "Exporter.h"
@@ -84,6 +85,7 @@ private:
     // tracks
     void openChain (int track);
     void openInlay();
+    void openPatchBay();
     void showOverlay (std::unique_ptr<juce::Component> card, juce::Rectangle<int> cardBounds);
     void closeOverlay();
     void deckStateApplied();
@@ -116,6 +118,8 @@ private:
     // header
     LcdButton setupLcd;
     LedKey learnBtn { "LEARN", Pal::lamp };
+    LedKey patchBtn { "PATCH", Pal::lcdText };
+    bool patchOpen = false;
 
     // cassette bay
     CassetteComponent cassette;
