@@ -240,6 +240,7 @@ public:
 
     juce::String sub;
     bool chosen = false, dim = false, dashed = false;
+    bool hatched = false;            // not allowed: drawn struck through, and its click explains why
     float signal = -1.0f;            // 0..1 for an input's level, or -1 for none
     float textSize = 12.5f;
 
@@ -278,9 +279,18 @@ public:
                 g.fillPath (p);
             }
             else g.drawRoundedRectangle (r, 3.0f, 1.0f);
+            if (hatched)
+            {
+                g.saveState();
+                g.reduceClipRegion (getLocalBounds().reduced (1));
+                g.setColour (Pal::lcdRule);
+                for (float x = -r.getHeight(); x < r.getRight(); x += 5.0f)
+                    g.drawLine (x, r.getBottom(), x + r.getHeight(), r.getY(), 1.0f);
+                g.restoreState();
+            }
         }
 
-        auto ink = chosen ? Pal::lcd : Pal::lcdText.withAlpha (alpha);
+        auto ink = chosen ? Pal::lcd : (hatched ? Pal::lcdDim : Pal::lcdText.withAlpha (alpha));
         auto inkSub = chosen ? Pal::lcd : Pal::lcdDim.withAlpha (alpha);
         auto in = getLocalBounds().reduced (9, 2);
         if (signal >= 0.0f)

@@ -515,13 +515,13 @@ td:first-child { font-weight: 600; }
 <h1><span class="num">8</span>Signal chains</h1>
 <p class="lede">Every track has a signal chain in front of the tape, like a rack of gear wired up before a real deck: up to eight blocks in a row. MIDI from your controller runs along the top of the chain and audio along the bottom, and whatever comes out of the last block is what the track records.</p>
 <p>Click a track's display to drop down its chain. Everything you do to a block is done on the block itself, and the line under the chain says what's selected and what you can do with it. The card only grows a panel underneath for the things that need one: the inputs, adding a block, an empty slot, MIDI learn, and a hardware synth's routing. Click outside, click <span class="ctl">X</span> or press <span class="key">Esc</span> to close it.</p>
-<figure><img src="images/chain_block.png" alt="The signal chain editor with an effect selected"><figcaption><b>Track 1's chain.</b> The inputs, then TF Transistor, TF Plate and TF Tape Echo, then the tape. The blue line is MIDI: it stops at the organ, the last block that listens to it. The light line is audio: it starts where the organ mixes in (<span class="lcd">+ MIX</span>). TF Tape Echo is selected. Each block has its lamp at the top left, its <span class="ctl">×</span> at the top right, and along the bottom its <span class="ctl">MIDI</span> badge and its <span class="ctl">LEVEL</span> or <span class="ctl">MIX</span>.</figcaption></figure>
+<figure><img src="images/chain_block.png" alt="The signal chain editor with an effect selected"><figcaption><b>Track 1's chain.</b> The inputs, then TF Transistor, TF Plate and TF Tape Echo, then the tape. The blue line is MIDI: it stops at the organ, the last block that listens to it. The light line is audio: it starts where the organ mixes in (<span class="lcd">+ MIX</span>). TF Tape Echo is selected. Each block has its lamp at the top left, its <span class="ctl">×</span> at the top right, and along the bottom its <span class="ctl">MIDI</span> badge, an instrument's <span class="ctl">OUTS</span> badge, and its <span class="ctl">LEVEL</span> or <span class="ctl">MIX</span>.</figcaption></figure>
 
 <table>
   <thead><tr><th>To</th><th>Do this</th></tr></thead>
   <tbody>
     <tr><td>Add a block</td><td>Click <span class="ctl">+</span> at the end of the chain and pick from the list.</td></tr>
-    <tr><td>Bypass a block</td><td>Click its lamp. A bypassed block is dimmed and the signal passes it untouched.</td></tr>
+    <tr><td>Bypass a block</td><td>Click its lamp. A bypassed block's lamp goes hollow, the block is dimmed, and the signal passes it untouched.</td></tr>
     <tr><td>Set its level or mix</td><td>Drag along the line at the bottom of the block: <span class="ctl">LEVEL</span> in dB for an instrument, <span class="ctl">MIX</span> in % for an audio effect. Double-click the line to put it back to 0 dB or 100%. On a narrow block the value is shown in the line under the chain while you drag.</td></tr>
     <tr><td>Reorder</td><td>Drag a block left or right. A bar shows where it will land.</td></tr>
     <tr><td>Open a plug-in's window</td><td>Double-click the block. The window stays on top, and <span class="key">Space</span>, <span class="key">R</span> and <span class="key">Home</span> still work the transport from it.</td></tr>
@@ -748,7 +748,19 @@ td:first-child { font-weight: 600; }
   <li><strong>Not sent</strong>: back on its own track only.</li>
 </ol>
 <p>An output goes to one other track at a time: picking it on another track moves it there. On the track it comes from, a tag under the instrument shows where its outputs go: <span class="lcd">KICK + 3</span> is copied to track 3, <span class="lcd">PERC › 3</span> moved there.</p>
-<figure><img src="images/chain_routed.png" alt="Track 1's chain, with FM Drums' outputs sent away"><figcaption><b>Where they went.</b> The tag beside FM Drums' <span class="lcd">+ MIX</span>.</figcaption></figure>
+<figure><img src="images/chain_routed.png" alt="Track 1's chain, with FM Drums' outputs sent away"><figcaption><b>Where they went.</b> The tag beside FM Drums' <span class="lcd">+ MIX</span>, and its badge: <span class="lcd">OUTS 2</span>, two outputs sent away.</figcaption></figure>
+<h3>From the instrument: OUTS</h3>
+<p>The same routes can be set from the instrument's end. Every instrument has an <span class="ctl">OUTS</span> badge along the bottom of its block. It reads <span class="lcd">OUTS 2</span> when two of its outputs are sent to other tracks, and a dim <span class="lcd">OUTS</span> when none are. Click it, and a row for each of its outputs opens underneath:</p>
+<figure><img src="images/chain_outs.png" alt="FM Drums' outputs"><figcaption><b>FM Drums' outputs.</b> The kick is copied to track 3 (<span class="ctl">THIS CHAIN</span> and <span class="ctl">TRK 3</span> both lit); the perc is moved there (only <span class="ctl">TRK 3</span> lit).</figcaption></figure>
+<ul>
+  <li><strong>Click a track</strong> to send the output there; the first time, it moves. Click the lit track again to bring it back.</li>
+  <li><strong><span class="ctl">THIS CHAIN</span></strong> decides whether it also stays here. Lit with a track: a copy. Not lit: moved. An output sent nowhere stays here (except a plug-in's extra output, which can be switched off altogether).</li>
+  <li>A track it can't go to is struck through; clicking it says why (a loop, or a bounce track).</li>
+  <li>Click the badge again, or press <span class="key">Esc</span>, to close it. This and the receiving track's <span class="ctl">FROM PLUG-INS</span> are the same settings, seen from each end.</li>
+</ul>
+<h3>A track's chain out: the tape block</h3>
+<p>Click a track's <span class="ctl">TO TAPE</span> block to send a copy of its finished sound into other tracks' inputs. It's the same setting as <span class="ctl">FROM TRACKS</span> on the track receiving it. The tape block then reads <span class="lcd">+ TRK 4</span> under its own track number.</p>
+<figure><img src="images/chain_tape.png" alt="The tape block selected"><figcaption><b>The tape block.</b> Track 1's finished sound also goes into track 4.</figcaption></figure>
 <ul>
   <li><strong>The instrument plays while the track it feeds is armed.</strong> Arm only track 3 and you can still play the piano on track 1 into it: its notes reach it, and track 1 plays back its tape as usual.</li>
   <li><strong>No loops.</strong> If track 1 feeds track 2, track 2 can't feed track 1, by any way round. A track can't feed itself either. A route that would make a loop isn't made, and the status display says why.</li>

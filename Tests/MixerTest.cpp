@@ -1813,6 +1813,9 @@ int main()
         check (moved[0] < 0.001f && std::abs (moved[1] - alone[0]) < 0.01f * alone[0],
                "routing: moved, it leaves its own track and arrives at the same level", moved[1], alone[0]);
 
+        me.setBlockRoute (0, tone, 0, -1, false);
+        check (me.findBlock (0, tone)->getRoute (0).home && me.findBlock (0, tone)->getRoute (0).dest == -1,
+               "routing: a main output sent nowhere stays in its chain", 1, 1);
         me.setBlockRoute (0, tone, 0, 1, true);
         auto copied = levels ({ 0, 1 });
         check (std::abs (copied[0] - alone[0]) < 0.01f * alone[0] && std::abs (copied[1] - alone[0]) < 0.01f * alone[0],

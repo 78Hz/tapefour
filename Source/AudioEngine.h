@@ -165,13 +165,16 @@ public:
         juce::String name, owner;        // "3 METAL", "TF FM DRUMS" (name empty: its only output); a chain out: "TRK 1 CHAIN OUT"
         int dest = -1;                   // where it goes now (a chain out: see chainOutMask)
         bool home = true;                // it stays in its own chain too
+        bool canBeOff = false;           // a plug-in's aux output: it can be neither here nor sent
+        int channels = 2;
     };
     /** Every source there is, in track order (message thread). */
     std::vector<RouteSource> getRouteSources() const;
     /** Whether a source on track 'from' may feed track 'to': not itself, not from a bounce track
         (bounces run last), and not making a loop. */
     bool routeAllowed (int from, int to) const;
-    /** Sends an instrument's output to a track (-1: nowhere), staying here too or not. false if not allowed. */
+    /** Sends an instrument's output to a track (-1: nowhere), staying here too or not. false if not allowed.
+        Sent nowhere, an output that is in the main mix (the main one, a built-in's voices) stays here. */
     bool setBlockRoute (int t, int blockId, int output, int destTrack, bool home);
     bool setChainOut (int from, int to, bool on);
     /** What feeds a track from other tracks, as its inputs block says it ("FROM TRK 1 ×2"), or empty. */

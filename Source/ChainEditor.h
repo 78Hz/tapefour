@@ -50,7 +50,7 @@ public:
     bool keyPressed (const juce::KeyPress&) override;
 
 private:
-    enum class Sel { none, inputs, block, add };
+    enum class Sel { none, inputs, block, add, tape };
     struct Cell
     {
         juce::Rectangle<int> node;
@@ -58,15 +58,15 @@ private:
         bool inputs = false, add = false, tape = false, empty = false;
         // a block's own controls: the × at its corner, the MIDI badge, the LEVEL / MIX line
         juce::Point<int> cross;
-        bool hasBadge = false, hasSlider = false, isMix = false, wide = false;
-        int midiCount = 0;
-        juce::Rectangle<int> badge, slider, value, audioTagArea;
+        bool hasBadge = false, hasSlider = false, isMix = false, wide = false, hasOuts = false, showValue = false;
+        int midiCount = 0, outsCount = 0;
+        juce::Rectangle<int> badge, outsBadge, slider, value, audioTagArea;
         // lanes and ticks
         juce::Colour midiL, midiR, audioL, audioR, midiTick, audioTick;
         juce::String midiTag, audioTag;
         juce::String routeTag;      // where its outputs go: "KICK › 2  PERC + 4"
     };
-    struct Caption { juce::String text; juce::Rectangle<int> area; juce::Colour colour; };
+    struct Caption { juce::String text; juce::Rectangle<int> area; juce::Colour colour; float size = 0.0f; };   // size 0: by its colour
 
     void timerCallback() override;
     juce::String signature() const;
@@ -76,6 +76,9 @@ private:
     void buildInputsPanel (juce::Rectangle<int> area);
     void routeClicked (const AudioEngine::RouteSource&);
     void buildLearnPanel (const AudioEngine::BlockInfo&, juce::Rectangle<int> area);
+    void buildOutsPanel (const AudioEngine::BlockInfo&, juce::Rectangle<int> area);
+    void buildTapePanel (juce::Rectangle<int> area);
+    juce::String whyNot (int from, int to) const;
     void buildExternalPanel (const AudioEngine::BlockInfo&, juce::Rectangle<int> area);
     void buildPickerPanel (juce::Rectangle<int> area, int slotId);
     bool hasPanel() const;
@@ -110,6 +113,7 @@ private:
     LcdChip closeX { "X" };
 
     bool learning = false;            // the MIDI badge: learning the selected block's controls
+    bool outsOpen = false;            // the OUTS badge: where the selected instrument's outputs go
     int armedX = 0;                   // the block whose × was clicked once
     int levelDragId = 0;              // the block whose LEVEL / MIX line is being dragged
     bool downHandled = false;         // the mouse-down did its job (a badge, a line, a tag)

@@ -382,8 +382,9 @@ bool AudioEngine::setBlockRoute (int t, int blockId, int output, int destTrack, 
     auto* b = findBlock (t, blockId);
     if (b == nullptr || ! juce::isPositiveAndBelow (output, b->numOutputs())) return false;
     if (destTrack >= 0 && destTrack != b->getRoute (output).dest && ! routeAllowed (t, destTrack)) return false;
-    // sent nowhere: back as it was made (the main output and a built-in's voices here, a plug-in's aux bus not)
-    b->setRoute (output, destTrack, destTrack < 0 ? (output == 0 || b->extrasInMain()) : home);
+    // sent nowhere, the main output and a built-in's voices stay here (a plug-in's aux bus can be off)
+    const bool mustStay = output == 0 || b->extrasInMain();
+    b->setRoute (output, destTrack, destTrack < 0 && mustStay ? true : home);
     updateRoutes();
     return true;
 }
@@ -418,6 +419,8 @@ std::vector<AudioEngine::RouteSource> AudioEngine::getRouteSources() const
                 const auto r = b->getRoute (o);
                 s.dest = r.dest;
                 s.home = r.home;
+                s.canBeOff = o > 0 && ! b->extrasInMain();
+                s.channels = b->outputChannels (o);
                 out.push_back (s);
             }
         }
