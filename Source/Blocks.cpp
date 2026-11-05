@@ -28,6 +28,35 @@ void Block::writeCommon (juce::XmlElement& x) const
     x.setAttribute ("level", levelDb.load());
     x.setAttribute ("mix", mix.load());
     x.setAttribute ("process", processInput.load());
+    // where its outputs go, where that isn't as made
+    for (int o = 0; o < maxOutputs; ++o)
+        if (outDest[o].load() >= 0 || outHome[o].load() >= 0)
+        {
+            auto* r = x.createNewChildElement ("OUT");
+            r->setAttribute ("index", o);
+            r->setAttribute ("dest", outDest[o].load());
+            if (outHome[o].load() >= 0) r->setAttribute ("home", outHome[o].load() != 0);
+        }
+}
+
+Block::Route Block::getRoute (int o) const noexcept
+{
+    if (o < 0 || o >= maxOutputs) return {};
+    Route r;
+    r.dest = outDest[o].load();
+    const int h = outHome[o].load();
+    r.home = h >= 0 ? h != 0 : (o == 0 || extrasInMain());
+    return r;
+}
+
+void Block::setRoute (int o, int destTrack, bool home)
+{
+    if (o < 0 || o >= maxOutputs) return;
+    outDest[o] = destTrack;
+    // as made: the main output and a built-in's voices are here; a plug-in's aux buses aren't
+    const bool asMade = o == 0 || extrasInMain();
+    outHome[o] = home == asMade ? -1 : (home ? 1 : 0);
+    routeChanged (o);
 }
 
 void Block::readCommon (const juce::XmlElement& x)
@@ -36,6 +65,13 @@ void Block::readCommon (const juce::XmlElement& x)
     levelDb = (float) juce::jlimit (-60.0, 12.0, x.getDoubleAttribute ("level", levelDb.load()));
     mix = (float) juce::jlimit (0.0, 1.0, x.getDoubleAttribute ("mix", mix.load()));
     processInput = x.getBoolAttribute ("process");
+    for (auto* r : x.getChildWithTagNameIterator ("OUT"))
+    {
+        const int o = r->getIntAttribute ("index", -1);
+        if (o < 0 || o >= maxOutputs) continue;
+        const bool asMade = o == 0 || extrasInMain();
+        setRoute (o, juce::jlimit (-1, 7, r->getIntAttribute ("dest", -1)), r->getBoolAttribute ("home", asMade));
+    }
 }
 
 namespace
@@ -217,6 +253,16 @@ private:
 ProcessorBlock::ProcessorBlock (std::unique_ptr<juce::AudioProcessor> p, Kind k, int index)
     : processor (std::move (p)), kind (k), builtInIndex (index)
 {
+    // A plug-in instrument's extra outputs (a drum sampler's separate outs, say) are switched on, so
+    // they can be sent to other tracks. Most plug-ins leave them silent until a sound is assigned to one.
+    if (kind == Kind::hosted)
+        if (auto* inst = dynamic_cast<juce::AudioPluginInstance*> (processor.get()); inst != nullptr && inst->getPluginDescription().isInstrument)
+            for (int i = 1; i < processor->getBusCount (false); ++i)
+                if (auto* bus = processor->getBus (false, i); bus != nullptr && ! bus->isEnabled())
+                    bus->enable (true);
+    multiOut = dynamic_cast<MultiOutSource*> (processor.get());
+    findOutputs();
+
     if (kind == Kind::builtInSynth)      naturalRole = BlockRole::instrument;
     else if (kind == Kind::builtInFx)    naturalRole = BlockRole::audioFx;
     else if (processor->isMidiEffect())  naturalRole = BlockRole::midiFx;
@@ -243,6 +289,62 @@ ProcessorBlock::ProcessorBlock (std::unique_ptr<juce::AudioProcessor> p, Kind k,
     processor->addListener (this);
 }
 
+void ProcessorBlock::findOutputs()
+{
+    outBuses.clear();
+    int offset = 0;
+    for (int i = 0; i < processor->getBusCount (false); ++i)
+    {
+        auto* bus = processor->getBus (false, i);
+        if (bus == nullptr || ! bus->isEnabled()) continue;
+        const int ch = bus->getNumberOfChannels();
+        if (ch > 0 && (int) outBuses.size() < maxOutputs)
+            outBuses.push_back ({ offset, ch, bus->getName() });
+        offset += ch;
+    }
+}
+
+juce::String ProcessorBlock::outputName (int o) const
+{
+    if (o == 0) return "MAIN";
+    if (multiOut != nullptr) return multiOut->outputLabel (o - 1);
+    if (juce::isPositiveAndBelow (o, (int) outBuses.size()) && outBuses[(size_t) o].name.isNotEmpty())
+        return outBuses[(size_t) o].name.toUpperCase();
+    return Block::outputName (o);
+}
+
+int ProcessorBlock::outputChannels (int o) const
+{
+    return juce::isPositiveAndBelow (o, (int) outBuses.size()) ? std::min (2, outBuses[(size_t) o].channels) : 2;
+}
+
+bool ProcessorBlock::readOutput (int o, juce::AudioBuffer<float>& dest, int numSamples)
+{
+    if (o < 1 || o >= (int) outBuses.size() || outBuses.empty() || extrasFilled < numSamples) return false;
+    const auto& bus = outBuses[(size_t) o];
+    const int first = bus.offset - outBuses[0].channels;
+    if (first < 0 || first >= extras.getNumChannels()) return false;
+    if (bus.channels == 1 || first + 1 >= extras.getNumChannels())
+    {
+        constexpr float side = 0.70710678f;
+        dest.clear (0, numSamples);
+        dest.addFrom (0, 0, extras, first, 0, numSamples, side);
+        dest.addFrom (1, 0, extras, first, 0, numSamples, side);
+    }
+    else
+    {
+        dest.copyFrom (0, 0, extras, first, 0, numSamples);
+        dest.copyFrom (1, 0, extras, first + 1, 0, numSamples);
+    }
+    return true;
+}
+
+void ProcessorBlock::routeChanged (int o)
+{
+    if (multiOut != nullptr && o >= 1)
+        multiOut->setOutputLeavesMain (o - 1, ! getRoute (o).home);
+}
+
 ProcessorBlock::~ProcessorBlock()
 {
     processor->removeListener (this);
@@ -267,6 +369,11 @@ void ProcessorBlock::prepare (double sampleRate, int blockSize)
     processor->setRateAndBufferSizeDetails (sampleRate, pieceSize);
     processor->prepareToPlay (sampleRate, pieceSize);
     work.setSize (std::max ({ 2, processor->getTotalNumInputChannels(), processor->getTotalNumOutputChannels() }), pieceSize);
+    findOutputs();
+    const int mainCh = outBuses.empty() ? 0 : outBuses[0].channels;
+    const int extraCh = processor->getTotalNumOutputChannels() - mainCh;
+    extras.setSize (std::max (0, extraCh), extraCh > 0 ? 8192 : 0);   // the engine's longest block
+    extrasFilled = 0;
     pieceMidi.ensureSize (8192);
     midiOut.ensureSize (8192);
     prepared = true;
@@ -292,7 +399,11 @@ void ProcessorBlock::process (juce::AudioBuffer<float>& stereo, int numSamples, 
     for (const auto m : midi)
         if (m.numBytes > 0 && (m.data[0] & 0xf0) == 0xc0) { stateMaybeChanged = true; break; }
 
-    const auto ins = processor->getTotalNumInputChannels(), outs = processor->getTotalNumOutputChannels();
+    const auto ins = processor->getTotalNumInputChannels();
+    const int allOuts = processor->getTotalNumOutputChannels();
+    const int outs = outBuses.empty() ? allOuts : outBuses[0].channels;   // the main bus: what joins the chain
+    const int mainCh = outs;
+    extrasFilled = 0;
     const bool midiOutWanted = makesMidi;
     if (midiOutWanted) midiOut.clear();
 
@@ -345,6 +456,10 @@ void ProcessorBlock::process (juce::AudioBuffer<float>& stereo, int numSamples, 
             stereo.copyFrom (0, start, view, 0, 0, len);
             stereo.copyFrom (1, start, view, 0, 0, len);
         }
+        // the extra outputs, kept for the engine to send on
+        for (int c = mainCh; c < allOuts && c - mainCh < extras.getNumChannels() && start + len <= extras.getNumSamples(); ++c)
+            extras.copyFrom (c - mainCh, start, view, c, 0, len);
+        if (extras.getNumChannels() > 0 && start + len <= extras.getNumSamples()) extrasFilled = start + len;
 
         if (midiOutWanted)
             midiOut.addEvents (pieceMidi, 0, len, start);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Common.h"
+#include "MultiOut.h"
 
 namespace tf
 {
@@ -72,6 +73,35 @@ public:
     /** The common settings, written into and read back from a BLOCK element. */
     void writeCommon (juce::XmlElement& x) const;
     void readCommon (const juce::XmlElement& x);
+
+    // ---- outputs, and where each one goes ----
+    /** Output 0 is the main one: what joins the chain. The others are an instrument's extra outputs
+        (a plug-in's aux buses, FM Drums' drum tracks). Each can go to another track's inputs, and
+        stay here too (a copy) or not (moved). */
+    static constexpr int maxOutputs = 16;
+    virtual int numOutputs() const { return 1; }
+    virtual juce::String outputName (int o) const { return o == 0 ? juce::String ("MAIN") : "OUT " + juce::String (o + 1); }
+    virtual int outputChannels (int /*o*/) const { return 2; }
+    /** Audio thread, after process(): extra output o (1 and up) into the first numSamples of a stereo
+        buffer (a mono output on both sides at 1/sqrt 2, as the chain carries mono). false: none. */
+    virtual bool readOutput (int /*o*/, juce::AudioBuffer<float>& /*dest*/, int /*numSamples*/) { return false; }
+    /** True when the extra outputs' sound is in the main mix already (a built-in's voices); false
+        when they are separate (a plug-in's aux buses), so staying here means being mixed in. */
+    virtual bool extrasInMain() const { return false; }
+
+    struct Route { int dest = -1; bool home = true; };
+    /** Any thread. dest: the track it is sent to (-1 none); home: it stays in this chain too. */
+    Route getRoute (int o) const noexcept;
+    /** Message thread (the engine checks the track is allowed first). */
+    void setRoute (int o, int destTrack, bool home);
+
+protected:
+    /** A route changed: a built-in with outputs in its main mix takes a moved one out. */
+    virtual void routeChanged (int /*o*/) {}
+
+private:
+    std::atomic<int> outDest[maxOutputs] { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
+    std::atomic<int> outHome[maxOutputs] { -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };   // -1: as made
 };
 
 //==============================================================================
@@ -113,7 +143,18 @@ public:
     Kind getKind() const noexcept           { return kind; }
     int getBuiltInIndex() const noexcept    { return builtInIndex; }
 
+    int numOutputs() const override         { return std::max (1, (int) outBuses.size()); }
+    juce::String outputName (int o) const override;
+    int outputChannels (int o) const override;
+    bool readOutput (int o, juce::AudioBuffer<float>& dest, int numSamples) override;
+    bool extrasInMain() const override      { return multiOut != nullptr; }
+
+protected:
+    void routeChanged (int o) override;
+
 private:
+    struct OutBus { int offset = 0, channels = 0; juce::String name; };
+    void findOutputs();
     void audioProcessorParameterChanged (juce::AudioProcessor*, int index, float) override;
     void audioProcessorChanged (juce::AudioProcessor*, const ChangeDetails&) override { stateMaybeChanged = true; }
     void audioProcessorParameterChangeGestureBegin (juce::AudioProcessor*, int index) override { touched = index; }
@@ -129,7 +170,11 @@ private:
     bool editorAvailable = false, makesMidi = false;
     int numIns = 0;
     TapeFeedListener* tapeListener = nullptr;
+    MultiOutSource* multiOut = nullptr;
     const TrackFeed* feed = nullptr;
+    std::vector<OutBus> outBuses;            // the enabled output buses: the main one, then the extras
+    juce::AudioBuffer<float> extras;         // the extra outputs' channels, for the whole block
+    int extrasFilled = 0;
 
     juce::AudioBuffer<float> work;
     juce::MidiBuffer pieceMidi, midiOut;

@@ -64,6 +64,7 @@ private:
         // lanes and ticks
         juce::Colour midiL, midiR, audioL, audioR, midiTick, audioTick;
         juce::String midiTag, audioTag;
+        juce::String routeTag;      // where its outputs go: "KICK › 2  PERC + 4"
     };
     struct Caption { juce::String text; juce::Rectangle<int> area; juce::Colour colour; };
 
@@ -73,6 +74,7 @@ private:
     void layoutFlow();
     void clearPanel();
     void buildInputsPanel (juce::Rectangle<int> area);
+    void routeClicked (const AudioEngine::RouteSource&);
     void buildLearnPanel (const AudioEngine::BlockInfo&, juce::Rectangle<int> area);
     void buildExternalPanel (const AudioEngine::BlockInfo&, juce::Rectangle<int> area);
     void buildPickerPanel (juce::Rectangle<int> area, int slotId);

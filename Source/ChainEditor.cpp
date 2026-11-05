@@ -54,6 +54,7 @@ juce::String ChainEditor::signature() const
     for (auto& i : engine.getMidiInputs()) s << i.slot << (int) i.active << (int) i.mpe;
     for (auto& o : engine.getMidiOutputs()) s << o.slot << (int) o.active;
     s << engine.getActiveInputNames().size() << (int) sel << selId << (int) learning;
+    s << engine.routeSignature();
     return s;
 }
 
@@ -329,7 +330,49 @@ void ChainEditor::buildInputsPanel (juce::Rectangle<int> area)
                              [this, i] { engine.setTrackInput (t, i, true); }, "MONO SUM"));
     if (names.isEmpty())
         ins.push_back (chip ("NO INPUTS ACTIVE: SEE SETUP", false, [] {}));
-    chipRow (y, x, right, "AUDIO IN", ins, 40);
+    y = chipRow (y, x, right, "AUDIO IN", ins, 40);
+
+    // what other tracks send this one: their instruments' outputs, and their finished sound
+    std::vector<LcdChip*> plugs, chains;
+    for (auto& src : engine.getRouteSources())
+    {
+        if (src.track == t) continue;
+        const auto from = "TRK " + juce::String (src.track + 1);
+        if (src.blockId == 0)
+        {
+            const bool on = (engine.track[src.track].chainOutMask.load() & (1 << t)) != 0;
+            const int k = src.track;
+            chains.push_back (chip (src.name, on, [this, k, on]
+            {
+                if (! engine.setChainOut (k, t, ! on) && onMessage) onMessage (utf ("NOT ALLOWED: THAT WOULD MAKE A LOOP (OR TRK ") + juce::String (k + 1) + " BOUNCES)");
+            }, "A COPY OF ITS SOUND"));
+            continue;
+        }
+        const bool here = src.dest == t;
+        const auto label = src.name.isEmpty() ? src.owner : src.name;
+        const auto sub = from + utf (" \xc2\xb7 ") + (src.name.isEmpty() ? juce::String ("ITS OUTPUT") : src.owner)
+                         + (here ? (src.home ? utf (" \xc2\xb7 COPY") : utf (" \xc2\xb7 MOVED")) : juce::String());
+        auto* c = new LcdChip (label, sub);
+        c->chosen = here;
+        c->setTooltip ("Click: moved here. Again: a copy (it stays on its own track too). Again: not sent.");
+        c->onClick = [this, src] { routeClicked (src); changed(); };
+        panel.add (c);
+        addAndMakeVisible (c);
+        plugs.push_back (c);
+    }
+    if (! plugs.empty()) y = chipRow (y, x, right, "FROM PLUG-INS", plugs, 34, Pal::lamp);
+    if (! chains.empty()) chipRow (y, x, right, "FROM TRACKS", chains, 34, Pal::lamp);
+}
+
+void ChainEditor::routeClicked (const AudioEngine::RouteSource& src)
+{
+    // not sent here: moved here; moved: a copy (it stays on its own track too); a copy: not sent
+    bool ok = true;
+    if (src.dest != t)       ok = engine.setBlockRoute (src.track, src.blockId, src.output, t, false);
+    else if (! src.home)     ok = engine.setBlockRoute (src.track, src.blockId, src.output, t, true);
+    else                     ok = engine.setBlockRoute (src.track, src.blockId, src.output, -1, true);
+    if (! ok && onMessage)
+        onMessage ("NOT ALLOWED: THAT WOULD MAKE A LOOP (OR TRK " + juce::String (src.track + 1) + " BOUNCES)");
 }
 
 void ChainEditor::buildLearnPanel (const AudioEngine::BlockInfo& b, juce::Rectangle<int> area)
@@ -473,7 +516,7 @@ void ChainEditor::layoutFlow()
     auto& p = engine.track[t];
     const bool bounce = (AudioEngine::Feed) p.feed.load() == AudioEngine::Feed::bounce;
     const bool midiIn = ! bounce && p.midiPort.load() != AudioEngine::midiNone;
-    const bool audioIn = bounce || p.inputChannel.load() >= 0;
+    const bool audioIn = bounce || p.inputChannel.load() >= 0 || engine.describeRoutedIn (t).isNotEmpty();
     const bool canAdd = (int) chain.size() < AudioEngine::maxBlocks;
 
     const int nodes = 1 + (int) chain.size() + (canAdd ? 1 : 0) + 1;
@@ -560,6 +603,14 @@ void ChainEditor::layoutFlow()
             }
         }
         const bool live = ! b.bypass && b.role != BlockRole::pending && ! c.empty;
+        {
+            juce::StringArray parts;
+            for (auto& src : engine.getRouteSources())
+                if (src.track == t && src.blockId == b.id && src.dest >= 0)
+                    parts.add ((src.name.isEmpty() ? juce::String() : src.name.trimCharactersAtStart ("0123456789 ") + " ")
+                               + (src.home ? "+ " : utf ("\xe2\x80\xba ")) + juce::String (src.dest + 1));
+            c.routeTag = parts.joinIntoString ("  ");
+        }
         const bool inMidi = i + 1 <= lastMidi;
         c.midiL = inMidi ? midiColour() : none;
         c.midiTick = live && inMidi && (b.role != BlockRole::audioFx || b.producesMidi) ? midiColour() : none;
@@ -731,8 +782,11 @@ void ChainEditor::paint (juce::Graphics& g)
                 g.setColour (port == AudioEngine::midiNone ? sub : (isSel ? ink : Pal::midiBright));
                 g.drawFittedText (port == AudioEngine::midiNone ? juce::String ("NO MIDI") : "MIDI " + engine.midiPortLabel (port),
                                   in.removeFromTop (in.getHeight() / 2), juce::Justification::centredLeft, 1, 0.75f);
-                g.setColour (p.inputChannel.load() < 0 ? sub : ink);
-                g.drawFittedText (p.inputChannel.load() < 0 ? juce::String ("NO AUDIO IN") : engine.describeInput (t),
+                const auto routed = engine.describeRoutedIn (t);
+                const bool audio = p.inputChannel.load() >= 0;
+                g.setColour (! audio && routed.isEmpty() ? sub : (routed.isNotEmpty() && ! isSel ? Pal::lamp : ink));
+                g.drawFittedText (audio ? engine.describeInput (t) + (routed.isNotEmpty() ? " + " + routed.fromFirstOccurrenceOf ("FROM ", false, false) : juce::String())
+                                        : (routed.isNotEmpty() ? routed : juce::String ("NO AUDIO IN")),
                                   in, juce::Justification::centredLeft, 1, 0.75f);
             }
             continue;
@@ -852,6 +906,18 @@ void ChainEditor::paint (juce::Graphics& g)
         };
         tag (c.midiTag, c.node.getY() - laneH + 7, Pal::midiBright);
         tag (c.audioTag, c.node.getBottom() + 11, Pal::lcdText);
+        if (c.routeTag.isNotEmpty())
+        {
+            // where its outputs go, beside its audio tag: › moved, + a copy
+            g.setFont (lf.mono (9.0f));
+            const auto tagW = [&] (const juce::String& s) { return (int) juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), s) + 10; };
+            const int left = c.node.getCentreX() + (c.audioTag.isNotEmpty() ? tagW (c.audioTag) / 2 + 6 : 0);
+            auto r = juce::Rectangle<int> (left, c.node.getBottom() + 4, tagW (c.routeTag), 14);
+            g.setColour (Pal::lamp);
+            g.fillRoundedRectangle (r.toFloat(), 2.0f);
+            g.setColour (juce::Colour (0xff10151c));
+            g.drawText (c.routeTag, r, juce::Justification::centred);
+        }
     }
 
     // where a dragged block would land

@@ -2,6 +2,7 @@
 
 #include "Common.h"
 #include "InstrumentPresets.h"
+#include "MultiOut.h"
 
 /*
     TF FM DRUMS: a six-track FM drum machine in the manner of the Elektron Model:Cycles (not a copy of it):
@@ -77,7 +78,8 @@ struct State
 
 /** Like a drum machine plugged into the recorder: its own tempo and its own PLAY, not the tape's transport. */
 class Processor : public juce::AudioProcessor,
-                  public presets::Presettable
+                  public presets::Presettable,
+                  public MultiOutSource
 {
 public:
     Processor();
@@ -123,9 +125,15 @@ public:
     void fromXml (const juce::XmlElement&) override;
     const presets::Kind& presetKind() const override;
 
+    /** Six outputs beside the main one, one a drum track: the dry voice, mono (its delay and
+        reverb sends stay on the main output). A track sent away leaves the main mix. */
+    void setOutputLeavesMain (int aux, bool leaves) noexcept override;
+    juce::String outputLabel (int aux) const override;
+
     struct Engine;
 
 private:
+    std::array<std::atomic<bool>, numTracks> leavesMain {};
     State edit;
     std::unique_ptr<Engine> engine;
     std::unique_ptr<State> pending;

@@ -391,11 +391,20 @@ struct Processor::Engine
         pending[(size_t) numPending++] = { at, track, step, velocity, fromPattern };
     }
 
-    void process (juce::AudioBuffer<float>& buffer, std::atomic<int>& shown, std::array<std::atomic<float>, numTracks>& trackLevels)
+    void process (juce::AudioBuffer<float>& buffer, std::atomic<int>& shown, std::array<std::atomic<float>, numTracks>& trackLevels,
+                  const std::array<std::atomic<bool>, numTracks>& leaves)
     {
         const int n = buffer.getNumSamples();
         auto* outL = buffer.getWritePointer (0);
         auto* outR = buffer.getNumChannels() > 1 ? buffer.getWritePointer (1) : nullptr;
+        // the separate outputs, one a track (channels 2..7 when the host has them)
+        float* own[numTracks] {};
+        bool away[numTracks] {};
+        for (int t = 0; t < numTracks; ++t)
+        {
+            own[t] = buffer.getNumChannels() > 2 + t ? buffer.getWritePointer (2 + t) : nullptr;
+            away[t] = leaves[(size_t) t].load();
+        }
         const double samplesPerStep = sr * 60.0 / (s.tempo / 10.0) / 4.0;
         const double swingDelay = (s.swing - 50) / 50.0 * samplesPerStep;   // the off-beat sixteenths, late
         // the delay's time, in the tempo
@@ -463,7 +472,7 @@ struct Processor::Engine
             {
                 auto& tr = tracks[(size_t) t];
                 auto& v = tr.v;
-                if (! v.on) { tr.level *= 0.9995; continue; }
+                if (! v.on) { tr.level *= 0.9995; if (own[t] != nullptr) own[t][i] = 0.0f; continue; }
                 double x[numParams];
                 std::copy (std::begin (v.x), std::end (v.x), x);
                 if ((i & 31) == 0) tr.lfoLast = lfoValue (tr, (int) x[pLfoShape], expMap (x[pLfoSpeed], 0.05, 20.0));
@@ -476,9 +485,14 @@ struct Processor::Engine
                 if (x[pDrive] > 0.0) { const double g = 1.0 + x[pDrive] * 9.0; y = std::tanh (y * g) / std::tanh (g) ; }
                 y *= x[pVolume] * x[pVolume] * 0.8;
                 tr.level = std::max (std::abs (y), tr.level * 0.9995);
-                const double pan = x[pPan] * 0.5 * juce::MathConstants<double>::pi;
-                l += y * std::cos (pan) * 1.41421356; r += y * std::sin (pan) * 1.41421356;
-                sendD += y * x[pDelay]; sendR += y * x[pReverb];
+                // its own output: the dry voice, at the level it has in the main mix when panned centre
+                if (own[t] != nullptr) own[t][i] = (float) (y * 1.41421356 * master);
+                if (! away[t])
+                {
+                    const double pan = x[pPan] * 0.5 * juce::MathConstants<double>::pi;
+                    l += y * std::cos (pan) * 1.41421356; r += y * std::sin (pan) * 1.41421356;
+                }
+                sendD += y * x[pDelay]; sendR += y * x[pReverb];   // the sends stay on the main output
             }
 
             // ---- the delay: ping-pong, filtered in the loop ----
@@ -525,7 +539,13 @@ struct Processor::Engine
 
 //==============================================================================
 Processor::Processor()
-    : juce::AudioProcessor (BusesProperties().withOutput ("Out", juce::AudioChannelSet::stereo(), true)),
+    : juce::AudioProcessor (BusesProperties().withOutput ("Out", juce::AudioChannelSet::stereo(), true)
+                                             .withOutput ("1", juce::AudioChannelSet::mono(), true)
+                                             .withOutput ("2", juce::AudioChannelSet::mono(), true)
+                                             .withOutput ("3", juce::AudioChannelSet::mono(), true)
+                                             .withOutput ("4", juce::AudioChannelSet::mono(), true)
+                                             .withOutput ("5", juce::AudioChannelSet::mono(), true)
+                                             .withOutput ("6", juce::AudioChannelSet::mono(), true)),
       engine (std::make_unique<Engine>())
 {
     edit.init();
@@ -543,6 +563,17 @@ void Processor::changed()
 }
 
 void Processor::setPlaying (bool on) { playing = on; }
+
+void Processor::setOutputLeavesMain (int aux, bool leaves) noexcept
+{
+    if (aux >= 0 && aux < numTracks) leavesMain[(size_t) aux] = leaves;
+}
+
+juce::String Processor::outputLabel (int aux) const
+{
+    if (aux < 0 || aux >= numTracks) return {};
+    return juce::String (aux + 1) + " " + machineName (std::clamp (edit.sound[aux][pMachine], 0, numMachines - 1));
+}
 
 void Processor::hit (int track, int velocity)
 {
@@ -586,7 +617,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
     }
     midi.clear();
     buffer.clear();
-    e.process (buffer, shownStep, levels);
+    e.process (buffer, shownStep, levels, leavesMain);
 }
 
 //==============================================================================

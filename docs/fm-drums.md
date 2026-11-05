@@ -55,3 +55,14 @@ velocity (no locks).
 | --- | --- |
 | Delay | Ping-pong, 1/16 to 1/2 of the tempo (3/16 and 3/8 too), feedback up to 90 %, a low-pass in the loop (800 Hz-16 kHz) |
 | Reverb | Eight delay lines mixed by a Householder matrix, their lengths fitted to SIZE, decay 0.3-8 s, a low-pass in each (1.5-16 kHz) |
+
+## Separate outputs (ours)
+
+Six mono outputs beside the stereo main one, one per drum track, so the deck's routing can put each
+drum on a track of its own. Each carries the track's dry voice after its drive and volume, before its
+pan, scaled by √2 and the master level so it arrives on a mono track at the level the centred voice
+has in the main mix (the chain sums its two sides at 1/√2 each). The delay and reverb sends stay on
+the main output whether or not a track is sent away, the way most drum machines' individual outputs
+work. A track *moved* to another deck track leaves the main mix; a *copy* leaves it in. The Model:Cycles
+itself has only its stereo output and headphones (three jacks), and no Overbridge (Sound On Sound's
+review, 2019), so separate outputs are our addition, not something copied from it.

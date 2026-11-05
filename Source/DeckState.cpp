@@ -20,6 +20,7 @@ std::unique_ptr<juce::XmlElement> AudioEngine::createDeckState (bool freshPlugin
         x->setAttribute ("input", p.inputChannel.load());
         x->setAttribute ("pair", p.inputPair.load());
         x->setAttribute ("bounce", p.bounceMask.load());
+        if (p.chainOutMask.load() != 0) x->setAttribute ("chainOut", p.chainOutMask.load());
         x->setAttribute ("mute", p.mute.load());
         x->setAttribute ("solo", p.solo.load());
         x->setAttribute ("gain", p.gain.load());
@@ -159,6 +160,7 @@ void AudioEngine::applyDeckState (const juce::XmlElement& deck)
         p.pan   = (float) juce::jlimit (-1.0, 1.0, x->getDoubleAttribute ("pan"));
         p.fader = (float) juce::jlimit (0.0, 1.0, x->getDoubleAttribute ("fader", 0.75));
         p.bounceMask = x->getIntAttribute ("bounce") & ((1 << numTracks) - 1);
+        p.chainOutMask = x->getIntAttribute ("chainOut") & ((1 << numTracks) - 1) & ~(1 << t);
         p.mute = x->getBoolAttribute ("mute");
         p.solo = x->getBoolAttribute ("solo");
 
@@ -209,6 +211,7 @@ void AudioEngine::applyDeckState (const juce::XmlElement& deck)
         // (Their counterZero is ignored: the counter is the machine's now.)
     }
 
+    updateRoutes();
     if (onDeckStateApplied) onDeckStateApplied();
 }
 

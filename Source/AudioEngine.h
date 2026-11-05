@@ -65,6 +65,7 @@ public:
         std::atomic<float> midFreq { defaultMidFreq };  // 0..1 -> 250 Hz..5 kHz
         std::atomic<float> fader { 0.75f };
         std::atomic<int>   bounceMask { 0 };
+        std::atomic<int>   chainOutMask { 0 };          // the tracks this one's finished sound is copied to
         std::atomic<float> meter { 0 };
         std::atomic<bool>  midiActivity { false };
     };
@@ -154,6 +155,29 @@ public:
     void sendAllNotesOff (int t, int blockId);
     /** Called just before a block is removed or replaced, so its window can close first. */
     std::function<void (int track, int blockId)> onBlockRemoving;
+
+    // ---- routing: instruments' outputs, and tracks' finished sound, into other tracks' inputs ----
+    /** Something that can be sent to a track: an output of an instrument (blockId, output), or a
+        track's chain out (blockId 0): its finished sound, always a copy. */
+    struct RouteSource
+    {
+        int track = 0, blockId = 0, output = 0;
+        juce::String name, owner;        // "3 METAL", "TF FM DRUMS" (name empty: its only output); a chain out: "TRK 1 CHAIN OUT"
+        int dest = -1;                   // where it goes now (a chain out: see chainOutMask)
+        bool home = true;                // it stays in its own chain too
+    };
+    /** Every source there is, in track order (message thread). */
+    std::vector<RouteSource> getRouteSources() const;
+    /** Whether a source on track 'from' may feed track 'to': not itself, not from a bounce track
+        (bounces run last), and not making a loop. */
+    bool routeAllowed (int from, int to) const;
+    /** Sends an instrument's output to a track (-1: nowhere), staying here too or not. false if not allowed. */
+    bool setBlockRoute (int t, int blockId, int output, int destTrack, bool home);
+    bool setChainOut (int from, int to, bool on);
+    /** What feeds a track from other tracks, as its inputs block says it ("FROM TRK 1 ×2"), or empty. */
+    juce::String describeRoutedIn (int t) const;
+    /** Changes whenever any route does (for the editors to notice). */
+    juce::String routeSignature() const;
 
     juce::String describeSource (int t) const;    // what the display's top line says
     juce::String describeInput (int t) const;     // "IN 3" or "IN 3+4"
@@ -248,6 +272,10 @@ private:
     struct ChainResult { bool throughInterface = false, hasInstruments = false; int latency = 0; };
     ChainResult runChain (int t, const float* const* inputs, int numInputs, int n, bool armed, float* monoOut,
                           const float* bounceIn);
+    void sendToTrack (int from, int dest, const juce::AudioBuffer<float>& stereo, int n, float gain, const ChainResult& info);
+    /** The routes as edges (bit from * numTracks + to), for the audio thread; recomputed on any change. */
+    void updateRoutes();
+    int routeEdgesNow() const;   // message thread: from the blocks and chain outs, loops dropped
     void copyInput (int channel, bool pair, const float* const* inputs, int numInputs, int n, float* dest, float gain = 1.0f) const;
 
     // MidiMapper::Sink
@@ -287,6 +315,12 @@ private:
     bool lastMpe[numTracks] {};
     int lastBend[numTracks] {};
     ChainResult chainResult[numTracks];
+    std::atomic<int> routeEdges { 0 };
+    std::vector<float> routeIn[numTracks];           // what other tracks send each track, this block
+    bool routeUsed[numTracks] {};
+    ChainResult routeFrom[numTracks];                // and what it came through, for the recording's timing
+    int orderPos[numTracks] {};                      // where each track is in this block's running order
+    juce::AudioBuffer<float> extraOut;
     float lastMaster = 0, lastPhones = 0;
     std::atomic<bool> mpeConfigPending[numTracks] {};
 

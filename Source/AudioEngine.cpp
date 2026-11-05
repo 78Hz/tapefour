@@ -71,6 +71,7 @@ void AudioEngine::allocateBuffers (int size)
         pre[t].assign ((size_t) size, 0.0f);
         feedPre[t].assign ((size_t) size, 0.0f);
         feedPost[t].assign ((size_t) size, 0.0f);
+        routeIn[t].assign ((size_t) size, 0.0f);
         tapeOutPtr[t] = tapeOut[t].data();
     }
     mixL.assign ((size_t) size, 0.0f);
@@ -81,6 +82,7 @@ void AudioEngine::allocateBuffers (int size)
     acc.setSize (2, size);
     scratch.setSize (2, size);
     dry.setSize (2, size);
+    extraOut.setSize (2, size);
 }
 
 void AudioEngine::openStartupDevice()
@@ -296,6 +298,7 @@ void AudioEngine::setTrackFeed (int t, Feed feed)
 {
     ++viewVersion;
     track[t].feed = (int) feed;
+    updateRoutes();
 }
 
 void AudioEngine::toggleBounceSource (int t, int sourceTrack)
@@ -304,6 +307,152 @@ void AudioEngine::toggleBounceSource (int t, int sourceTrack)
     if (sourceTrack == t) return;
     track[t].bounceMask = track[t].bounceMask.load() ^ (1 << sourceTrack);
     track[t].feed = (int) Feed::bounce;
+    updateRoutes();
+}
+
+//==============================================================================
+// Routing
+//==============================================================================
+int AudioEngine::routeEdgesNow() const
+{
+    // Every route as an edge, in a fixed order; one that would make a loop (or start on a bounce
+    // track, which runs after the others) is left out, so the tracks can always run in an order.
+    int edges = 0;
+    auto reaches = [&edges] (int from, int to)
+    {
+        int seen = 1 << from, frontier = 1 << from;
+        while (frontier != 0)
+        {
+            int next = 0;
+            for (int a = 0; a < numTracks; ++a)
+                if (frontier & (1 << a))
+                    for (int b = 0; b < numTracks; ++b)
+                        if ((edges & (1 << (a * numTracks + b))) && ! (seen & (1 << b))) next |= 1 << b;
+            seen |= next;
+            frontier = next;
+        }
+        return (seen & (1 << to)) != 0;
+    };
+    auto add = [&] (int from, int to)
+    {
+        if (from == to || ! juce::isPositiveAndBelow (to, numTracks)) return;
+        if ((Feed) track[from].feed.load() == Feed::bounce) return;
+        if (reaches (to, from)) return;
+        edges |= 1 << (from * numTracks + to);
+    };
+    for (int t = 0; t < numTracks; ++t)
+    {
+        for (auto& b : chains[t].blocks)
+            for (int o = 0; o < b->numOutputs(); ++o)
+                if (auto r = b->getRoute (o); r.dest >= 0) add (t, r.dest);
+        for (int d = 0; d < numTracks; ++d)
+            if (track[t].chainOutMask.load() & (1 << d)) add (t, d);
+    }
+    return edges;
+}
+
+void AudioEngine::updateRoutes()
+{
+    routeEdges = routeEdgesNow();
+    ++viewVersion;
+}
+
+bool AudioEngine::routeAllowed (int from, int to) const
+{
+    if (! juce::isPositiveAndBelow (from, numTracks) || ! juce::isPositiveAndBelow (to, numTracks) || from == to) return false;
+    if ((Feed) track[from].feed.load() == Feed::bounce) return false;
+    // a loop: 'to' already reaches 'from'
+    const int edges = routeEdgesNow();
+    int seen = 1 << to, frontier = 1 << to;
+    while (frontier != 0)
+    {
+        int next = 0;
+        for (int a = 0; a < numTracks; ++a)
+            if (frontier & (1 << a))
+                for (int b = 0; b < numTracks; ++b)
+                    if ((edges & (1 << (a * numTracks + b))) && ! (seen & (1 << b))) next |= 1 << b;
+        seen |= next;
+        frontier = next;
+    }
+    return (seen & (1 << from)) == 0;
+}
+
+bool AudioEngine::setBlockRoute (int t, int blockId, int output, int destTrack, bool home)
+{
+    auto* b = findBlock (t, blockId);
+    if (b == nullptr || ! juce::isPositiveAndBelow (output, b->numOutputs())) return false;
+    if (destTrack >= 0 && destTrack != b->getRoute (output).dest && ! routeAllowed (t, destTrack)) return false;
+    // sent nowhere: back as it was made (the main output and a built-in's voices here, a plug-in's aux bus not)
+    b->setRoute (output, destTrack, destTrack < 0 ? (output == 0 || b->extrasInMain()) : home);
+    updateRoutes();
+    return true;
+}
+
+bool AudioEngine::setChainOut (int from, int to, bool on)
+{
+    if (! juce::isPositiveAndBelow (from, numTracks) || ! juce::isPositiveAndBelow (to, numTracks)) return false;
+    auto& m = track[from].chainOutMask;
+    if (on && ! (m.load() & (1 << to)) && ! routeAllowed (from, to)) return false;
+    m = on ? (m.load() | (1 << to)) : (m.load() & ~(1 << to));
+    updateRoutes();
+    return true;
+}
+
+std::vector<AudioEngine::RouteSource> AudioEngine::getRouteSources() const
+{
+    std::vector<RouteSource> out;
+    for (int t = 0; t < numTracks; ++t)
+    {
+        for (auto& b : chains[t].blocks)
+        {
+            const auto role = b->role();
+            if (role != BlockRole::instrument && role != BlockRole::external) continue;
+            for (int o = 0; o < b->numOutputs(); ++o)
+            {
+                RouteSource s;
+                s.track = t;
+                s.blockId = b->id;
+                s.output = o;
+                s.name = b->numOutputs() > 1 ? b->outputName (o) : juce::String();   // one output: the instrument is its name
+                s.owner = b->getName().toUpperCase();
+                const auto r = b->getRoute (o);
+                s.dest = r.dest;
+                s.home = r.home;
+                out.push_back (s);
+            }
+        }
+        RouteSource c;
+        c.track = t;
+        c.name = "TRK " + juce::String (t + 1) + " CHAIN OUT";
+        c.owner = "END OF ITS CHAIN";
+        c.dest = -1;
+        out.push_back (c);
+    }
+    return out;
+}
+
+juce::String AudioEngine::describeRoutedIn (int t) const
+{
+    int count = 0, fromMask = 0;
+    for (auto& s : getRouteSources())
+    {
+        const bool here = s.blockId == 0 ? (track[s.track].chainOutMask.load() & (1 << t)) != 0 : s.dest == t;
+        if (here && s.track != t) { ++count; fromMask |= 1 << s.track; }
+    }
+    if (count == 0) return {};
+    juce::StringArray from;
+    for (int k = 0; k < numTracks; ++k) if (fromMask & (1 << k)) from.add (juce::String (k + 1));
+    return "FROM TRK " + from.joinIntoString ("+") + (count > 1 ? juce::String (juce::CharPointer_UTF8 (" \xc3\x97")) + juce::String (count) : juce::String());
+}
+
+juce::String AudioEngine::routeSignature() const
+{
+    juce::String s;
+    s << routeEdges.load() << ":";
+    for (auto& r : getRouteSources())
+        s << r.track << "." << r.blockId << "." << r.output << ">" << r.dest << (r.home ? "h" : "") << " " << r.name << ",";
+    for (int t = 0; t < numTracks; ++t) s << track[t].chainOutMask.load() << ".";
+    return s;
 }
 
 juce::String AudioEngine::describeInput (int t) const
@@ -391,6 +540,7 @@ int AudioEngine::insertBlockWithId (int t, int index, std::unique_ptr<Block> blo
     }
     ++viewVersion;
     mpeConfigPending[t] = true;
+    updateRoutes();
     return id;
 }
 
@@ -410,7 +560,7 @@ std::unique_ptr<Block> AudioEngine::takeBlock (int t, int blockId, int* index)
             v.erase (v.begin() + i);
         }
         if (index != nullptr) *index = i;
-        ++viewVersion;
+        updateRoutes();
         return out;
     }
     return {};
@@ -576,6 +726,7 @@ juce::String AudioEngine::describeSource (int t) const
     if (! sounds.isEmpty())
         return sounds[0] + (sounds.size() > 1 ? " +" + juce::String (sounds.size() - 1) : juce::String());
     if (waiting.isNotEmpty()) return waiting;
+    if (auto routed = describeRoutedIn (t); routed.isNotEmpty()) return routed;
     if (p.inputChannel.load() >= 0) return "AUDIO " + describeInput (t);
     for (auto& b : getChain (t))
         if (b.role != BlockRole::empty) return b.name.toUpperCase();
@@ -841,6 +992,34 @@ AudioEngine::ChainResult AudioEngine::runChain (int t, const float* const* input
         r.throughInterface = true;
     }
 
+    // ---- with what other tracks send it (their instruments' outputs, their chain outs) ----
+    if (routeUsed[t])
+    {
+        acc.addFrom (0, 0, routeIn[t].data(), n, side);
+        acc.addFrom (1, 0, routeIn[t].data(), n, side);
+        r.throughInterface = r.throughInterface || routeFrom[t].throughInterface;
+        r.hasInstruments = r.hasInstruments || routeFrom[t].hasInstruments;
+        r.latency += routeFrom[t].latency;
+    }
+
+    // An instrument's extra outputs: sent to their tracks, and (a plug-in's aux bus kept here) mixed in.
+    auto sendExtras = [&] (Block& blk, float g, const ChainResult& info)
+    {
+        for (int o = 1; o < blk.numOutputs(); ++o)
+        {
+            const auto rt = blk.getRoute (o);
+            const bool mixHere = rt.home && ! blk.extrasInMain();
+            if (rt.dest < 0 && ! mixHere) continue;
+            if (! blk.readOutput (o, extraOut, n)) continue;
+            if (rt.dest >= 0) sendToTrack (t, rt.dest, extraOut, n, g, info);
+            if (mixHere)
+            {
+                acc.addFrom (0, 0, extraOut, 0, 0, n, g);
+                acc.addFrom (1, 0, extraOut, 1, 0, n, g);
+            }
+        }
+    };
+
     // ---- the MIDI stream starts with the track's controller, while armed ----
     bool mpe = false;
     int bend = 48;
@@ -941,9 +1120,22 @@ AudioEngine::ChainResult AudioEngine::runChain (int t, const float* const* input
                                    dbToGain (e.levelDb.load()));
                         auto range = juce::FloatVectorOperations::findMinAndMax (scratch.getReadPointer (0), n);
                         noteSend (b, std::max (-range.getStart(), range.getEnd()));
-                        acc.addFrom (0, 0, scratch, 0, 0, n, side);
-                        acc.addFrom (1, 0, scratch, 0, 0, n, side);
                         r.throughInterface = true;
+                        const auto rt = b.getRoute (0);
+                        if (rt.dest >= 0)
+                        {
+                            extraOut.clear (0, n);
+                            extraOut.addFrom (0, 0, scratch, 0, 0, n, side);
+                            extraOut.addFrom (1, 0, scratch, 0, 0, n, side);
+                            auto info = r;
+                            info.hasInstruments = true;
+                            sendToTrack (t, rt.dest, extraOut, n, 1.0f, info);
+                        }
+                        if (rt.home)
+                        {
+                            acc.addFrom (0, 0, scratch, 0, 0, n, side);
+                            acc.addFrom (1, 0, scratch, 0, 0, n, side);
+                        }
                     }
                     r.hasInstruments = true;
                     break;
@@ -962,8 +1154,18 @@ AudioEngine::ChainResult AudioEngine::runChain (int t, const float* const* input
                         runWithMidi (scratch);
                         const auto g = dbToGain (b.levelDb.load());
                         noteSend (b, sendOf (scratch, g));
-                        acc.addFrom (0, 0, scratch, 0, 0, n, g);
-                        acc.addFrom (1, 0, scratch, 1, 0, n, g);
+                        auto info = r;
+                        info.hasInstruments = true;
+                        info.latency += b.latencySamples();
+                        // its main output: here, sent to another track, or both
+                        const auto rt = b.getRoute (0);
+                        if (rt.dest >= 0) sendToTrack (t, rt.dest, scratch, n, g, info);
+                        if (rt.home)
+                        {
+                            acc.addFrom (0, 0, scratch, 0, 0, n, g);
+                            acc.addFrom (1, 0, scratch, 1, 0, n, g);
+                        }
+                        sendExtras (b, g, info);
                         r.hasInstruments = true;
                         r.latency += b.latencySamples();
                         break;
@@ -985,13 +1187,19 @@ AudioEngine::ChainResult AudioEngine::runChain (int t, const float* const* input
                         acc.addFrom (0, 0, dry, 0, 0, n, 1.0f - wet);
                         acc.addFrom (1, 0, dry, 1, 0, n, 1.0f - wet);
                     }
+                    r.latency += b.latencySamples();
                     if (role == BlockRole::instrument)
                     {
-                        acc.applyGain (0, n, dbToGain (b.levelDb.load()));
+                        const auto g = dbToGain (b.levelDb.load());
+                        acc.applyGain (0, n, g);
                         noteSend (b, sendOf (acc, 1.0f));
                         r.hasInstruments = true;
+                        // processing what reaches it: its main output is the chain's sound from here
+                        const auto rt = b.getRoute (0);
+                        if (rt.dest >= 0) sendToTrack (t, rt.dest, acc, n, 1.0f, r);
+                        if (! rt.home) acc.clear (0, n);
+                        sendExtras (b, g, r);
                     }
-                    r.latency += b.latencySamples();
                     break;
                 }
             }
@@ -1004,6 +1212,27 @@ AudioEngine::ChainResult AudioEngine::runChain (int t, const float* const* input
     for (int i = 0; i < n; ++i)
         monoOut[i] = (l[i] + rr[i]) * side;
     return r;
+}
+
+void AudioEngine::sendToTrack (int from, int dest, const juce::AudioBuffer<float>& stereo, int n, float gain, const ChainResult& info)
+{
+    // Only to a track that runs later in this block (the order puts every track after those feeding it).
+    if (! juce::isPositiveAndBelow (dest, numTracks) || orderPos[dest] <= orderPos[from]) return;
+    constexpr float side = 0.70710678f;
+    auto* d = routeIn[dest].data();
+    const auto* l = stereo.getReadPointer (0);
+    const auto* r = stereo.getReadPointer (1);
+    const float g = gain * side;
+    for (int i = 0; i < n; ++i) d[i] += (l[i] + r[i]) * g;
+    auto& f = routeFrom[dest];
+    if (! routeUsed[dest]) f = info;
+    else
+    {
+        f.throughInterface = f.throughInterface || info.throughInterface;
+        f.hasInstruments = f.hasInstruments || info.hasInstruments;
+        f.latency = std::max (f.latency, info.latency);
+    }
+    routeUsed[dest] = true;
 }
 
 void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputs, int numInputs,
@@ -1079,6 +1308,46 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputs, 
     }
     auto chainHeard = [&] (int t) { return armed[t] || strips[t].liveAmount() > 0.0f || wasReceiving[t] || auditioning[t]; };
 
+    // ---- the routes: which tracks feed which (instruments' outputs, chain outs) ----
+    const int edges = routeEdges.load();
+    auto edge = [edges] (int a, int b) { return (edges & (1 << (a * numTracks + b))) != 0; };
+    // The running order: the live tracks, then the bounces, each after every track that feeds it.
+    int order[numTracks] {}, placed = 0, done = 0;
+    for (int phase = 0; phase < 2; ++phase)
+    {
+        for (bool progress = true; progress;)
+        {
+            progress = false;
+            for (int t = 0; t < numTracks; ++t)
+            {
+                if ((done & (1 << t)) || bounce[t] != (phase == 1)) continue;
+                bool ready = true;
+                for (int k = 0; k < numTracks; ++k)
+                    if (k != t && edge (k, t) && ! (done & (1 << k)) && bounce[k] == (phase == 1)) ready = false;
+                if (ready) { order[placed++] = t; done |= 1 << t; progress = true; }
+            }
+        }
+        for (int t = 0; t < numTracks; ++t)   // a loop can't be made; if one were, index order
+            if (! (done & (1 << t)) && bounce[t] == (phase == 1)) { order[placed++] = t; done |= 1 << t; }
+    }
+    for (int i = 0; i < numTracks; ++i) orderPos[order[i]] = i;
+    // A chain runs while a track it feeds is heard, and hears its controller while one is armed.
+    bool needed[numTracks] {}, midiArmed[numTracks] {};
+    for (int i = numTracks - 1; i >= 0; --i)
+    {
+        const int t = order[i];
+        needed[t] = chainHeard (t);
+        midiArmed[t] = armed[t];
+        for (int d = 0; d < numTracks; ++d)
+            if (edge (t, d) && orderPos[d] > i) { needed[t] = needed[t] || needed[d]; midiArmed[t] = midiArmed[t] || midiArmed[d]; }
+    }
+    for (int t = 0; t < numTracks; ++t)
+    {
+        std::fill_n (routeIn[t].begin(), n, 0.0f);
+        routeUsed[t] = false;
+        routeFrom[t] = {};
+    }
+
     // What a sampler can take: the tape now, and each track's output from the block before.
     if (feedLength < n)
         for (int t = 0; t < numTracks; ++t)
@@ -1096,8 +1365,23 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputs, 
     }
     auto runOrRest = [&] (int t, const float* bounceIn)
     {
-        if (chainHeard (t))
-            chainResult[t] = runChain (t, inputs, numInputs, n, armed[t], src[t].data(), bounceIn);
+        if (needed[t])
+        {
+            chainResult[t] = runChain (t, inputs, numInputs, n, midiArmed[t], src[t].data(), bounceIn);
+            // its finished sound, copied to the tracks it feeds
+            const int outs = track[t].chainOutMask.load();
+            for (int d = 0; d < numTracks; ++d)
+                if ((outs & (1 << d)) && edge (t, d) && orderPos[d] > orderPos[t])
+                {
+                    juce::FloatVectorOperations::add (routeIn[d].data(), src[t].data(), n);
+                    auto& f = routeFrom[d];
+                    if (! routeUsed[d]) f = chainResult[t];
+                    else { f.throughInterface = f.throughInterface || chainResult[t].throughInterface;
+                           f.hasInstruments = f.hasInstruments || chainResult[t].hasInstruments;
+                           f.latency = std::max (f.latency, chainResult[t].latency); }
+                    routeUsed[d] = true;
+                }
+        }
         else
         {
             std::fill_n (src[t].begin(), n, 0.0f);
@@ -1108,16 +1392,17 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputs, 
         strips[t].process (tapeOut[t].data(), src[t].data(), chan[t].data(), n, c, pre[t].data());
     };
 
-    // ---- live tracks: their chains, then their strips ----
-    for (int t = 0; t < numTracks; ++t)
-        if (! bounce[t])
-            runOrRest (t, nullptr);
+    // ---- live tracks, in their running order: their chains, then their strips ----
+    for (int i = 0; i < numTracks; ++i)
+        if (! bounce[order[i]])
+            runOrRest (order[i], nullptr);
 
     // ---- bounce tracks: the other tracks off tape, through their strips (mute silences a source) ----
-    for (int t = 0; t < numTracks; ++t)
+    for (int i = 0; i < numTracks; ++i)
     {
+        const int t = order[i];
         if (! bounce[t]) continue;
-        if (chainHeard (t))
+        if (needed[t])
         {
             std::fill_n (bounceSum.begin(), n, 0.0f);
             auto mask = track[t].bounceMask.load();

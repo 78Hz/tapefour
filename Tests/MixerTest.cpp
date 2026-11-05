@@ -8,6 +8,7 @@
 #include "../Source/ClapFormat.h"
 #include "../Source/TapeShelf.h"
 #include "../Source/Exporter.h"
+#include "../Source/FmDrums.h"
 #include <cstdio>
 #include <thread>
 
@@ -1781,6 +1782,100 @@ int main()
         auto empty2 = me.unloadBlock (0, c[1].id);
         me.removeBlock (0, empty2);
         check (me.getChain (0).size() == 2, "empty slot: its x takes the slot out of the chain", (double) me.getChain (0).size(), 2);
+    }
+
+    // ---- Routing: an instrument's output to another track (moved or copied), a chain out, loops refused ----
+    {
+        Rig m;
+        auto& me = *m.engine;
+        for (int t = 0; t < numTracks; ++t) { me.clearChain (t); me.setTrackInput (t, -1); me.setTrackMidiPort (t, AudioEngine::midiNone); }
+        me.setTrackMidiPort (0, AudioEngine::midiAny);
+        auto tone = me.insertBlock (0, -1, std::make_unique<ProcessorBlock> (std::make_unique<ToneSynth> (false), ProcessorBlock::Kind::hosted));
+        auto levels = [&] (std::initializer_list<int> armedTracks)
+        {
+            for (auto& tr : me.track) { tr.armed = false; tr.meter = 0.0f; }
+            for (int t : armedTracks) me.track[t].armed = true;
+            me.injectMidi (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100));
+            m.run (0.2);
+            for (auto& tr : me.track) tr.meter = 0.0f;
+            m.run (0.2);
+            std::array<float, numTracks> out {};
+            for (int t = 0; t < numTracks; ++t) out[(size_t) t] = me.track[t].meter.load();
+            me.injectMidi (juce::MidiMessage::noteOff (1, 60));
+            m.run (0.1);
+            return out;
+        };
+        auto alone = levels ({ 0, 1 });
+        check (alone[0] > 0.05f && alone[1] < 0.001f, "routing: unrouted, the instrument is only on its own track", alone[1], 0.0);
+
+        check (me.setBlockRoute (0, tone, 0, 1, false), "routing: an instrument's output can be sent to another track", 1, 1);
+        auto moved = levels ({ 0, 1 });
+        check (moved[0] < 0.001f && std::abs (moved[1] - alone[0]) < 0.01f * alone[0],
+               "routing: moved, it leaves its own track and arrives at the same level", moved[1], alone[0]);
+
+        me.setBlockRoute (0, tone, 0, 1, true);
+        auto copied = levels ({ 0, 1 });
+        check (std::abs (copied[0] - alone[0]) < 0.01f * alone[0] && std::abs (copied[1] - alone[0]) < 0.01f * alone[0],
+               "routing: copied, it is on both tracks", copied[1], alone[0]);
+
+        auto fedOnly = levels ({ 1 });
+        check (fedOnly[1] > 0.05f, "routing: the source plays while only the track it feeds is armed", fedOnly[1], alone[0]);
+
+        // a loop: 0 feeds 1, so 1 can't feed 0
+        check (! me.setChainOut (1, 0, true) && ! me.routeAllowed (1, 0) && me.setChainOut (1, 2, true) && ! me.setChainOut (2, 0, true),
+               "routing: a route that would make a loop is refused", 1, 1);
+        me.setChainOut (1, 2, false);
+
+        // a chain out: track 0's finished sound copied to track 3
+        for (auto& src : me.getRouteSources())
+            if (src.track == 0 && src.blockId != 0) me.setBlockRoute (0, src.blockId, 0, -1, true);
+        me.setChainOut (0, 3, true);
+        auto chained = levels ({ 0, 3 });
+        check (chained[0] > 0.05f && std::abs (chained[3] - chained[0]) < 0.01f * chained[0], "routing: a chain out copies the track's sound", chained[3], chained[0]);
+        me.setChainOut (0, 3, false);
+    }
+
+    // ---- FM Drums' separate outputs: a drum track moved leaves the main mix, dry ----
+    {
+        Rig m;
+        auto& me = *m.engine;
+        for (int t = 0; t < numTracks; ++t) { me.clearChain (t); me.setTrackInput (t, -1); }
+        auto drums = me.insertBlock (0, -1, BuiltIn::createSynth (BuiltIn::fmDrums));
+        auto* blk = me.findBlock (0, drums);
+        auto* fm = dynamic_cast<fmd::Processor*> (blk->getProcessor());
+        check (blk->numOutputs() == 7 && blk->outputName (1) == "1 KICK" && fm != nullptr, "FM Drums: six outputs beside its main one", blk->numOutputs(), 7);
+        auto kickOn = [&] (bool arm0, bool arm2)
+        {
+            for (auto& tr : me.track) { tr.armed = false; tr.meter = 0.0f; }
+            me.track[0].armed = arm0; me.track[2].armed = arm2;
+            m.run (0.05);
+            for (auto& tr : me.track) tr.meter = 0.0f;
+            fm->hit (0, 127);
+            m.run (0.3);
+            return std::pair<float, float> { me.track[0].meter.load(), me.track[2].meter.load() };
+        };
+        auto mainOnly = kickOn (true, true);
+        me.setBlockRoute (0, drums, 1, 2, false);
+        auto movedKick = kickOn (true, true);
+        check (mainOnly.first > 0.02f && mainOnly.second < 0.001f && movedKick.first < 0.001f && movedKick.second > 0.02f,
+               "FM Drums: the kick moved to track 3 leaves the main output", movedKick.second, mainOnly.first);
+        check (std::abs (movedKick.second - mainOnly.first) < 0.15f * mainOnly.first,
+               "FM Drums: a separate output is at the level it had in the main mix", movedKick.second, mainOnly.first);
+        me.setBlockRoute (0, drums, 1, 2, true);
+        auto copiedKick = kickOn (true, true);
+        check (copiedKick.first > 0.02f && copiedKick.second > 0.02f, "FM Drums: copied, the kick is on both tracks", copiedKick.second, copiedKick.first);
+        me.setBlockRoute (0, drums, 4, 3, false);
+        me.setChainOut (0, 1, true);
+        auto deck = me.createDeckState();
+        me.applyDeckState (*deck);
+        int back = 0;
+        for (auto& src : me.getRouteSources())
+            if (src.track == 0 && src.blockId != 0)
+                back += (src.output == 1 && src.dest == 2 && src.home) + (src.output == 4 && src.dest == 3 && ! src.home);
+        auto* fm2 = dynamic_cast<fmd::Processor*> (me.findBlock (0, me.getChain (0)[0].id)->getProcessor());
+        fm2->hit (3, 127); me.track[0].armed = true; for (auto& tr : me.track) tr.meter = 0.0f; m.run (0.3);
+        check (back == 2 && (me.track[0].chainOutMask.load() & 2) != 0 && me.track[0].meter.load() < 0.001f,
+               "routing: routes are saved with the deck and come back (a moved drum stays out of the main mix)", back, 2);
     }
 
     // ---- Decks saved before chains still load ----

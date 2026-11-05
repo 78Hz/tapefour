@@ -701,6 +701,9 @@ td:first-child { font-weight: 600; }
 </ul>
 <h3>The sound</h3>
 <p>Below the grid are the chosen track's settings. <span class="ctl">MACHINE</span> chooses what it is. <span class="ctl">PITCH</span> and <span class="ctl">DECAY</span> do what they say; the four macros, <span class="ctl">COLOR</span>, <span class="ctl">SHAPE</span>, <span class="ctl">SWEEP</span> and <span class="ctl">CONTOUR</span>, do something different on each machine, and the small word under each says what (on the kick: bite, click, pitch drop and boom). However you set them, the sound stays a usable one of its kind. On the right: <span class="ctl">VOLUME</span>, <span class="ctl">DRIVE</span> (it pushes the sound into a gentle overdrive), <span class="ctl">PAN</span>, how much goes to the <span class="ctl">DELAY</span> and <span class="ctl">REVERB</span>, and an LFO that moves one setting. Double-click a setting for its starting value.</p>
+<h3>Separate outputs</h3>
+<p>Each of the six drum tracks has an output of its own as well as being in the main mix, so you can put the kick, the snare and the hats on different tracks of the deck (see <strong>Sending a sound to another track</strong>). A drum track moved to another track leaves the main mix. Its separate output is the dry sound, at the level it has in the main mix and without its pan; its <span class="ctl">DELAY</span> and <span class="ctl">REVERB</span> sends stay on the main output, so the echo and the room stay together on FM Drums' own track.</p>
+
 <h3>Locking a step</h3>
 <p>Right-click a step (or alt-click it) to give that step its own sound: the settings below turn to that step, and anything you change is <em>locked</em> to it, shown in amber, while the track's other steps keep the track's sound. Even the machine can change for one step. Below them, <span class="ctl">VELOCITY</span> is how hard the step plays, <span class="ctl">CHANCE</span> how often it plays at all, and <span class="ctl">RETRIG</span> plays it two, three or four times within the step, quieter each time. Double-click a locked setting to unlock it; <span class="ctl">DONE</span>, or right-clicking the step again, goes back to the track. Steps with locks have an amber dot.</p>
 <figure><img src="images/fmdrums_locks.png" alt="TF FM Drums' window, a step's locks"><figcaption><b>A step's locks.</b> Step 12 of the perc track plays higher, half the time.</figcaption></figure>
@@ -726,6 +729,32 @@ td:first-child { font-weight: 600; }
 <h2>Hardware synths</h2>
 <figure><img src="images/chain_external.png" alt="An external instrument block selected"><figcaption><b>An external instrument</b>, on a USB MIDI interface.</figcaption></figure>
 <p>Tick the synth's MIDI output in Setup → MIDI &amp; Deck (you can name it there), then add it from <strong>Hardware synths</strong> in the list. Choose where its MIDI goes and on which channel (<span class="ctl">AS PLAYED</span> keeps an MPE controller's notes on their own channels), and which input its audio comes back on. Changing the route sends all-notes-off so nothing hangs; <span class="ctl">ALL NOTES OFF</span> does it by hand. Its audio is recorded in time with the tape, allowing for the round trip through the interface.</p>
+
+<h2>Sending a sound to another track</h2>
+<p>An instrument doesn't have to stay on its own track. Like plugging a drum machine's separate outputs into other channels of a real 4-track, you can send an instrument's output, or one of its extra outputs, into another track's inputs. There it goes through that track's own chain, EQ and fader, and is recorded when that track is armed. A drum machine on track 1 can have its kick on track 2 and its snare on track 3, each with its own reverb and fader.</p>
+<p>Open the chain of the track you want the sound on, click its inputs block, and look under <span class="ctl">AUDIO IN</span>:</p>
+<figure><img src="images/chain_routes_in.png" alt="Track 3's inputs, with sounds from track 1 sent to it"><figcaption><b>Track 3's inputs.</b> FM Drums is on track 1. Its kick is copied here and its perc moved here, so track 3's inputs block reads <span class="lcd">FROM TRK 1 ×2</span>.</figcaption></figure>
+<table>
+  <thead><tr><th>Row</th><th>What's in it</th></tr></thead>
+  <tbody>
+    <tr><td>From plug-ins</td><td>Every instrument on the other tracks: its output, or for an instrument with several, each one (FM Drums has a main output and one for each drum track; a plug-in shows the extra outputs it has). Several can be sent to one track: they're mixed.</td></tr>
+    <tr><td>From tracks</td><td>Each other track's <strong>chain out</strong>: its finished sound, at the end of its chain. This is always a copy: the track it comes from keeps its sound.</td></tr>
+  </tbody>
+</table>
+<p>Clicking a sound in <span class="ctl">FROM PLUG-INS</span> steps it through three choices:</p>
+<ol>
+  <li><strong>Moved</strong> (<span class="lcd">MOVED</span> under its name): it comes here and leaves its own track. A kick moved to track 2 is no longer on track 1, and nothing after FM Drums on track 1 hears it.</li>
+  <li><strong>Copied</strong> (<span class="lcd">COPY</span>): it comes here and stays on its own track too. Use this for parallel effects: a dry electric piano on track 1 and a copy on track 2 through a long spring reverb, each on its own fader. The copy is taken at the instrument's output, before any effects after it on its own track; to copy the track's finished sound, pick its chain out instead.</li>
+  <li><strong>Not sent</strong>: back on its own track only.</li>
+</ol>
+<p>An output goes to one other track at a time: picking it on another track moves it there. On the track it comes from, a tag under the instrument shows where its outputs go: <span class="lcd">KICK + 3</span> is copied to track 3, <span class="lcd">PERC › 3</span> moved there.</p>
+<figure><img src="images/chain_routed.png" alt="Track 1's chain, with FM Drums' outputs sent away"><figcaption><b>Where they went.</b> The tag beside FM Drums' <span class="lcd">+ MIX</span>.</figcaption></figure>
+<ul>
+  <li><strong>The instrument plays while the track it feeds is armed.</strong> Arm only track 3 and you can still play the piano on track 1 into it: its notes reach it, and track 1 plays back its tape as usual.</li>
+  <li><strong>No loops.</strong> If track 1 feeds track 2, track 2 can't feed track 1, by any way round. A track can't feed itself either. A route that would make a loop isn't made, and the status display says why.</li>
+  <li><strong>A track fed by a bounce</strong> runs after all the others, so its sounds can't be sent on to another track.</li>
+  <li>Routes are saved with the deck, and with each tape when it recalls the deck.</li>
+</ul>
 
 <h2>Bouncing</h2>
 <p>Set a track's feed to <span class="ctl">BOUNCE FROM TAPE</span> and tick the tracks to mix onto it. While recording, you hear the sources once, through their own EQ, pan and fader; use those to balance the bounce, then arm the destination and record. A muted source is left out. The bounce still goes through the track's chain, so you can put a reverb over a whole submix as you bounce it. It picks up another pass of the tape: a little more hiss and grain, and a level shift of the tape's sensitivity.</p>
