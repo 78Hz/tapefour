@@ -153,7 +153,9 @@ void StripComponent::rebuildText()
         lcd.blockStates.add (b.role == BlockRole::pending || b.role == BlockRole::empty ? 2 : (b.bypass ? 1 : 0));
     lcd.roomForMore = (int) chain.size() < AudioEngine::maxBlocks;
 
-    if (bounce)                                      { tag = "BOUNCE";     tagColour = Pal::bounce; }
+    if (p.stereoPartner.load() >= 0 && ! bounce)    { tag = "STEREO L";   tagColour = Pal::accent; }
+    else if (engine.stereoLeftOf (t) >= 0 && ! bounce) { tag = "STEREO R"; tagColour = Pal::accent; }
+    else if (bounce)                                 { tag = "BOUNCE";     tagColour = Pal::bounce; }
     else if (hasAudio && hasMidi && ! chain.empty()) { tag = "AUDIO+MIDI"; tagColour = Pal::accent; }
     else if (hasAudio)                               { tag = "AUDIO";      tagColour = Pal::accent; }
     else if (! chain.empty())                        { tag = "MIDI";       tagColour = Pal::midiBlue; }

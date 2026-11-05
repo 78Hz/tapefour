@@ -1838,6 +1838,51 @@ int main()
         me.setChainOut (0, 3, false);
     }
 
+    // ---- Stereo pairs: the left side on its own track, the right side into another's ----
+    {
+        Rig m;
+        auto& me = *m.engine;
+        for (int t = 0; t < numTracks; ++t) { me.clearChain (t); me.setTrackInput (t, -1); me.setTrackMidiPort (t, AudioEngine::midiNone); }
+        me.setTrackMidiPort (0, AudioEngine::midiAny);
+        auto play = [&] (bool wide)
+        {
+            me.clearChain (0);
+            me.insertBlock (0, -1, std::make_unique<ProcessorBlock> (std::make_unique<ToneSynth> (wide), ProcessorBlock::Kind::hosted));
+            for (auto& tr : me.track) tr.meter = 0.0f;
+            me.track[0].armed = true; me.track[1].armed = true;
+            me.injectMidi (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100));
+            m.run (0.2);
+            for (auto& tr : me.track) tr.meter = 0.0f;
+            m.run (0.2);
+            std::pair<float, float> out { me.track[0].meter.load(), me.track[1].meter.load() };
+            me.injectMidi (juce::MidiMessage::noteOff (1, 60));
+            m.run (0.1);
+            return out;
+        };
+        auto mono = play (false);
+        check (me.setStereoPartner (0, 1) && me.track[0].pan.load() < -0.99f && me.track[1].pan.load() > 0.99f,
+               "stereo: a pair is made, and its pans go hard left and right", me.track[1].pan.load(), 1.0);
+        auto pair = play (false);
+        check (std::abs (pair.first - mono.first) < 0.01f * mono.first && std::abs (pair.second - mono.first) < 0.01f * mono.first,
+               "stereo: a centred sound is at its mono level on each track of the pair", pair.second, mono.first);
+        auto wide = play (true);
+        check (wide.first > 0.05f && wide.second > 0.05f, "stereo: a wide sound's two sides go to the two tracks", wide.second, wide.first);
+
+        check (! me.setChainOut (1, 0, true) && ! me.setStereoPartner (1, 2), "stereo: the right-hand track can't feed back, or be a pair itself", 1, 1);
+        check (! me.setChainOut (0, 1, true), "stereo: the right-hand track can't also take a copy of the whole", 1, 1);
+        me.setTrackFeed (3, AudioEngine::Feed::bounce);
+        check (me.stereoRefusal (2, 3).isNotEmpty() && me.stereoRefusal (2, 1).isNotEmpty() && me.stereoRefusal (2, 0).isNotEmpty(),
+               "stereo: a bounce track, a track already a right side, or a pair, can't take a right side", 1, 1);
+        me.setTrackFeed (3, AudioEngine::Feed::live);
+
+        auto deck = me.createDeckState();
+        me.applyDeckState (*deck);
+        check (me.track[0].stereoPartner.load() == 1 && me.stereoLeftOf (1) == 0, "stereo: a pair is saved with the deck", me.track[0].stereoPartner.load(), 1);
+        me.setStereoPartner (0, -1);
+        check (std::abs (me.track[0].pan.load()) < 0.01f && std::abs (me.track[1].pan.load()) < 0.01f && me.stereoLeftOf (1) < 0,
+               "stereo: MONO undoes it, the pans back in the centre", me.track[1].pan.load(), 0.0);
+    }
+
     // ---- FM Drums' separate outputs: a drum track moved leaves the main mix, dry ----
     {
         Rig m;

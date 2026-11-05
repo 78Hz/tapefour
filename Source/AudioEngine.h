@@ -66,6 +66,7 @@ public:
         std::atomic<float> fader { 0.75f };
         std::atomic<int>   bounceMask { 0 };
         std::atomic<int>   chainOutMask { 0 };          // the tracks this one's finished sound is copied to
+        std::atomic<int>   stereoPartner { -1 };        // a stereo pair: the track taking the right side (-1: mono)
         std::atomic<float> meter { 0 };
         std::atomic<bool>  midiActivity { false };
     };
@@ -177,6 +178,15 @@ public:
         Sent nowhere, an output that is in the main mix (the main one, a built-in's voices) stays here. */
     bool setBlockRoute (int t, int blockId, int output, int destTrack, bool home);
     bool setChainOut (int from, int to, bool on);
+    /** Why 'from's chain out can't be copied to 'to', or empty if it can. */
+    juce::String chainOutRefusal (int from, int to) const;
+    /** A stereo pair: track t's chain ends in stereo, its left side recorded on t and its right side
+        into 'partner's inputs; their pans go hard left and right. -1: mono again (pans to the centre). */
+    bool setStereoPartner (int t, int partner);
+    /** Why t can't send its right side to 'partner', or empty if it can. */
+    juce::String stereoRefusal (int t, int partner) const;
+    /** The track whose right side 't' takes, or -1. */
+    int stereoLeftOf (int t) const;
     /** What feeds a track from other tracks, as its inputs block says it ("FROM TRK 1 ×2"), or empty. */
     juce::String describeRoutedIn (int t) const;
     /** Changes whenever any route does (for the editors to notice). */
@@ -320,6 +330,8 @@ private:
     ChainResult chainResult[numTracks];
     std::atomic<int> routeEdges { 0 };
     std::vector<float> routeIn[numTracks];           // what other tracks send each track, this block
+    std::vector<float> chainSum[numTracks];          // each chain's end summed to mono (a chain out's copy)
+    bool pairNow[numTracks] {};                      // a stereo pair that can run this block
     bool routeUsed[numTracks] {};
     ChainResult routeFrom[numTracks];                // and what it came through, for the recording's timing
     int orderPos[numTracks] {};                      // where each track is in this block's running order

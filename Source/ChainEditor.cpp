@@ -161,7 +161,7 @@ void ChainEditor::rebuild()
 
     // Only the chain and its status line, unless what's selected needs a panel underneath
     // (the tape block's is a single row).
-    constexpr int tapePanelH = 52;
+    constexpr int tapePanelH = 96;
     const int h = notchHeight + (! hasPanel() ? compactHeight : (sel == Sel::tape ? panelTop - notchHeight + tapePanelH : editorHeight));
     if (getHeight() != h)
     {
@@ -358,6 +358,7 @@ void ChainEditor::buildInputsPanel (juce::Rectangle<int> area)
         {
             const bool on = (engine.track[src.track].chainOutMask.load() & (1 << t)) != 0;
             const int k = src.track;
+            if (! on && engine.chainOutRefusal (k, t).isNotEmpty()) continue;   // only the copies that could be
             chains.push_back (chip (src.name, on, [this, k, on]
             {
                 if (! engine.setChainOut (k, t, ! on) && onMessage) onMessage (utf ("NOT ALLOWED: THAT WOULD MAKE A LOOP (OR TRK ") + juce::String (k + 1) + " BOUNCES)");
@@ -375,6 +376,18 @@ void ChainEditor::buildInputsPanel (juce::Rectangle<int> area)
         panel.add (c);
         addAndMakeVisible (c);
         plugs.push_back (c);
+    }
+    // another track's right side: a stereo pair, this track its right
+    for (int k = 0; k < numTracks; ++k)
+    {
+        if (k == t) continue;
+        const bool on = engine.track[k].stereoPartner.load() == t;
+        const auto why = engine.stereoRefusal (k, t);
+        if (! on && why.isNotEmpty()) continue;   // only the pairs that could be
+        chains.push_back (chip ("TRK " + juce::String (k + 1) + " RIGHT SIDE", on, [this, k, on]
+        {
+            engine.setStereoPartner (k, on ? -1 : t);
+        }, "STEREO PAIR"));
     }
     if (! plugs.empty()) y = chipRow (y, x, right, "FROM PLUG-INS", plugs, 34);
     if (! chains.empty()) chipRow (y, x, right, "FROM TRACKS", chains, 34);
@@ -466,19 +479,63 @@ void ChainEditor::buildOutsPanel (const AudioEngine::BlockInfo& b, juce::Rectang
 
 void ChainEditor::buildTapePanel (juce::Rectangle<int> area)
 {
-    // what leaves this track's chain: copied to other tracks' inputs, too
-    const int x = area.getX(), y = area.getY();
+    // what leaves this track's chain: mono, or a stereo pair with another track; and copies of it
+    const int x = area.getX();
+    int y = area.getY();
+    const int partner = engine.track[t].stereoPartner.load();
+    captions.push_back ({ "OUT", { x, y, 110, 30 }, Pal::lcdDim });
+    auto* mono = chip ("MONO", partner < 0, [this] { engine.setStereoPartner (t, -1); });
+    mono->setBounds (x + 110, y, mono->idealWidth(), 30);
+    int cx = mono->getRight() + 6;
+    auto* stereo = chip ("STEREO", partner >= 0, [this, partner]
+    {
+        if (partner >= 0) return;
+        // the next track along if it can be (1+2, 3+4), else the first that can
+        int best = -1;
+        const int neighbour = t % 2 == 0 ? t + 1 : t - 1;
+        if (neighbour < numTracks && engine.stereoRefusal (t, neighbour).isEmpty()) best = neighbour;
+        for (int k = 0; k < numTracks && best < 0; ++k)
+            if (k != t && engine.stereoRefusal (t, k).isEmpty()) best = k;
+        if (best < 0 || ! engine.setStereoPartner (t, best))
+            if (onMessage) onMessage ("NO TRACK CAN TAKE THE RIGHT SIDE: " + engine.stereoRefusal (t, neighbour < numTracks ? neighbour : 0));
+    });
+    stereo->setBounds (cx, y, stereo->idealWidth(), 30);
+    cx = stereo->getRight() + 8;
+    captions.push_back ({ "RIGHT SIDE TO", { cx, y, 90, 30 }, Pal::lcdDim, 9.5f });
+    cx += 92;
+    for (int k = 0; k < numTracks; ++k)
+    {
+        if (k == t) continue;
+        const auto why = engine.stereoRefusal (t, k);
+        const bool on = partner == k;
+        auto* c = chip ("TRK " + juce::String (k + 1), on, [this, k, on, why]
+        {
+            if (why.isNotEmpty()) { if (onMessage) onMessage ("NOT ALLOWED: " + why); return; }
+            engine.setStereoPartner (t, on ? -1 : k);
+        });
+        c->hatched = why.isNotEmpty();
+        if (why.isNotEmpty()) c->setTooltip (why.toLowerCase());
+        c->setBounds (cx, y, 62, 30);
+        cx += 66;
+    }
+    const int left = engine.stereoLeftOf (t);
+    captions.push_back ({ partner >= 0 ? "LEFT ON TRK " + juce::String (t + 1) + ", RIGHT INTO TRK " + juce::String (partner + 1) + "'S INPUTS"
+                          : left >= 0 ? "THIS TRACK IS THE RIGHT SIDE OF TRK " + juce::String (left + 1) : juce::String ("BOTH SIDES SUMMED ONTO THIS TRACK"),
+                          { cx + 6, y, area.getRight() - cx - 6, 30 }, partner >= 0 ? Pal::lcdText : Pal::lcdDim, 10.5f });
+
+    y += 40;
     captions.push_back ({ "CHAIN OUT", { x, y, 110, 16 }, Pal::lcdDim });
     captions.push_back ({ "A COPY TO", { x, y + 16, 110, 14 }, Pal::lcdDim, 9.5f });
     const int mask = engine.track[t].chainOutMask.load();
-    int cx = x + 110;
+    cx = x + 110;
     juce::StringArray to;
     for (int k = 0; k < numTracks; ++k)
     {
         if (k == t) continue;
-        const bool on = (mask & (1 << k)) != 0, allowed = on || engine.routeAllowed (t, k);
+        const bool on = (mask & (1 << k)) != 0;
+        const auto why = engine.chainOutRefusal (t, k);
+        const bool allowed = why.isEmpty();
         if (on) to.add (juce::String (k + 1));
-        const auto why = allowed ? juce::String() : whyNot (t, k);
         auto* c = chip ("TRK " + juce::String (k + 1), on, [this, k, on, allowed, why]
         {
             if (! allowed) { if (onMessage) onMessage ("NOT ALLOWED: " + why); return; }
@@ -486,12 +543,12 @@ void ChainEditor::buildTapePanel (juce::Rectangle<int> area)
         });
         c->hatched = ! allowed;
         if (! allowed) c->setTooltip (why.toLowerCase());
-        c->setBounds (cx, y, 66, 30);
-        cx += 72;
+        c->setBounds (cx, y, 62, 30);
+        cx += 66;
     }
-    captions.push_back ({ to.isEmpty() ? "COPY THIS TRACK'S FINISHED SOUND INTO ANOTHER TRACK'S INPUTS"
-                                       : "THE FINISHED SOUND ALSO GOES INTO TRK " + to.joinIntoString (" + TRK ") + (to.size() > 1 ? "'S INPUTS" : "'S INPUTS"),
-                          { cx + 8, y, area.getRight() - cx - 8, 30 }, to.isEmpty() ? Pal::lcdDim : Pal::lcdText, 11.0f });
+    captions.push_back ({ to.isEmpty() ? (partner >= 0 ? juce::String ("A COPY CARRIES BOTH SIDES, SUMMED") : juce::String ("COPY THIS TRACK'S FINISHED SOUND INTO ANOTHER TRACK'S INPUTS"))
+                                       : "THE FINISHED SOUND ALSO GOES INTO TRK " + to.joinIntoString (" + TRK ") + "'S INPUTS",
+                          { cx + 6, y, area.getRight() - cx - 6, 30 }, to.isEmpty() ? Pal::lcdDim : Pal::lcdText, 10.5f });
 }
 
 void ChainEditor::buildLearnPanel (const AudioEngine::BlockInfo& b, juce::Rectangle<int> area)
@@ -894,14 +951,30 @@ void ChainEditor::paint (juce::Graphics& g)
             g.setFont (lf.mono (10.0f));
             g.drawText ("TO TAPE", in.removeFromTop (12), juce::Justification::topLeft);
             const int copies = engine.track[t].chainOutMask.load();
-            g.setFont (lf.mono (14.0f));
-            g.drawText ("TRK " + juce::String (t + 1), copies != 0 ? in.removeFromTop (24) : in, juce::Justification::centredLeft);
+            const int partner = engine.track[t].stereoPartner.load(), left = engine.stereoLeftOf (t);
+            juce::String extra;
             if (copies != 0)
             {
                 juce::StringArray to;
                 for (int k = 0; k < numTracks; ++k) if (copies & (1 << k)) to.add (juce::String (k + 1));
+                extra = "+ TRK " + to.joinIntoString ("+");
+            }
+            if (partner >= 0)
+            {
+                // a stereo pair: both sides, and where each goes
+                g.setFont (lf.mono (11.5f));
+                g.drawText ("TRK " + juce::String (t + 1) + "  L", in.removeFromTop (14), juce::Justification::centredLeft);
+                g.drawText ("TRK " + juce::String (partner + 1) + "  R", in.removeFromTop (14), juce::Justification::centredLeft);
+                if (extra.isNotEmpty()) { g.setFont (lf.mono (8.5f)); g.drawFittedText (extra, in, juce::Justification::topLeft, 1, 0.7f); }
+                continue;
+            }
+            if (left >= 0) extra = "STEREO R" + (extra.isNotEmpty() ? " " + extra : juce::String());
+            g.setFont (lf.mono (14.0f));
+            g.drawText ("TRK " + juce::String (t + 1), extra.isNotEmpty() ? in.removeFromTop (24) : in, juce::Justification::centredLeft);
+            if (extra.isNotEmpty())
+            {
                 g.setFont (lf.mono (9.5f));
-                g.drawFittedText ("+ TRK " + to.joinIntoString ("+"), in, juce::Justification::topLeft, 1, 0.7f);
+                g.drawFittedText (extra, in, juce::Justification::topLeft, 1, 0.7f);
             }
             continue;
         }

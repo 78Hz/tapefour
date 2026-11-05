@@ -14,6 +14,7 @@ namespace tf
       a ring            in the source's own column: it stays on its own track too (dim: moved away)
       a filled square   the track's audio in (a track takes one interface input)
       struck through    not allowed: the track itself, a loop, or a bounce
+    A row per track for its right side makes (or undoes) a stereo pair.
 */
 class PatchBay : public juce::Component,
                  private juce::Timer
@@ -38,7 +39,7 @@ public:
     bool keyPressed (const juce::KeyPress&) override;
 
 private:
-    enum class Kind { heading, input, output, chainOut };
+    enum class Kind { heading, input, output, chainOut, rightSide };
     struct Row
     {
         Kind kind = Kind::heading;

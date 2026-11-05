@@ -72,6 +72,7 @@ void AudioEngine::allocateBuffers (int size)
         feedPre[t].assign ((size_t) size, 0.0f);
         feedPost[t].assign ((size_t) size, 0.0f);
         routeIn[t].assign ((size_t) size, 0.0f);
+        chainSum[t].assign ((size_t) size, 0.0f);
         tapeOutPtr[t] = tapeOut[t].data();
     }
     mixL.assign ((size_t) size, 0.0f);
@@ -347,6 +348,7 @@ int AudioEngine::routeEdgesNow() const
                 if (auto r = b->getRoute (o); r.dest >= 0) add (t, r.dest);
         for (int d = 0; d < numTracks; ++d)
             if (track[t].chainOutMask.load() & (1 << d)) add (t, d);
+        if (const int p = track[t].stereoPartner.load(); p >= 0 && (Feed) track[p].feed.load() != Feed::bounce) add (t, p);
     }
     return edges;
 }
@@ -393,8 +395,54 @@ bool AudioEngine::setChainOut (int from, int to, bool on)
 {
     if (! juce::isPositiveAndBelow (from, numTracks) || ! juce::isPositiveAndBelow (to, numTracks)) return false;
     auto& m = track[from].chainOutMask;
-    if (on && ! (m.load() & (1 << to)) && ! routeAllowed (from, to)) return false;
+    if (on && ! (m.load() & (1 << to)) && chainOutRefusal (from, to).isNotEmpty()) return false;
     m = on ? (m.load() | (1 << to)) : (m.load() & ~(1 << to));
+    updateRoutes();
+    return true;
+}
+
+juce::String AudioEngine::chainOutRefusal (int from, int to) const
+{
+    if (! juce::isPositiveAndBelow (from, numTracks) || ! juce::isPositiveAndBelow (to, numTracks) || from == to) return "A TRACK CAN'T FEED ITSELF";
+    if (track[from].chainOutMask.load() & (1 << to)) return {};
+    if (track[from].stereoPartner.load() == to) return "TRK " + juce::String (to + 1) + " TAKES TRK " + juce::String (from + 1) + "'S RIGHT SIDE ALREADY";
+    if ((Feed) track[from].feed.load() == Feed::bounce) return "TRK " + juce::String (from + 1) + " BOUNCES FROM TAPE: ITS SOUND CAN'T BE SENT ON";
+    if (! routeAllowed (from, to)) return "TRK " + juce::String (to + 1) + " ALREADY FEEDS TRK " + juce::String (from + 1) + ": IT WOULD MAKE A LOOP";
+    return {};
+}
+
+juce::String AudioEngine::stereoRefusal (int t, int p) const
+{
+    if (! juce::isPositiveAndBelow (p, numTracks) || p == t) return "A TRACK CAN'T BE ITS OWN RIGHT SIDE";
+    if (track[t].stereoPartner.load() == p) return {};
+    if ((Feed) track[t].feed.load() == Feed::bounce) return "TRK " + juce::String (t + 1) + " BOUNCES FROM TAPE: IT STAYS MONO";
+    if ((Feed) track[p].feed.load() == Feed::bounce) return "TRK " + juce::String (p + 1) + " BOUNCES FROM TAPE: IT CAN'T BE THE RIGHT SIDE";
+    if (stereoLeftOf (t) >= 0) return "TRK " + juce::String (t + 1) + " IS THE RIGHT SIDE OF TRK " + juce::String (stereoLeftOf (t) + 1) + ": IT CAN'T BE A PAIR TOO";
+    if (track[p].stereoPartner.load() >= 0) return "TRK " + juce::String (p + 1) + " IS A STEREO PAIR ITSELF";
+    if (const int l = stereoLeftOf (p); l >= 0 && l != t) return "TRK " + juce::String (p + 1) + " IS THE RIGHT SIDE OF TRK " + juce::String (l + 1) + " ALREADY";
+    if (! routeAllowed (t, p)) return "TRK " + juce::String (p + 1) + " ALREADY FEEDS TRK " + juce::String (t + 1) + ": IT WOULD MAKE A LOOP";
+    return {};
+}
+
+int AudioEngine::stereoLeftOf (int t) const
+{
+    for (int k = 0; k < numTracks; ++k)
+        if (k != t && track[k].stereoPartner.load() == t) return k;
+    return -1;
+}
+
+bool AudioEngine::setStereoPartner (int t, int p)
+{
+    if (! juce::isPositiveAndBelow (t, numTracks)) return false;
+    const int old = track[t].stereoPartner.load();
+    if (p == old) return true;
+    if (p >= 0 && stereoRefusal (t, p).isNotEmpty()) return false;
+    track[t].stereoPartner = p;
+    if (p >= 0) track[t].chainOutMask = track[t].chainOutMask.load() & ~(1 << p);   // the right side replaces a copy of the whole
+    // the pans: hard left and right for a pair; back to the centre when it's undone
+    if (old >= 0) track[old].pan = 0.0f;
+    if (p >= 0) { track[t].pan = -1.0f; track[p].pan = 1.0f; }
+    else        track[t].pan = 0.0f;
     updateRoutes();
     return true;
 }
@@ -442,6 +490,9 @@ juce::String AudioEngine::describeRoutedIn (int t) const
         const bool here = s.blockId == 0 ? (track[s.track].chainOutMask.load() & (1 << t)) != 0 : s.dest == t;
         if (here && s.track != t) { ++count; fromMask |= 1 << s.track; }
     }
+    const int left = stereoLeftOf (t);
+    if (left >= 0 && count == 0) return "TRK " + juce::String (left + 1) + " RIGHT";
+    if (left >= 0) { ++count; fromMask |= 1 << left; }
     if (count == 0) return {};
     juce::StringArray from;
     for (int k = 0; k < numTracks; ++k) if (fromMask & (1 << k)) from.add (juce::String (k + 1));
@@ -454,7 +505,7 @@ juce::String AudioEngine::routeSignature() const
     s << routeEdges.load() << ":";
     for (auto& r : getRouteSources())
         s << r.track << "." << r.blockId << "." << r.output << ">" << r.dest << (r.home ? "h" : "") << " " << r.name << ",";
-    for (int t = 0; t < numTracks; ++t) s << track[t].chainOutMask.load() << ".";
+    for (int t = 0; t < numTracks; ++t) s << track[t].chainOutMask.load() << "." << track[t].stereoPartner.load() << ";";
     return s;
 }
 
@@ -1209,11 +1260,30 @@ AudioEngine::ChainResult AudioEngine::runChain (int t, const float* const* input
         }
     }
 
-    // ---- tracks are mono ----
+    // ---- tracks are mono: the two sides summed, or for a stereo pair, the left side here and the
+    // right side into the partner's inputs (at sqrt 2, so a centred sound is at its mono level on each) ----
     auto* l = acc.getReadPointer (0);
     auto* rr = acc.getReadPointer (1);
+    auto* sum = chainSum[t].data();
     for (int i = 0; i < n; ++i)
-        monoOut[i] = (l[i] + rr[i]) * side;
+        sum[i] = (l[i] + rr[i]) * side;
+    const int partner = track[t].stereoPartner.load();
+    if (pairNow[t] && juce::isPositiveAndBelow (partner, numTracks))
+    {
+        constexpr float both = 1.41421356f;
+        auto* d = routeIn[partner].data();
+        for (int i = 0; i < n; ++i)
+        {
+            monoOut[i] = l[i] * both;
+            d[i] += rr[i] * both;
+        }
+        auto& f = routeFrom[partner];
+        if (! routeUsed[partner]) f = r;
+        else { f.throughInterface = f.throughInterface || r.throughInterface; f.hasInstruments = f.hasInstruments || r.hasInstruments; f.latency = std::max (f.latency, r.latency); }
+        routeUsed[partner] = true;
+    }
+    else
+        std::copy (sum, sum + n, monoOut);
     return r;
 }
 
@@ -1349,6 +1419,8 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputs, 
         std::fill_n (routeIn[t].begin(), n, 0.0f);
         routeUsed[t] = false;
         routeFrom[t] = {};
+        const int p = track[t].stereoPartner.load();
+        pairNow[t] = juce::isPositiveAndBelow (p, numTracks) && ! bounce[t] && ! bounce[p] && edge (t, p) && orderPos[p] > orderPos[t];
     }
 
     // What a sampler can take: the tape now, and each track's output from the block before.
@@ -1376,7 +1448,7 @@ void AudioEngine::audioDeviceIOCallbackWithContext (const float* const* inputs, 
             for (int d = 0; d < numTracks; ++d)
                 if ((outs & (1 << d)) && edge (t, d) && orderPos[d] > orderPos[t])
                 {
-                    juce::FloatVectorOperations::add (routeIn[d].data(), src[t].data(), n);
+                    juce::FloatVectorOperations::add (routeIn[d].data(), chainSum[t].data(), n);   // both sides, summed
                     auto& f = routeFrom[d];
                     if (! routeUsed[d]) f = chainResult[t];
                     else { f.throughInterface = f.throughInterface || chainResult[t].throughInterface;

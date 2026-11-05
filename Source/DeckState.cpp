@@ -21,6 +21,7 @@ std::unique_ptr<juce::XmlElement> AudioEngine::createDeckState (bool freshPlugin
         x->setAttribute ("pair", p.inputPair.load());
         x->setAttribute ("bounce", p.bounceMask.load());
         if (p.chainOutMask.load() != 0) x->setAttribute ("chainOut", p.chainOutMask.load());
+        if (p.stereoPartner.load() >= 0) x->setAttribute ("stereo", p.stereoPartner.load());
         x->setAttribute ("mute", p.mute.load());
         x->setAttribute ("solo", p.solo.load());
         x->setAttribute ("gain", p.gain.load());
@@ -161,6 +162,8 @@ void AudioEngine::applyDeckState (const juce::XmlElement& deck)
         p.fader = (float) juce::jlimit (0.0, 1.0, x->getDoubleAttribute ("fader", 0.75));
         p.bounceMask = x->getIntAttribute ("bounce") & ((1 << numTracks) - 1);
         p.chainOutMask = x->getIntAttribute ("chainOut") & ((1 << numTracks) - 1) & ~(1 << t);
+        p.stereoPartner = juce::jlimit (-1, numTracks - 1, x->getIntAttribute ("stereo", -1));
+        if (p.stereoPartner.load() == t) p.stereoPartner = -1;
         p.mute = x->getBoolAttribute ("mute");
         p.solo = x->getBoolAttribute ("solo");
 

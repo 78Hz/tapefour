@@ -83,6 +83,19 @@ void PatchBay::rebuild()
         rows.push_back (r);
     }
 
+    heading (utf ("STEREO PAIRS \xc2\xb7 A TRACK'S RIGHT SIDE, INTO ANOTHER TRACK"));
+    for (int t = 0; t < numTracks; ++t)
+    {
+        Row r; r.kind = Kind::rightSide; r.src.track = t;
+        r.name = "TRK " + juce::String (t + 1) + " RIGHT SIDE";
+        const int p = engine.track[t].stereoPartner.load();
+        r.sub = (AudioEngine::Feed) engine.track[t].feed.load() == AudioEngine::Feed::bounce ? juce::String ("BOUNCES: STAYS MONO")
+              : p >= 0 ? "LEFT STAYS ON TRK " + juce::String (t + 1)
+              : engine.stereoLeftOf (t) >= 0 ? "IT IS TRK " + juce::String (engine.stereoLeftOf (t) + 1) + "'S RIGHT SIDE"
+              : "TRK " + juce::String (t + 1) + " IS MONO";
+        rows.push_back (r);
+    }
+
     heading (utf ("CHAIN OUTS \xc2\xb7 A COPY OF EACH TRACK'S FINISHED SOUND"));
     for (auto& src : sources)
         if (src.blockId == 0)
@@ -151,11 +164,20 @@ PatchBay::Point PatchBay::pointAt (const Row& r, int k, juce::String* why) const
             if (r.src.dest == k) return Point::sent;
             return engine.routeAllowed (r.src.track, k) ? Point::open : barred (loopWhy (r.src.track));
 
+        case Kind::rightSide:
+        {
+            if (k == r.src.track) return barred ("A TRACK CAN'T BE ITS OWN RIGHT SIDE");
+            if (engine.track[r.src.track].stereoPartner.load() == k) return Point::sent;
+            const auto refusal = engine.stereoRefusal (r.src.track, k);
+            return refusal.isEmpty() ? Point::open : barred (refusal);
+        }
+
         case Kind::chainOut:
         {
             if (k == r.src.track) return barred ("A TRACK CAN'T FEED ITSELF");
             if (engine.track[r.src.track].chainOutMask.load() & (1 << k)) return Point::sent;
-            return engine.routeAllowed (r.src.track, k) ? Point::open : barred (loopWhy (r.src.track));
+            const auto refusal = engine.chainOutRefusal (r.src.track, k);
+            return refusal.isEmpty() ? Point::open : barred (refusal);
         }
     }
     return Point::none;
@@ -189,6 +211,9 @@ void PatchBay::click (const Row& r, int k)
         case Kind::chainOut:
             engine.setChainOut (r.src.track, k, pt != Point::sent);
             break;
+        case Kind::rightSide:
+            engine.setStereoPartner (r.src.track, pt == Point::sent ? -1 : k);
+            break;
     }
     engine.saveSettings();
     rebuild();
@@ -217,6 +242,13 @@ juce::String PatchBay::describe (const Row& r) const
             const auto to = "TRK " + juce::String (s.dest + 1);
             return r.name + (s.home ? ": A COPY ON " + to + " (IT STAYS ON " + own + ")" + dot + "CLICK ITS RING ON " + own + " TO MOVE IT INSTEAD"
                                     : ": MOVED TO " + to + dot + "CLICK ITS RING ON " + own + " TO KEEP A COPY THERE");
+        }
+        case Kind::rightSide:
+        {
+            const int p = engine.track[r.src.track].stereoPartner.load();
+            const auto own = "TRK " + juce::String (r.src.track + 1);
+            return p >= 0 ? r.name + ": ON TRK " + juce::String (p + 1) + " (" + own + " HAS THE LEFT)" + dot + "CLICK IT TO MAKE " + own + " MONO AGAIN"
+                          : own + " IS MONO" + dot + "CLICK A TRACK TO MAKE A STEREO PAIR: THE RIGHT SIDE GOES THERE, THE PANS HARD LEFT AND RIGHT";
         }
         case Kind::chainOut:
         {

@@ -560,7 +560,7 @@ td:first-child { font-weight: 600; }
 </table>
 <p>Order matters, as it does with real gear. A MIDI effect only changes the blocks after it. An effect placed before an instrument doesn't hear that instrument, only what came before it. So a typical chain is <em>MIDI effects → instruments → audio effects</em>, but nothing stops you putting a reverb on the voice coming in, then a synth on top, then a delay over both.</p>
 <p>Every instrument comes in at its own level: plug-ins vary a lot, so each instrument block has its own <span class="ctl">LEVEL</span>, from −24 to +12 dB. The strip along the bottom edge of each instrument's block shows what it is sending into the track, on the same scale as the track meters. Set <span class="ctl">LEVEL</span> so your loudest playing peaks around 0, then set the recording level with the track's gain and fader as usual. The built-in instruments are set up so ordinary playing peaks around 0 as they come.</p>
-<p>A track is mono, and the chain is stereo: at its end the two sides are added together with equal power. A stereo instrument keeps its level however wide its sound; one that's the same on both sides comes in 3 dB higher. An input comes through at the level it went in.</p>
+<p>A track is mono, and the chain is stereo: at its end the two sides are added together with equal power. A stereo instrument keeps its level however wide its sound; one that's the same on both sides comes in 3 dB higher. An input comes through at the level it went in. To keep a stereo sound in stereo, make the track a <strong>stereo pair</strong> with another (see below).</p>
 
 <h2>Picking a block</h2>
 <figure><img src="images/chain_add.png" alt="The list of blocks to add"><figcaption><b>Adding a block.</b> The built-ins first, then hardware synths, then every scanned plug-in, grouped by maker.</figcaption></figure>
@@ -761,8 +761,18 @@ td:first-child { font-weight: 600; }
 <h3>A track's chain out: the tape block</h3>
 <p>Click a track's <span class="ctl">TO TAPE</span> block to send a copy of its finished sound into other tracks' inputs. It's the same setting as <span class="ctl">FROM TRACKS</span> on the track receiving it. The tape block then reads <span class="lcd">+ TRK 4</span> under its own track number.</p>
 <figure><img src="images/chain_tape.png" alt="The tape block selected"><figcaption><b>The tape block.</b> Track 1's finished sound also goes into track 4.</figcaption></figure>
+<h3>Stereo pairs</h3>
+<p>On a real 4-track, a stereo synth goes into two channels, one panned left and one right. A stereo pair does the same here. Click a track's <span class="ctl">TO TAPE</span> block and choose <span class="ctl">STEREO</span>, and which track takes the right side (the one beside it, 1+2 or 3+4, is chosen first if it can be). Its chain then ends in stereo: the left side is recorded on this track, and the right side goes into the other track's inputs. The two pans go hard left and right; you can move them afterwards. <span class="ctl">MONO</span> undoes it and puts both pans back in the centre. Tracks are mono until you make a pair: loading a stereo plug-in doesn't make one.</p>
+<figure><img src="images/chain_stereo.png" alt="Track 1 made a stereo pair with track 2"><figcaption><b>A stereo pair.</b> Track 1's tape block reads <span class="lcd">TRK 1 L / TRK 2 R</span>; on the deck, the two tracks' tags read <span class="lcd">STEREO L</span> and <span class="lcd">STEREO R</span>. Track 2 can't also take a copy of track 1's whole sound, so its <span class="ctl">CHAIN OUT</span> point is struck through.</figcaption></figure>
+<figure><img src="images/chain_stereo_right.png" alt="Track 2's inputs, taking track 1's right side"><figcaption><b>The right-hand track.</b> Its inputs block reads <span class="lcd">TRK 1 RIGHT</span>. Its own chain still applies, so an effect here is on the right side only, and it can have its own instrument too.</figcaption></figure>
+<ul>
+  <li>A sound in the centre of the stereo picture comes out at the same level on each track of the pair as it would on one mono track.</li>
+  <li>A track that bounces can't be in a pair, nor can a track be the right side of two, or be a pair itself while it's another's right side.</li>
+  <li>A <span class="ctl">CHAIN OUT</span> copy from the left-hand track carries both sides, summed.</li>
+</ul>
+
 <h3>Everything at once: the patch bay</h3>
-<p>Press <span class="ctl">PATCH</span>, beside <span class="ctl">LEARN</span> at the top of the deck, for the whole routing on one card. Every source is a row (the interface's inputs, each instrument's outputs, each track's chain out) and the four tracks are the columns. Its lamp is lit while the card is open; <span class="key">Esc</span>, <span class="ctl">X</span> or a click outside closes it.</p>
+<p>Press <span class="ctl">PATCH</span>, beside <span class="ctl">LEARN</span> at the top of the deck, for the whole routing on one card. Every source is a row (the interface's inputs, each instrument's outputs, each track's right side for a stereo pair, each track's chain out) and the four tracks are the columns. Its lamp is lit while the card is open; <span class="key">Esc</span>, <span class="ctl">X</span> or a click outside closes it.</p>
 <figure><img src="images/patchbay.png" alt="The patch bay"><figcaption><b>The patch bay.</b> FM Drums' kick and perc are copied to track 3 and its snare moved to track 2; track 1's chain out is copied to track 4. Track 2 now takes the snare from track 1, so the piano on track 2 can't be sent back to track 1: that point is struck through.</figcaption></figure>
 <table>
   <thead><tr><th>Point</th><th>Means</th><th>Click it to</th></tr></thead>
