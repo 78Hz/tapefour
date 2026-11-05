@@ -1375,7 +1375,7 @@ void DeckComponent::openChain (int t)
     card->onFindPlugins = [this] { closeOverlay(); openSetup (instrumentsTab); };
     card->onMessage = [this] (const juce::String& m) { say (m, 4.0); };
     auto* editor = card.get();
-    showOverlay (std::move (card), { cardX, cardY, ChainEditor::editorWidth, ChainEditor::editorHeight + ChainEditor::notchHeight });
+    showOverlay (std::move (card), { cardX, cardY, ChainEditor::editorWidth, card->getHeight() });
     overlay->cardShadow = true;
     overlay->dimming = 0.35f;
     // The second click of a double-click on the display: the first block's window instead.

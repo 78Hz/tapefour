@@ -140,6 +140,8 @@ public:
         a plug-in arriving in its placeholder stays the same block to everything that knows it). */
     int replaceBlock (int t, int blockId, std::unique_ptr<Block> block, bool keepId = false);
     void removeBlock (int t, int blockId);
+    /** Unloads a block and leaves an empty slot in its place (returns the slot's id, or 0). */
+    int unloadBlock (int t, int blockId);
     void moveBlock (int t, int blockId, int newIndex);
     void clearChain (int t);
     void setBlockBypass (int t, int blockId, bool bypassed);

@@ -19,8 +19,9 @@ struct TrackFeed;
       audioFx     processes the audio that reaches it
       external    a hardware synth: MIDI goes out, its audio comes back in on an input
       pending     a plug-in still loading, or missing: its saved settings wait here
+      empty       a slot whose plug-in was unloaded: it keeps the place, passes everything through
 */
-enum class BlockRole { midiFx, instrument, audioFx, external, pending };
+enum class BlockRole { midiFx, instrument, audioFx, external, pending, empty };
 
 const char* roleName (BlockRole r);
 
@@ -184,6 +185,22 @@ public:
 
 private:
     std::unique_ptr<juce::XmlElement> saved;
+};
+
+//==============================================================================
+/** A slot whose plug-in was unloaded. It keeps its place in the chain until it is taken out
+    (what is loaded into it goes there) and passes MIDI and audio straight through. */
+class EmptyBlock : public Block
+{
+public:
+    juce::String getName() const override   { return "EMPTY"; }
+    BlockRole role() const override         { return BlockRole::empty; }
+    std::unique_ptr<juce::XmlElement> saveState (bool) override
+    {
+        auto x = std::make_unique<juce::XmlElement> ("BLOCK");
+        x->setAttribute ("kind", "empty");
+        return x;
+    }
 };
 
 //==============================================================================

@@ -150,7 +150,7 @@ void StripComponent::rebuildText()
     lcd.blocks = engine.blockAbbreviations (t);
     lcd.blockStates.clearQuick();
     for (auto& b : chain)
-        lcd.blockStates.add (b.role == BlockRole::pending ? 2 : (b.bypass ? 1 : 0));
+        lcd.blockStates.add (b.role == BlockRole::pending || b.role == BlockRole::empty ? 2 : (b.bypass ? 1 : 0));
     lcd.roomForMore = (int) chain.size() < AudioEngine::maxBlocks;
 
     if (bounce)                                      { tag = "BOUNCE";     tagColour = Pal::bounce; }

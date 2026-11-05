@@ -514,20 +514,26 @@ td:first-child { font-weight: 600; }
 <!-- ======================================================= 8 SIGNAL CHAINS -->
 <h1><span class="num">8</span>Signal chains</h1>
 <p class="lede">Every track has a signal chain in front of the tape, like a rack of gear wired up before a real deck: up to eight blocks in a row. MIDI from your controller runs along the top of the chain and audio along the bottom, and whatever comes out of the last block is what the track records.</p>
-<p>Click a track's display to drop down its chain. Click a block to select it, and its settings appear underneath. Click outside, click <span class="ctl">X</span> or press <span class="key">Esc</span> to close it.</p>
-<figure><img src="images/chain_block.png" alt="The signal chain editor with an effect selected"><figcaption><b>Track 1's chain.</b> The inputs, then TF Transistor, TF Tape Echo and TF Plate, then the tape. The blue line is MIDI: it stops at the organ, the last block that listens to it. The amber line is audio: it starts where the organ mixes in (<span class="lcd">+ MIX</span>). TF Plate is selected; underneath are its controls and the list to replace it from.</figcaption></figure>
+<p>Click a track's display to drop down its chain. Everything you do to a block is done on the block itself, and the line under the chain says what's selected and what you can do with it. The card only grows a panel underneath for the things that need one: the inputs, adding a block, an empty slot, MIDI learn, and a hardware synth's routing. Click outside, click <span class="ctl">X</span> or press <span class="key">Esc</span> to close it.</p>
+<figure><img src="images/chain_block.png" alt="The signal chain editor with an effect selected"><figcaption><b>Track 1's chain.</b> The inputs, then TF Transistor, TF Plate and TF Tape Echo, then the tape. The blue line is MIDI: it stops at the organ, the last block that listens to it. The light line is audio: it starts where the organ mixes in (<span class="lcd">+ MIX</span>). TF Tape Echo is selected. Each block has its lamp at the top left, its <span class="ctl">×</span> at the top right, and along the bottom its <span class="ctl">MIDI</span> badge and its <span class="ctl">LEVEL</span> or <span class="ctl">MIX</span>.</figcaption></figure>
 
 <table>
   <thead><tr><th>To</th><th>Do this</th></tr></thead>
   <tbody>
     <tr><td>Add a block</td><td>Click <span class="ctl">+</span> at the end of the chain and pick from the list.</td></tr>
-    <tr><td>Bypass a block</td><td>Click its lamp, or <span class="ctl">BYPASS</span>. A bypassed block is dimmed and the signal passes it untouched.</td></tr>
+    <tr><td>Bypass a block</td><td>Click its lamp. A bypassed block is dimmed and the signal passes it untouched.</td></tr>
+    <tr><td>Set its level or mix</td><td>Drag along the line at the bottom of the block: <span class="ctl">LEVEL</span> in dB for an instrument, <span class="ctl">MIX</span> in % for an audio effect. Double-click the line to put it back to 0 dB or 100%. On a narrow block the value is shown in the line under the chain while you drag.</td></tr>
     <tr><td>Reorder</td><td>Drag a block left or right. A bar shows where it will land.</td></tr>
-    <tr><td>Open a plug-in's window</td><td>Double-click the block, or <span class="ctl">EDIT</span>. The window stays on top, and <span class="key">Space</span>, <span class="key">R</span> and <span class="key">Home</span> still work the transport from it.</td></tr>
-    <tr><td>Replace a block</td><td>Select it and pick another from the list beside it. The new block takes its place in the chain.</td></tr>
-    <tr><td>Remove a block</td><td><span class="ctl">REMOVE</span>, <span class="key">Delete</span>, or right-click it.</td></tr>
+    <tr><td>Open a plug-in's window</td><td>Double-click the block. The window stays on top, and <span class="key">Space</span>, <span class="key">R</span> and <span class="key">Home</span> still work the transport from it.</td></tr>
+    <tr><td>Unload a block</td><td>Click its <span class="ctl">×</span>, then click it again. The first click only arms it: the circle turns red and the line under the chain asks you to click again. Clicking anywhere else keeps the block. <span class="key">Delete</span> does the same as the <span class="ctl">×</span> for the selected block.</td></tr>
+    <tr><td>Replace a block</td><td>Unload it, then click the empty slot it leaves and pick another. The new block goes into that slot.</td></tr>
+    <tr><td>Take a slot out</td><td>Click an empty slot's <span class="ctl">×</span> (once: there is nothing in it to lose). Right-click a block for <strong>Remove from the chain</strong> to take it out in one go.</td></tr>
   </tbody>
 </table>
+
+<figure><img src="images/chain_armed.png" alt="A block's × clicked once"><figcaption><b>The × clicked once.</b> One more click unloads TF Plate; a click anywhere else keeps it.</figcaption></figure>
+<p>An unloaded block leaves an <strong>empty slot</strong> in its place, drawn dashed and reading <span class="lcd">EMPTY: CLICK TO LOAD</span>. MIDI and audio pass straight through it. It stays, and is saved with the deck, until you take it out, so you can swap one effect for another without the rest of the chain moving.</p>
+<figure><img src="images/chain_empty.png" alt="An empty slot selected, with the list to load into it"><figcaption><b>An empty slot, clicked.</b> The list reads <span class="lcd">LOAD INTO SLOT 2</span>: what you pick goes into that slot.</figcaption></figure>
 
 <h2>The inputs</h2>
 <p>The first block is the track's inputs: what plays it and what it hears.</p>
@@ -546,14 +552,14 @@ td:first-child { font-weight: 600; }
 <table>
   <thead><tr><th>Block</th><th>What it does with MIDI</th><th>What it does with audio</th></tr></thead>
   <tbody>
-    <tr><td>Instrument</td><td>Plays the notes that reach it.</td><td>Mixes its sound in with whatever is already in the chain (<span class="lcd">+ MIX</span>), at its <span class="ctl">LEVEL</span>. Two instruments one after the other layer, like two synths into a mixer. An instrument with an audio input (a vocoder, say) can instead <span class="ctl">PROCESS INPUT</span>.</td></tr>
+    <tr><td>Instrument</td><td>Plays the notes that reach it.</td><td>Mixes its sound in with whatever is already in the chain (<span class="lcd">+ MIX</span>), at its <span class="ctl">LEVEL</span>. Two instruments one after the other layer, like two synths into a mixer. An instrument with an audio input (a vocoder, say) can instead process what reaches it: click the <span class="lcd">+ MIX</span> tag under it to switch to <span class="lcd">PROCESS</span>, and again to switch back.</td></tr>
     <tr><td>MIDI effect</td><td>Changes the notes for every block after it: an arpeggiator, a chord generator, or a retuner such as PitchGrid for MPE instruments. The lane after it is drawn brighter and tagged <span class="lcd">CHANGES MIDI</span>.</td><td>Passes it through.</td></tr>
     <tr><td>Audio effect</td><td>Passes it through.</td><td>Processes the audio, blended with the dry signal by its <span class="ctl">MIX</span>.</td></tr>
     <tr><td>External instrument</td><td>Sends the notes out to a hardware synth.</td><td>Mixes in the synth's audio from the input it's plugged into.</td></tr>
   </tbody>
 </table>
 <p>Order matters, as it does with real gear. A MIDI effect only changes the blocks after it. An effect placed before an instrument doesn't hear that instrument, only what came before it. So a typical chain is <em>MIDI effects → instruments → audio effects</em>, but nothing stops you putting a reverb on the voice coming in, then a synth on top, then a delay over both.</p>
-<p>Every instrument comes in at its own level: plug-ins vary a lot, so each instrument block has its own <span class="ctl">LEVEL</span>, from −24 to +12 dB. The strip under each instrument's node in the chain, and the segments under its <span class="ctl">LEVEL</span>, show what it is sending into the track, on the same scale as the track meters. Set <span class="ctl">LEVEL</span> so your loudest playing peaks around 0, then set the recording level with the track's gain and fader as usual. The built-in instruments are set up so ordinary playing peaks around 0 as they come.</p>
+<p>Every instrument comes in at its own level: plug-ins vary a lot, so each instrument block has its own <span class="ctl">LEVEL</span>, from −24 to +12 dB. The strip along the bottom edge of each instrument's block shows what it is sending into the track, on the same scale as the track meters. Set <span class="ctl">LEVEL</span> so your loudest playing peaks around 0, then set the recording level with the track's gain and fader as usual. The built-in instruments are set up so ordinary playing peaks around 0 as they come.</p>
 <p>A track is mono, and the chain is stereo: at its end the two sides are added together with equal power. A stereo instrument keeps its level however wide its sound; one that's the same on both sides comes in 3 dB higher. An input comes through at the level it went in.</p>
 
 <h2>Picking a block</h2>
@@ -574,7 +580,7 @@ td:first-child { font-weight: 600; }
 </table>
 
 <h2>The electric piano</h2>
-<p>Select <strong>TF Electric Piano</strong> in a chain and press <span class="ctl">EDIT</span> (or double-click it): its editor opens in a window of its own, like a plug-in's, so you can move it aside and keep working on the mixer. It has eight tabs, the way a technician goes through the instrument. Every control can be learned (<span class="ctl">LEARN</span>) and is saved with the deck. It plays 15 notes at once, in mono, as the real piano does: place it with the track's pan.</p>
+<p>Double-click <strong>TF Electric Piano</strong> in a chain: its editor opens in a window of its own, like a plug-in's, so you can move it aside and keep working on the mixer. It has eight tabs, the way a technician goes through the instrument. Every control can be learned (the block's <span class="ctl">MIDI</span> badge) and is saved with the deck. It plays 15 notes at once, in mono, as the real piano does: place it with the track's pan.</p>
 <figure><img src="images/ep_model.png" alt="The electric piano's editor, MODEL tab"><figcaption><b>MODEL.</b> A 200A, serviced: what the piano is like now, in one box.</figcaption></figure>
 <table>
   <thead><tr><th>Tab</th><th>What it holds</th></tr></thead>
@@ -603,7 +609,7 @@ td:first-child { font-weight: 600; }
 <figure><img src="images/ep_presets.png" alt="The electric piano's presets"><figcaption><b>Presets.</b> Naming a new one; the current preset is lit.</figcaption></figure>
 
 <h2>The transistor organ</h2>
-<p>Select <strong>TF Transistor</strong> in a chain and press <span class="ctl">EDIT</span> (or double-click it). Its editor opens in a window of its own, like the piano's: first the organ's own panel, then what's inside its case. Like the original, it plays any number of notes at once, with no velocity, out of one output.</p>
+<p>Double-click <strong>TF Transistor</strong> in a chain. Its editor opens in a window of its own, like the piano's: first the organ's own panel, then what's inside its case. Like the original, it plays any number of notes at once, with no velocity, out of one output.</p>
 <p>Inside, twelve oscillators make the twelve notes of the top octave. Each feeds a chain of dividers that halve it again and again, so every C on the organ comes from one oscillator, and every octave is exact. Each key closes four contacts, one each for 16', 8', 4' and the IV mixture, switching those pitches straight on.</p>
 <figure><img src="images/organ_panel.png" alt="The transistor organ's editor, PANEL tab"><figcaption><b>PANEL.</b> The six drawbars and the vibrato switch, and what middle C sounds pitch by pitch (amber: the flute tone's share).</figcaption></figure>
 <table>
@@ -621,7 +627,7 @@ td:first-child { font-weight: 600; }
 <p>Presets work as the piano's do (above), in <span class="lcd">Documents/TapeFour/Presets/Transistor</span>.</p>
 
 <h2>The phrase sampler</h2>
-<p><strong>TF Phrase Sampler</strong> is modelled on the Yamaha SU10, a battery-powered sampler from 1995 with twelve pads and a ribbon. Select it in a chain and press <span class="ctl">EDIT</span> (or double-click it); its window opens on its front panel. It's an instrument, so put it on a track of its own. While its window is open you hear it whether or not the track is armed, so you can try it out; arm the track to record what you play onto the tape.</p>
+<p><strong>TF Phrase Sampler</strong> is modelled on the Yamaha SU10, a battery-powered sampler from 1995 with twelve pads and a ribbon. Double-click it in a chain; its window opens on its front panel. It's an instrument, so put it on a track of its own. While its window is open you hear it whether or not the track is armed, so you can try it out; arm the track to record what you play onto the tape.</p>
 <p>All its samples share one small memory, 384 KB, as on the original. How long that lasts depends on the <em>grade</em>, the sampler's one sample rate: <span class="ctl">HI</span> sounds best and holds about 19 seconds in all, <span class="ctl">STD</span> 27, <span class="ctl">LONG</span> 38 and <span class="ctl">EXLG</span> 54 (half that in stereo). The grade is for every sample at once: change it later and every sample plays faster and higher, or slower and lower. Samples are stored in four bits, which gives them the original's gritty, slightly crunchy sound.</p>
 <p>The window has five tabs. <span class="ctl">PLAY</span> is the SU10's own front panel, and everything can be done there the way the unit does it. The other four do the same jobs with the mouse.</p>
 <figure><img src="images/sampler_play.png" alt="The phrase sampler's window, PLAY tab"><figcaption><b>PLAY.</b> The front panel. FILTER is on, and the drum loop on pad 3 is playing. The labels above the pads are what they do with SHIFT.</figcaption></figure>
@@ -660,7 +666,7 @@ td:first-child { font-weight: 600; }
 <p>A preset keeps everything: every sample, the pads, the songs and the settings. Presets work as the piano's do (above), in <span class="lcd">Documents/TapeFour/Presets/Phrase Sampler</span>. The deck keeps them too, so the sampler's sounds are still there when you open the deck again.</p>
 
 <h2>The N5 synthesizer</h2>
-<p><strong>TF N5</strong> is built from the Korg N5's owner's manual: its programs, combinations, two effects units and arpeggiator, with every setting and range as the N5 has them. The N5 itself plays Korg's recorded samples; TF N5 plays simple waveforms instead (sine, triangle, saw, square, two pulses and noise) and sixteen waveforms you draw yourself. Select it in a chain and press <span class="ctl">EDIT</span> for its window.</p>
+<p><strong>TF N5</strong> is built from the Korg N5's owner's manual: its programs, combinations, two effects units and arpeggiator, with every setting and range as the N5 has them. The N5 itself plays Korg's recorded samples; TF N5 plays simple waveforms instead (sine, triangle, saw, square, two pulses and noise) and sixteen waveforms you draw yourself. Double-click it in a chain for its window.</p>
 <p>At the top, choose the <span class="ctl">PROGRAM</span> (one sound) or <span class="ctl">COMBI</span> (up to eight programs at once) you're playing and editing; there are 32 programs and 16 combinations, kept with the deck and in presets. Under that, the tabs are the N5's own edit pages:</p>
 <table>
   <thead><tr><th>Tab</th><th>What it holds</th></tr></thead>
@@ -683,7 +689,7 @@ td:first-child { font-weight: 600; }
 <p>Drag a bar to set a value, use the mouse wheel for single steps, and double-click a bar for its starting value. The numbers are the N5's own (0 to 127 and so on); where they stand for a time, a speed or a frequency, the window shows that too. Presets keep everything: programs, combinations, drawn waves and the arpeggiator, in <span class="lcd">Documents/TapeFour/Presets/N5</span>.</p>
 
 <h2>The FM drum machine</h2>
-<p><strong>TF FM Drums</strong> is a drum machine with six tracks. Each track plays one of six <em>machines</em>: <span class="ctl">KICK</span>, <span class="ctl">SNARE</span>, <span class="ctl">METAL</span> (hi-hats and cymbals), <span class="ctl">PERC</span> (toms, congas, wood), <span class="ctl">TONE</span> (a note) and <span class="ctl">CHORD</span>. They're made with FM synthesis, in the style of Elektron's Model:Cycles, but they're TAPE·FOUR's own. Put it on a track, press <span class="ctl">EDIT</span> for its window, and press <span class="ctl">PLAY</span>.</p>
+<p><strong>TF FM Drums</strong> is a drum machine with six tracks. Each track plays one of six <em>machines</em>: <span class="ctl">KICK</span>, <span class="ctl">SNARE</span>, <span class="ctl">METAL</span> (hi-hats and cymbals), <span class="ctl">PERC</span> (toms, congas, wood), <span class="ctl">TONE</span> (a note) and <span class="ctl">CHORD</span>. They're made with FM synthesis, in the style of Elektron's Model:Cycles, but they're TAPE·FOUR's own. Put it on a track, double-click its block in the chain for its window, and press <span class="ctl">PLAY</span>.</p>
 <p>Like a drum machine plugged into a recorder, it keeps its own tempo and starts and stops with its own <span class="ctl">PLAY</span>, not the tape's. Start it and the tape together and record it on an armed track; you hear it whenever its window is open. Two of them don't keep time with each other.</p>
 <figure><img src="images/fmdrums_pattern.png" alt="TF FM Drums' window, PATTERN tab"><figcaption><b>PATTERN.</b> The six tracks' steps, and the kick's sound below.</figcaption></figure>
 <h3>Patterns and steps</h3>
@@ -703,7 +709,7 @@ td:first-child { font-weight: 600; }
 <p>A preset keeps everything: the kit, the 16 patterns and the settings, in <span class="lcd">Documents/TapeFour/Presets/FM Drums</span>.</p>
 
 <h2>The spring reverb</h2>
-<p><strong>TF Spring Reverb</strong> is a spring reverb tank, the kind inside guitar amplifiers: a sound drives one end of a few long springs, and a pickup at the other end hears what arrives. Select it in a chain and press <span class="ctl">EDIT</span> (or double-click it) for its window. Its <span class="ctl">MIX</span> is on the chain, as for the other effects.</p>
+<p><strong>TF Spring Reverb</strong> is a spring reverb tank, the kind inside guitar amplifiers: a sound drives one end of a few long springs, and a pickup at the other end hears what arrives. Double-click it in a chain for its window. Its <span class="ctl">MIX</span> is on the chain, as for the other effects.</p>
 <p>Sound travels along a spring at different speeds for different pitches, so a click arrives as a "chirp", and comes back again and again as it bounces between the ends. That is the drip and splash of spring reverb. Here the springs are worked out from their physics, so the chirps, echoes and decay come from the springs themselves.</p>
 <figure><img src="images/spring.png" alt="The spring reverb's window"><figcaption><b>TF Spring Reverb.</b> The Fender tank, from above, and a click through it: each curve is a chirp, and the chirps keep coming as the sound goes back and forth along the springs.</figcaption></figure>
 <table>
@@ -876,8 +882,8 @@ td:first-child { font-weight: 600; }
     <tr><td>Plug-ins</td><td>Any parameter of any block in a chain</td></tr>
   </tbody>
 </table>
-<p>To learn a plug-in parameter, open the track's chain, select the block and press <span class="ctl">LEARN</span> there. Either touch the control in the plug-in's own window or pick it from the list, then move a control on your keyboard. The block's mappings are listed under it, each with an <span class="ctl">X</span> to forget it.</p>
-<figure><img src="images/chain_learn.png" alt="Learning a parameter of TF Tape Echo"><figcaption><b>Learning a plug-in parameter.</b> Touching Feedback in the echo's window, or clicking it here, picks it.</figcaption></figure>
+<p>To learn a plug-in parameter, open the track's chain and click the block's <span class="ctl">MIDI</span> badge, at its bottom left. (Only the badge: clicking the rest of the block just selects it.) The badge reads <span class="lcd">MIDI 2</span> when two of the block's controls are learned, and a dim <span class="lcd">MIDI</span> when none are. A panel opens underneath: on the left what's already learned for this block, each with an <span class="ctl">×</span> to forget it; on the right the block's parameters, with a box to find one. Either touch the control in the plug-in's own window or pick it from the list, then move a control on your keyboard. Click the badge again, or press <span class="key">Esc</span>, to close it.</p>
+<figure><img src="images/chain_learn.png" alt="Learning a parameter of TF Tape Echo"><figcaption><b>Learning a plug-in parameter.</b> Feedback is picked (touching it in the echo's window does the same); moving a control on the keyboard learns it.</figcaption></figure>
 
 <h3>How mapped controls behave</h3>
 <ul>

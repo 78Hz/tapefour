@@ -17,6 +17,7 @@ const char* roleName (BlockRole r)
         case BlockRole::audioFx:    return "AUDIO EFFECT";
         case BlockRole::external:   return "EXTERNAL INSTRUMENT";
         case BlockRole::pending:    return "PLUG-IN";
+        case BlockRole::empty:      return "EMPTY SLOT";
     }
     return "";
 }

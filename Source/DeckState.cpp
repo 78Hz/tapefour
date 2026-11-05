@@ -78,6 +78,10 @@ void AudioEngine::restoreTrackChain (int t, const juce::XmlElement& chainXml)
             if (auto* dx = bx->getChildByName ("PLUGIN"); dx != nullptr && desc.loadFromXml (*dx))
                 addPlugin (t, -1, desc, bx->getStringAttribute ("state"), 0, nullptr, std::make_unique<juce::XmlElement> (*bx));
         }
+        else if (kind == "empty")
+        {
+            insertBlock (t, -1, std::make_unique<EmptyBlock>());
+        }
         else if (kind == "external")
         {
             auto out = bx->hasAttribute ("outId") ? midi.findOrCreateOutput (bx->getStringAttribute ("outId"), bx->getStringAttribute ("outName")) : -1;

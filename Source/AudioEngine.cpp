@@ -432,6 +432,14 @@ int AudioEngine::replaceBlock (int t, int blockId, std::unique_ptr<Block> block,
     return id;
 }
 
+int AudioEngine::unloadBlock (int t, int blockId)
+{
+    if (findBlock (t, blockId) == nullptr) return 0;
+    auto id = replaceBlock (t, blockId, std::make_unique<EmptyBlock>());
+    mpeConfigPending[t] = true;
+    return id;
+}
+
 void AudioEngine::removeBlock (int t, int blockId)
 {
     destroyBlock (t, takeBlock (t, blockId));
@@ -569,8 +577,9 @@ juce::String AudioEngine::describeSource (int t) const
         return sounds[0] + (sounds.size() > 1 ? " +" + juce::String (sounds.size() - 1) : juce::String());
     if (waiting.isNotEmpty()) return waiting;
     if (p.inputChannel.load() >= 0) return "AUDIO " + describeInput (t);
-    auto chain = getChain (t);
-    return chain.empty() ? juce::String ("NOTHING PLUGGED IN") : chain.front().name.toUpperCase();
+    for (auto& b : getChain (t))
+        if (b.role != BlockRole::empty) return b.name.toUpperCase();
+    return "NOTHING PLUGGED IN";
 }
 
 juce::StringArray AudioEngine::blockAbbreviations (int t) const
@@ -578,6 +587,7 @@ juce::StringArray AudioEngine::blockAbbreviations (int t) const
     juce::StringArray out;
     for (auto& b : getChain (t))
     {
+        if (b.role == BlockRole::empty) { out.add ("-"); continue; }
         auto name = b.name.toUpperCase().trim();
         if (name.startsWith ("TF ")) name = name.substring (3);
         auto words = juce::StringArray::fromTokens (name, " -_", "");
@@ -895,6 +905,7 @@ AudioEngine::ChainResult AudioEngine::runChain (int t, const float* const* input
             switch (role)
             {
                 case BlockRole::pending:
+                case BlockRole::empty:
                     break;
 
                 case BlockRole::external:

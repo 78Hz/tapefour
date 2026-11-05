@@ -7,6 +7,17 @@ namespace
 {
     const juce::Colour frame { 0xff3d3b36 };
     constexpr int pad = 16, flowTop = 48, laneH = 18, nodeH = 60, linkW = 14;
+    // the status line under the chain, and the panel under that
+    constexpr int statusY = ChainEditor::notchHeight + flowTop + 2 * laneH + nodeH + 12, statusH = 16;
+    constexpr int panelTop = statusY + statusH + 18;
+    constexpr int crossR = 7;      // the × at a block's corner: its circle's radius, its centre 3 px in and down
+    constexpr double levelLo = -24.0, levelHi = 12.0;
+
+    juce::String levelText (const AudioEngine::BlockInfo& b, bool isMix)
+    {
+        if (isMix) return juce::String (juce::roundToInt (b.mix * 100.0f)) + "%";
+        return (b.levelDb > 0.0f ? "+" : "") + juce::String (b.levelDb, 1) + " dB";
+    }
 }
 //==============================================================================
 ChainEditor::ChainEditor (AudioEngine& e, int track, int notch)
@@ -68,8 +79,20 @@ void ChainEditor::timerCallback()
         shown = std::max (peak, shown * 0.86f);
         if (MeterScale::lit (shown) != before)
             for (auto& c : cells) if (c.blockId == bi.id) repaint (c.node);
-        for (auto& [slider, id] : levelSliders) if (id == bi.id) slider->setSend (peak);
     }
+
+    // LEVEL and MIX moved from somewhere else (a MIDI controller, say): the nodes' lines follow
+    for (auto& bi : chain)
+        if (auto* blk = engine.findBlock (t, bi.id); blk != nullptr && bi.id != levelDragId)
+        {
+            const float lv = blk->levelDb.load(), mx = blk->mix.load();
+            if (std::abs (lv - bi.levelDb) > 1e-6f || std::abs (mx - bi.mix) > 1e-6f)
+            {
+                bi.levelDb = lv;
+                bi.mix = mx;
+                for (auto& c : cells) if (c.blockId == bi.id) repaint (c.node);
+            }
+        }
 
     // signal bars on the input chips
     for (auto& [c, ch] : inputChips)
@@ -118,29 +141,109 @@ void ChainEditor::pickParameter (int index)
 void ChainEditor::rebuild()
 {
     chain = engine.getChain (t);
-    if (sel == Sel::block && selected() == nullptr) { sel = Sel::inputs; selId = 0; learning = false; }
+    if (sel == Sel::block && selected() == nullptr)
+    {
+        if (learning) engine.mapper.cancelLearn();
+        sel = Sel::none; selId = 0; learning = false;
+    }
+    if (armedX != 0 && infoFor (armedX) == nullptr) armedX = 0;
+    if (auto* b = selected(); learning && (b == nullptr || b->role == BlockRole::empty || b->role == BlockRole::pending))
+    {
+        engine.mapper.cancelLearn();
+        learning = false;
+    }
     lastSignature = signature();
     layoutFlow();
     clearPanel();
 
-    auto area = juce::Rectangle<int> (pad, notchHeight + flowTop + 2 * laneH + nodeH + 24, editorWidth - 2 * pad,
-                                      notchHeight + editorHeight - 14 - (notchHeight + flowTop + 2 * laneH + nodeH + 24));
+    // Only the chain and its status line, unless what's selected needs a panel underneath.
+    const int h = notchHeight + (hasPanel() ? editorHeight : compactHeight);
+    if (getHeight() != h)
+    {
+        setSize (editorWidth, h);
+        if (auto* parent = getParentComponent()) parent->repaint();
+    }
+
+    auto area = juce::Rectangle<int> (pad, panelTop, editorWidth - 2 * pad, notchHeight + editorHeight - 14 - panelTop);
     if (sel == Sel::inputs)
         buildInputsPanel (area);
     else if (sel == Sel::add)
-        buildPickerPanel (area, false);
+        buildPickerPanel (area, 0);
     else if (auto* b = selected())
     {
-        if (b->role == BlockRole::external) buildExternalPanel (*b, area);
-        else                                buildBlockPanel (*b, area);
+        if (b->role == BlockRole::empty)         buildPickerPanel (area, b->id);
+        else if (learning)                       buildLearnPanel (*b, area);
+        else if (b->role == BlockRole::external) buildExternalPanel (*b, area);
     }
     resized();
     repaint();
 }
 
+bool ChainEditor::hasPanel() const
+{
+    if (sel == Sel::inputs || sel == Sel::add) return true;
+    if (auto* b = selected(); sel == Sel::block && b != nullptr)
+        return b->role == BlockRole::empty || b->role == BlockRole::external || learning;
+    return false;
+}
+
+const AudioEngine::BlockInfo* ChainEditor::infoFor (int blockId) const
+{
+    for (auto& b : chain) if (b.id == blockId) return &b;
+    return nullptr;
+}
+
+int ChainEditor::slotNumber (int blockId) const
+{
+    for (int i = 0; i < (int) chain.size(); ++i) if (chain[(size_t) i].id == blockId) return i + 1;
+    return 0;
+}
+
+juce::String ChainEditor::statusText (juce::Colour& colour) const
+{
+    colour = Pal::lcdDim;
+    const auto dot = utf (" \xc2\xb7 ");
+    if (armedX != 0)
+        if (auto* a = infoFor (armedX))
+        {
+            colour = Pal::lamp;
+            return a->name.toUpperCase() + utf (": CLICK \xc3\x97 AGAIN TO UNLOAD IT (ANYWHERE ELSE: KEEP IT)");
+        }
+    if (levelDragId != 0)
+        if (auto* d = infoFor (levelDragId))
+        {
+            const bool isMix = d->role == BlockRole::audioFx;
+            colour = Pal::lcdText;
+            return d->name.toUpperCase() + dot + (isMix ? "MIX " : "LEVEL ") + levelText (*d, isMix) + dot + "DOUBLE-CLICK: " + (isMix ? "100%" : "0 dB");
+        }
+    if (sel == Sel::inputs) return "SELECTED: TRACK INPUTS" + dot + "WHAT PLAYS THE TRACK, AND WHAT IT HEARS";
+    if (sel == Sel::add)    return "ADD A BLOCK AT THE END OF THE CHAIN" + dot + "PICK IT BELOW";
+    auto* b = selected();
+    if (sel != Sel::block || b == nullptr)
+        return "TRACK " + juce::String (t + 1) + dot + "CLICK A BLOCK TO SELECT IT" + dot + "INPUTS: WHAT PLAYS THE TRACK";
+
+    const auto slot = juce::String (slotNumber (b->id));
+    if (b->role == BlockRole::empty)
+        return "SLOT " + slot + " IS EMPTY" + dot + utf ("PICK WHAT TO LOAD INTO IT") + dot + utf ("ITS \xc3\x97 TAKES THE SLOT OUT OF THE CHAIN");
+    if (b->role == BlockRole::pending)
+        return b->missing ? "MISSING: " + b->name.toUpperCase() + dot + utf ("RESCAN IN SETUP \xe2\x80\xba PLUG-INS, OR \xc3\x97 TO UNLOAD IT")
+                          : "LOADING " + b->name.toUpperCase() + dot + "ITS SETTINGS ARE APPLIED WHEN IT ARRIVES";
+    if (learning)
+    {
+        colour = Pal::midiBright;
+        return "MIDI LEARN: " + b->name.toUpperCase() + dot + "PICK A PARAMETER, OR TOUCH ONE IN ITS WINDOW, THEN MOVE A CONTROL" + dot + "ESC: DONE";
+    }
+    juce::String s = "SELECTED: " + b->name.toUpperCase();
+    if (b->hasEditor) s << dot << "DOUBLE-CLICK TO EDIT";
+    s << dot << utf ("\xc3\x97 UNLOADS IT");
+    for (auto& c : cells)
+        if (c.blockId == b->id && c.hasBadge) s << dot << "MIDI: LEARN ITS CONTROLS";
+    if (b->canProcessInput) s << dot << (b->processInput ? "PROCESS" : "+ MIX") << ": CLICK TO SWAP";
+    return s;
+}
+
 void ChainEditor::clearPanel()
 {
-    levelSliders.clear();
     picker.reset();
     params.reset();
     panel.clear();
@@ -177,8 +280,7 @@ void ChainEditor::buildInputsPanel (juce::Rectangle<int> area)
 {
     auto& p = engine.track[t];
     const bool bounce = (AudioEngine::Feed) p.feed.load() == AudioEngine::Feed::bounce;
-    captions.push_back ({ utf ("SELECTED · TRACK INPUTS"), area.removeFromTop (18), Pal::lcdDim });
-    int y = area.getY() + 4;
+    int y = area.getY();
     const int x = area.getX(), right = area.getRight();
 
     y = chipRow (y, x, right, "FEED", {
@@ -230,127 +332,50 @@ void ChainEditor::buildInputsPanel (juce::Rectangle<int> area)
     chipRow (y, x, right, "AUDIO IN", ins, 40);
 }
 
-void ChainEditor::buildBlockPanel (const AudioEngine::BlockInfo& b, juce::Rectangle<int> area)
+void ChainEditor::buildLearnPanel (const AudioEngine::BlockInfo& b, juce::Rectangle<int> area)
 {
+    // left: what's learned for this block, each with its × to forget it; right: its parameters
     auto left = area.removeFromLeft (310);
     area.removeFromLeft (18);
-    const int x = left.getX();
+    const int x = left.getX(), id = b.id;
     int y = left.getY();
-    const int id = b.id;
-    int index = 0;
-    for (int i = 0; i < (int) chain.size(); ++i) if (chain[(size_t) i].id == id) index = i + 1;
+    captions.push_back ({ "LEARNED", { x, y, 310, 16 }, Pal::midiBright });
+    y += 20;
 
-    captions.push_back ({ utf ("SELECTED · BLOCK ") + juce::String (index) + utf (" \xc2\xb7 ") + roleName (b.role), { x, y, 310, 16 }, Pal::lcdDim });
-    y += 18;
-    if (b.role == BlockRole::pending)
-    {
-        captions.push_back ({ (b.missing ? "MISSING: " : "LOADING ") + b.name.toUpperCase(), { x, y, 310, 24 }, Pal::lcdText });
-        y += 26;
-        captions.push_back ({ b.missing ? utf ("RESCAN IN SETUP › PLUG-INS, OR PICK A REPLACEMENT. ITS SETTINGS ARE KEPT UNTIL THEN.")
-                                        : "ITS SETTINGS ARE APPLIED WHEN IT ARRIVES.", { x, y, 310, 34 }, Pal::lcdDim });
-        y += 40;
-        auto* rm = chip ("REMOVE", false, [this, id] { engine.removeBlock (t, id); });
-        rm->setBounds (x, y, rm->idealWidth(), 30);
-        buildPickerPanel (area, true);
-        return;
-    }
-
-    auto* blk = engine.findBlock (t, id);
-    captions.push_back ({ b.name.toUpperCase(), { x, y, 310, 24 }, Pal::lcdText });
-    y += 24;
-    captions.push_back ({ b.maker.toUpperCase() + (b.hosted ? utf (" · PLUG-IN") : juce::String()), { x, y, 310, 16 }, Pal::lcdDim });
-    y += 22;
-
-    std::vector<LcdChip*> buttons;
-    if (b.hasEditor)
-        buttons.push_back (chip ("EDIT", true, [this, id] { editBlock (id); }));
-    buttons.push_back (chip ("BYPASS", b.bypass, [this, id, by = b.bypass] { engine.setBlockBypass (t, id, ! by); }));
-    const bool hasParams = blk != nullptr && blk->getProcessor() != nullptr && ! blk->getProcessor()->getParameters().isEmpty();
-    if (hasParams)
-        buttons.push_back (chip ("LEARN", learning, [this] { learning = ! learning; learnParam = -1; if (! learning) engine.mapper.cancelLearn(); }));
-    buttons.push_back (chip ("REMOVE", false, [this, id] { engine.removeBlock (t, id); }));
-    int bx = x;
-    for (auto* c : buttons) { auto w = c->idealWidth(); c->setBounds (bx, y, w, 30); bx += w + 6; }
-    y += 40;
-
-    if (b.role == BlockRole::instrument || b.role == BlockRole::audioFx)
-    {
-        const bool isMix = b.role == BlockRole::audioFx;
-        auto* s = new LcdSlider (isMix ? "MIX" : "LEVEL", isMix ? 0.0 : -24.0, isMix ? 1.0 : 12.0, isMix ? 1.0 : 0.0,
-                                 [isMix] (double v) { return isMix ? juce::String (juce::roundToInt (v * 100.0)) + "%" : (v > 0 ? "+" : "") + juce::String (v, 1) + " dB"; });
-        s->setValue (isMix ? b.mix : b.levelDb);
-        s->onChange = [this, id, isMix] (double v)
-        {
-            if (auto* bb = engine.findBlock (t, id)) { if (isMix) bb->mix = (float) v; else bb->levelDb = (float) v; }
-        };
-        panel.add (s);
-        addAndMakeVisible (s);
-        s->setBounds (x, y, 310, 22);
-        if (! isMix) levelSliders.push_back ({ s, id });
-        y += 30;
-    }
-    if (b.canProcessInput)
-    {
-        auto* mixIn = chip ("MIX IN", ! b.processInput, [this, id] { if (auto* bb = engine.findBlock (t, id)) bb->processInput = false; });
-        auto* proc = chip ("PROCESS INPUT", b.processInput, [this, id] { if (auto* bb = engine.findBlock (t, id)) bb->processInput = true; });
-        mixIn->setBounds (x, y, mixIn->idealWidth(), 26);
-        proc->setBounds (x + mixIn->idealWidth() + 6, y, proc->idealWidth(), 26);
-        y += 34;
-    }
-
-    // MIDI mappings of this block's parameters
     std::vector<MidiMapper::Mapping> mine;
     for (auto& m : engine.mapper.getMappings())
         if (m.target.plugin && m.target.track == t && m.target.blockId == id) mine.push_back (m);
-    if (! mine.empty())
+    if (mine.empty())
+        captions.push_back ({ "NOTHING YET. PICK A PARAMETER ON THE RIGHT (OR TOUCH ONE IN THE PLUG-IN'S WINDOW), THEN MOVE A KNOB, FADER OR KEY ON YOUR CONTROLLER.",
+                              { x, y, 300, 64 }, Pal::lcdDim });
+    for (auto& m : mine)
     {
-        captions.push_back ({ "MIDI CONTROL", { x, y, 310, 16 }, Pal::lcdDim });
-        y += 18;
-        for (auto& m : mine)
-        {
-            if (y > left.getBottom() - 26) break;
-            captions.push_back ({ m.paramName.toUpperCase().substring (0, 18) + utf (" \xe2\x86\x90 ") + m.portName.toUpperCase().substring (0, 10)
-                                      + " " + engine.mapper.describeMessage (m), { x, y, 280, 24 }, Pal::midiBright });
-            auto mapId = m.id;
-            auto* xb = chip ("X", false, [this, mapId] { engine.mapper.remove (mapId); });
-            xb->setBounds (x + 284, y, 26, 24);
-            y += 28;
-        }
+        if (y > left.getBottom() - 26) break;
+        captions.push_back ({ m.paramName.toUpperCase().substring (0, 18) + utf (" \xe2\x86\x90 ") + m.portName.toUpperCase().substring (0, 10)
+                                  + " " + engine.mapper.describeMessage (m), { x, y, 280, 24 }, Pal::midiBright });
+        auto mapId = m.id;
+        auto* xb = chip (utf ("\xc3\x97"), false, [this, mapId] { engine.mapper.remove (mapId); });
+        xb->setTooltip ("Forget this mapping");
+        xb->setBounds (x + 284, y, 26, 24);
+        y += 28;
     }
 
-    if (learning && blk != nullptr && blk->getProcessor() != nullptr)
-    {
-        params = std::make_unique<ParamPicker> (*blk->getProcessor());
-        params->onPick = [this] (int i) { pickParameter (i); };
-        addAndMakeVisible (*params);
-        params->setBounds (area);
-        if (learnParam >= 0) params->highlight (learnParam);
-    }
-    else
-    {
-        buildPickerPanel (area, true);
-    }
+    auto* blk = engine.findBlock (t, id);
+    if (blk == nullptr || blk->getProcessor() == nullptr) return;
+    params = std::make_unique<ParamPicker> (*blk->getProcessor());
+    params->onPick = [this] (int i) { pickParameter (i); };
+    addAndMakeVisible (*params);
+    params->setBounds (area);
+    if (learnParam >= 0) params->highlight (learnParam);
 }
 
 void ChainEditor::buildExternalPanel (const AudioEngine::BlockInfo& b, juce::Rectangle<int> area)
 {
     const int id = b.id;
-    auto top = area.removeFromTop (30);
-    captions.push_back ({ utf ("SELECTED \xc2\xb7 EXTERNAL INSTRUMENT \xc2\xb7 ") + b.name.toUpperCase(), top.removeFromLeft (360), Pal::lcdDim });
-    for (auto* c : { chip ("REMOVE", false, [this, id] { engine.removeBlock (t, id); }),
-                     chip ("ALL NOTES OFF", false, [this, id] { engine.sendAllNotesOff (t, id); }),
-                     chip ("BYPASS", b.bypass, [this, id, by = b.bypass] { engine.setBlockBypass (t, id, ! by); }) })
-    {
-        c->setBounds (top.removeFromRight (c->idealWidth()));
-        top.removeFromRight (6);
-    }
-    auto* level = new LcdSlider ("LEVEL", -24.0, 12.0, 0.0, [] (double v) { return (v > 0 ? "+" : "") + juce::String (v, 1) + " dB"; });
-    level->setValue (b.levelDb);
-    level->onChange = [this, id] (double v) { if (auto* bb = engine.findBlock (t, id)) bb->levelDb = (float) v; };
-    panel.add (level);
-    addAndMakeVisible (level);
-    level->setBounds (top.reduced (0, 4).withTrimmedRight (10));
-    levelSliders.push_back ({ level, id });
+    // the lamp bypasses it, its × unloads it, its line is its LEVEL: here, only where it goes
+    auto top = area.removeFromTop (26);
+    auto* off = chip ("ALL NOTES OFF", false, [this, id] { engine.sendAllNotesOff (t, id); });
+    off->setBounds (top.removeFromRight (off->idealWidth()));
     area.removeFromTop (10);
 
     auto col = area.getWidth() / 3;
@@ -403,14 +428,13 @@ void ChainEditor::buildExternalPanel (const AudioEngine::BlockInfo& b, juce::Rec
                      [ext, i] { if (auto* e = ext()) { e->returnInput = i; e->returnPair = true; } }));
 }
 
-void ChainEditor::buildPickerPanel (juce::Rectangle<int> area, bool replacing)
+void ChainEditor::buildPickerPanel (juce::Rectangle<int> area, int slotId)
 {
-    auto* cur = replacing ? selected() : nullptr;
-    picker = std::make_unique<BlockPicker> (engine, cur != nullptr ? cur->name : juce::String(),
-                                            replacing ? utf ("REPLACE WITH \xe2\x80\xba") : utf ("ADD \xe2\x80\xba"));
-    const int replaceId = replacing && cur != nullptr ? cur->id : 0;
+    // "+": onto the end of the chain; an empty slot: into that slot
+    picker = std::make_unique<BlockPicker> (engine, juce::String(),
+                                            slotId != 0 ? "LOAD INTO SLOT " + juce::String (slotNumber (slotId)) + utf (" \xe2\x80\xba") : utf ("ADD \xe2\x80\xba"));
     picker->onFind = [this] { if (onFindPlugins) onFindPlugins(); };
-    picker->onPick = [this, replaceId] (const BlockPicker::Item& it)
+    picker->onPick = [this, slotId] (const BlockPicker::Item& it)
     {
         std::unique_ptr<Block> block;
         using K = BlockPicker::Kind;
@@ -418,11 +442,12 @@ void ChainEditor::buildPickerPanel (juce::Rectangle<int> area, bool replacing)
         else if (it.kind == K::fx)    block = BuiltIn::createFx (it.index);
         else if (it.kind == K::external) block = std::make_unique<ExternalBlock> (it.index);
 
+        const int into = engine.findBlock (t, slotId) != nullptr ? slotId : 0;
         int newId = 0;
         if (block != nullptr)
-            newId = replaceId != 0 ? engine.replaceBlock (t, replaceId, std::move (block)) : engine.insertBlock (t, -1, std::move (block));
+            newId = into != 0 ? engine.replaceBlock (t, into, std::move (block)) : engine.insertBlock (t, -1, std::move (block));
         else
-            newId = engine.addPlugin (t, -1, it.desc, {}, replaceId, [safe = juce::Component::SafePointer<ChainEditor> (this)] (const juce::String& err)
+            newId = engine.addPlugin (t, -1, it.desc, {}, into, [safe = juce::Component::SafePointer<ChainEditor> (this)] (const juce::String& err)
             {
                 if (safe != nullptr && err.isNotEmpty() && err != "superseded" && safe->onMessage)
                     safe->onMessage ("COULD NOT LOAD: " + err.toUpperCase().substring (0, 40));
@@ -461,7 +486,7 @@ void ChainEditor::layoutFlow()
     for (int i = 0; i < (int) chain.size(); ++i)
     {
         auto& b = chain[(size_t) i];
-        if (b.bypass || b.role == BlockRole::pending) continue;
+        if (b.bypass || b.role == BlockRole::pending || b.role == BlockRole::empty) continue;
         if (b.role == BlockRole::midiFx) anyMidiFx = true;
         if (midiIn && (b.role == BlockRole::midiFx || b.role == BlockRole::instrument || b.role == BlockRole::external || b.producesMidi))
             lastMidi = i + 1;
@@ -506,7 +531,35 @@ void ChainEditor::layoutFlow()
         Cell c;
         c.blockId = b.id;
         c.node = { x, y, blockW, nodeH };
-        const bool live = ! b.bypass && b.role != BlockRole::pending;
+        c.empty = b.role == BlockRole::empty;
+        c.cross = { c.node.getRight() - 3, c.node.getY() + 3 };
+        c.wide = blockW >= 110;
+        {
+            // the bottom row: the MIDI badge (a block with parameters to learn), then LEVEL or MIX
+            auto* blk = engine.findBlock (t, b.id);
+            auto* proc = blk != nullptr ? blk->getProcessor() : nullptr;
+            c.hasBadge = proc != nullptr && ! proc->getParameters().isEmpty();
+            for (auto& m : engine.mapper.getMappings())
+                if (m.target.plugin && m.target.track == t && m.target.blockId == b.id) ++c.midiCount;
+            c.isMix = b.role == BlockRole::audioFx;
+            c.hasSlider = b.role == BlockRole::audioFx || b.role == BlockRole::instrument || b.role == BlockRole::external;
+            const int rowY = c.node.getBottom() - 17;
+            int left = c.node.getX() + 7;
+            if (c.hasBadge)
+            {
+                const int bw = c.wide ? (c.midiCount > 0 ? 40 : 30) : (c.midiCount > 0 ? 24 : 16);
+                c.badge = { left, rowY, bw, 11 };
+                left = c.badge.getRight() + 7;
+            }
+            if (c.hasSlider)
+            {
+                const int right = c.node.getRight() - 7;
+                if (c.wide) c.value = { right - 40, rowY, 40, 11 };
+                c.slider = { left, rowY - 2, (c.wide ? c.value.getX() - 5 : right) - left, 15 };
+                if (c.slider.getWidth() < 12) c.hasSlider = false;
+            }
+        }
+        const bool live = ! b.bypass && b.role != BlockRole::pending && ! c.empty;
         const bool inMidi = i + 1 <= lastMidi;
         c.midiL = inMidi ? midiColour() : none;
         c.midiTick = live && inMidi && (b.role != BlockRole::audioFx || b.producesMidi) ? midiColour() : none;
@@ -519,6 +572,8 @@ void ChainEditor::layoutFlow()
             audioOn = true;
             c.audioTag = b.role == BlockRole::external ? (b.returnInput >= 0 ? "+ IN " + juce::String (b.returnInput + 1) : juce::String ("NO RETURN"))
                                                        : (b.processInput ? juce::String ("PROCESS") : juce::String ("+ MIX"));
+            if (b.canProcessInput)   // the tag swaps between mixing in and processing what reaches it
+                c.audioTagArea = juce::Rectangle<int> (64, 16).withCentre ({ c.node.getCentreX(), c.node.getBottom() + 11 });
         }
         c.audioTick = live && audioOn && b.role != BlockRole::midiFx ? Pal::lcdText : none;
         c.audioR = audioOn ? Pal::lcdText : none;
@@ -559,7 +614,7 @@ void ChainEditor::resized()
 void ChainEditor::paint (juce::Graphics& g)
 {
     auto& lf = DeckLookAndFeel::get();
-    auto body = juce::Rectangle<float> (0, (float) notchHeight, (float) editorWidth, (float) editorHeight);
+    auto body = juce::Rectangle<float> (0, (float) notchHeight, (float) editorWidth, (float) (getHeight() - notchHeight));
 
     // the card, and the notch pointing up at the track's display
     juce::Path notch;
@@ -614,7 +669,7 @@ void ChainEditor::paint (juce::Graphics& g)
         const AudioEngine::BlockInfo* b = nullptr;
         for (auto& bi : chain) if (bi.id == c.blockId) b = &bi;
         const bool isSel = (c.inputs && sel == Sel::inputs) || (c.add && sel == Sel::add) || (b != nullptr && sel == Sel::block && selId == b->id);
-        const bool ghost = c.add || (b != nullptr && (b->bypass || b->role == BlockRole::pending));
+        const bool ghost = c.add || c.empty || (b != nullptr && (b->bypass || b->role == BlockRole::pending));
         const bool beingDragged = dragging && b != nullptr && b->id == dragId;
 
         juce::Colour fill = juce::Colours::transparentBlack, ink = Pal::lcdText, sub = Pal::lcdDim;
@@ -630,7 +685,7 @@ void ChainEditor::paint (juce::Graphics& g)
         else
         {
             g.setColour (Pal::lcdDim.withAlpha (alpha));
-            if (c.inputs || c.add || (b != nullptr && b->role == BlockRole::pending))
+            if (c.inputs || c.add || c.empty || (b != nullptr && b->role == BlockRole::pending))
             {
                 juce::Path path;
                 path.addRoundedRectangle (rf, 3.0f);
@@ -684,6 +739,31 @@ void ChainEditor::paint (juce::Graphics& g)
         }
 
         if (b == nullptr) continue;
+        auto drawCross = [&]
+        {
+            // the × at the corner: unloads the block (an empty slot's takes the slot out)
+            const bool armed = armedX == b->id;
+            auto circle = juce::Rectangle<float> (2.0f * crossR, 2.0f * crossR).withCentre (c.cross.toFloat());
+            g.setColour (armed ? Pal::red : Pal::lcd);
+            g.fillEllipse (circle);
+            g.setColour (armed ? Pal::red : Pal::lcdDim);
+            g.drawEllipse (circle.reduced (0.5f), 1.0f);
+            g.setColour (armed ? Pal::lcd : Pal::lcdText);
+            const auto o = c.cross.toFloat();
+            g.drawLine (o.x - 2.5f, o.y - 2.5f, o.x + 2.5f, o.y + 2.5f, 1.2f);
+            g.drawLine (o.x - 2.5f, o.y + 2.5f, o.x + 2.5f, o.y - 2.5f, 1.2f);
+        };
+        if (c.empty)
+        {
+            g.setColour ((isSel ? ink : Pal::lcdText).withMultipliedAlpha (isSel ? 1.0f : 0.7f));
+            g.setFont (lf.mono (18.0f));
+            g.drawText ("+", r.withHeight (r.getHeight() - 22).translated (0, 4), juce::Justification::centred);
+            g.setColour (sub);
+            g.setFont (lf.mono (9.0f));
+            g.drawFittedText ("EMPTY: CLICK TO LOAD", r.reduced (5, 0).withTop (r.getBottom() - 20).withHeight (14), juce::Justification::centred, 1, 0.6f);
+            drawCross();
+            continue;
+        }
         // lamp: on, or bypassed
         auto lamp = juce::Rectangle<float> ((float) r.getX() + 7, (float) r.getY() + 7, 8, 8);
         if (b->role != BlockRole::pending)
@@ -703,14 +783,47 @@ void ChainEditor::paint (juce::Graphics& g)
         g.drawFittedText (kind, in.removeFromTop (12).withTrimmedLeft (b->role == BlockRole::pending ? 0 : 12), juce::Justification::centredLeft, 1, 0.7f);
         g.setColour (ink.withMultipliedAlpha (alpha));
         g.setFont (lf.mono (12.0f));
-        g.drawFittedText (b->name.toUpperCase(), in.withTrimmedBottom (b->role == BlockRole::instrument || b->role == BlockRole::external ? 4 : 0),
+        const bool bottomRow = c.hasBadge || c.hasSlider;
+        g.drawFittedText (b->name.toUpperCase(), bottomRow ? in.withBottom (r.getBottom() - 18) : in.withTrimmedBottom (4),
                           juce::Justification::centredLeft, 2, 0.75f);
+
+        if (c.hasBadge)
+        {
+            // MIDI: how many of its controls are learned; clicked, MIDI learn opens underneath
+            const bool open = learning && isSel;
+            const auto col = open ? Pal::midiBright : (c.midiCount > 0 ? (isSel ? ink : Pal::midiBright) : sub.withMultipliedAlpha (0.8f));
+            auto bf = c.badge.toFloat().reduced (0.5f);
+            if (open) { g.setColour (col); g.fillRoundedRectangle (bf, 2.0f); }
+            else      { g.setColour (col.withMultipliedAlpha (alpha)); g.drawRoundedRectangle (bf, 2.0f, 1.0f); }
+            g.setColour (open ? juce::Colour (0xff10151c) : col.withMultipliedAlpha (alpha));
+            g.setFont (lf.mono (8.5f));
+            const juce::String n = c.midiCount > 0 ? juce::String (c.midiCount) : juce::String();
+            g.drawText (c.wide ? ("MIDI " + n).trim() : ("M" + n), c.badge, juce::Justification::centred, false);
+        }
+        if (c.hasSlider)
+        {
+            // LEVEL (dB) or MIX (%): a hairline, the value as a thinner line along it, a tick where it ends
+            const double frac = c.isMix ? (double) b->mix : (b->levelDb - levelLo) / (levelHi - levelLo);
+            const float x0 = (float) c.slider.getX(), x1 = (float) c.slider.getRight(), ly = (float) c.slider.getCentreY();
+            const float xm = x0 + (x1 - x0) * (float) juce::jlimit (0.0, 1.0, frac);
+            g.setColour ((isSel ? Pal::lcd.withAlpha (0.45f) : Pal::lcdRule).withMultipliedAlpha (alpha));
+            g.fillRect (juce::Rectangle<float> (x0, ly - 0.5f, x1 - x0, 1.0f));
+            g.setColour (ink.withMultipliedAlpha (alpha));
+            g.fillRect (juce::Rectangle<float> (x0, ly - 1.0f, xm - x0, 2.0f));
+            g.fillRect (juce::Rectangle<float> (xm - 0.5f, ly - 4.0f, 1.0f, 8.0f));
+            if (c.wide)
+            {
+                g.setFont (lf.mono (9.0f));
+                g.drawText (levelText (*b, c.isMix), c.value, juce::Justification::centredRight, false);
+            }
+        }
+
         if (b->role == BlockRole::instrument || b->role == BlockRole::external)
         {
             // what it sends into the track, on the meters' scale
             auto it = sendShown.find (b->id);
             const int lit = MeterScale::lit (it != sendShown.end() ? it->second : 0.0f);
-            auto strip = rf.reduced (7.0f, 0.0f).withTop (rf.getBottom() - 6.0f).withHeight (2.0f);
+            auto strip = rf.reduced (7.0f, 0.0f).withTop (rf.getBottom() - 4.0f).withHeight (2.0f);
             const float segW = (strip.getWidth() - 19.0f) / 20.0f;
             for (int seg = 0; seg < 20; ++seg)
             {
@@ -720,6 +833,7 @@ void ChainEditor::paint (juce::Graphics& g)
                 g.fillRect (juce::Rectangle<float> (strip.getX() + (float) seg * (segW + 1.0f), strip.getY(), segW, strip.getHeight()));
             }
         }
+        drawCross();
     }
 
     // lane tags
@@ -756,9 +870,19 @@ void ChainEditor::paint (juce::Graphics& g)
         g.fillRect (xs - 1, cells.front().node.getY() - 4, 3, nodeH + 8);
     }
 
+    // the status line: what's selected, and what can be done with it
+    juce::Colour statusColour;
+    auto status = statusText (statusColour);
+    g.setColour (statusColour);
+    g.setFont (lf.mono (11.0f));
+    g.drawFittedText (status, { pad, statusY, editorWidth - 2 * pad, statusH }, juce::Justification::centredLeft, 1, 0.7f);
+
     // divider and captions for the panel underneath
-    g.setColour (Pal::lcdRule);
-    g.fillRect (pad, notchHeight + flowTop + 2 * laneH + nodeH + 12, editorWidth - 2 * pad, 1);
+    if (hasPanel())
+    {
+        g.setColour (Pal::lcdRule);
+        g.fillRect (pad, panelTop - 9, editorWidth - 2 * pad, 1);
+    }
     for (auto& cap : captions)
     {
         g.setColour (cap.colour);
@@ -779,40 +903,164 @@ int ChainEditor::cellAt (juce::Point<int> pt) const
     return -1;
 }
 
+void ChainEditor::crossClicked (int blockId)
+{
+    auto* b = infoFor (blockId);
+    if (b == nullptr) return;
+    if (b->role == BlockRole::empty)
+    {
+        // nothing in it to lose: the slot comes out of the chain at once
+        if (selId == blockId) { sel = Sel::none; selId = 0; }
+        armedX = 0;
+        engine.removeBlock (t, blockId);
+        changed();
+        return;
+    }
+    if (armedX != blockId)
+    {
+        // the first click arms it; the second unloads it
+        if (learning) engine.mapper.cancelLearn();
+        learning = false;
+        learnParam = -1;
+        armedX = blockId;
+        sel = Sel::block;
+        selId = blockId;
+        rebuild();
+        return;
+    }
+    const auto name = b->name.toUpperCase();
+    armedX = 0;
+    const int slot = slotNumber (blockId);
+    if (learning) engine.mapper.cancelLearn();
+    learning = false;
+    if (engine.unloadBlock (t, blockId) != 0)
+    {
+        sel = Sel::none;
+        selId = 0;
+        if (onMessage) onMessage ("UNLOADED " + name + ": SLOT " + juce::String (slot) + " IS EMPTY");
+    }
+    changed();
+}
+
+void ChainEditor::setNodeValue (const Cell& c, int mouseX)
+{
+    auto* blk = engine.findBlock (t, c.blockId);
+    if (blk == nullptr || c.slider.getWidth() <= 0) return;
+    const double frac = juce::jlimit (0.0, 1.0, (double) (mouseX - c.slider.getX()) / (double) c.slider.getWidth());
+    if (c.isMix)
+        blk->mix = (float) (juce::roundToInt (frac * 100.0) / 100.0);
+    else
+        blk->levelDb = (float) (juce::roundToInt ((levelLo + frac * (levelHi - levelLo)) * 2.0) / 2.0);   // half-dB steps
+    for (auto& bi : chain)
+        if (bi.id == c.blockId) { bi.mix = blk->mix.load(); bi.levelDb = blk->levelDb.load(); }
+    repaint();
+}
+
+void ChainEditor::resetNodeValue (const Cell& c)
+{
+    auto* blk = engine.findBlock (t, c.blockId);
+    if (blk == nullptr) return;
+    if (c.isMix) blk->mix = 1.0f; else blk->levelDb = 0.0f;
+    for (auto& bi : chain)
+        if (bi.id == c.blockId) { bi.mix = blk->mix.load(); bi.levelDb = blk->levelDb.load(); }
+    engine.saveSettings();
+    repaint();
+}
+
 void ChainEditor::mouseDown (const juce::MouseEvent& e)
 {
     grabKeyboardFocus();
     dragging = false;
     dragId = 0;
-    auto i = cellAt (e.getPosition());
-    if (i < 0) return;
+    downHandled = false;
+    const auto pos = e.getPosition();
+
+    // a block's ×, which sits over its corner (a little outside the block)
+    if (! e.mods.isPopupMenu())
+        for (auto& c : cells)
+            if (c.blockId != 0 && c.cross.getDistanceFrom (pos) <= crossR + 1)
+            {
+                downHandled = true;
+                crossClicked (c.blockId);
+                return;
+            }
+    if (armedX != 0) { armedX = 0; repaint(); }   // anywhere else: keep it
+
+    auto i = cellAt (pos);
+    if (i < 0)
+    {
+        // an audio tag below a block: mix in, or process what reaches it
+        for (auto& c : cells)
+            if (! c.audioTagArea.isEmpty() && c.audioTagArea.contains (pos))
+                if (auto* blk = engine.findBlock (t, c.blockId))
+                {
+                    blk->processInput = ! blk->processInput.load();
+                    downHandled = true;
+                    changed();
+                    return;
+                }
+        return;
+    }
     auto& c = cells[(size_t) i];
 
     if (c.blockId != 0 && e.mods.isPopupMenu())
     {
         auto id = c.blockId;
-        const AudioEngine::BlockInfo* b = nullptr;
-        for (auto& bi : chain) if (bi.id == id) b = &bi;
+        auto* b = infoFor (id);
         if (b == nullptr) return;
         juce::PopupMenu m;
-        m.addItem ("Edit", b->hasEditor, false, [this, id] { editBlock (id); });
-        m.addItem (b->bypass ? "Switch on" : "Bypass", [this, id, by = b->bypass] { engine.setBlockBypass (t, id, ! by); changed(); });
-        m.addItem ("Remove", [this, id] { engine.removeBlock (t, id); changed(); });
+        if (b->role == BlockRole::empty)
+        {
+            m.addItem ("Load into this slot...", [this, id] { sel = Sel::block; selId = id; rebuild(); });
+            m.addItem ("Take the slot out", [this, id] { crossClicked (id); });
+        }
+        else
+        {
+            m.addItem ("Edit", b->hasEditor, false, [this, id] { editBlock (id); });
+            if (b->role != BlockRole::pending)
+                m.addItem (b->bypass ? "Switch on" : "Bypass", [this, id, by = b->bypass] { engine.setBlockBypass (t, id, ! by); changed(); });
+            if (c.hasBadge)
+                m.addItem ("MIDI learn...", [this, id] { sel = Sel::block; selId = id; learning = true; learnParam = -1; rebuild(); });
+            m.addSeparator();
+            m.addItem ("Unload (leaves an empty slot)", [this, id] { if (engine.unloadBlock (t, id) != 0 && selId == id) { sel = Sel::none; selId = 0; } changed(); });
+            m.addItem ("Remove from the chain", [this, id] { engine.removeBlock (t, id); changed(); });
+        }
         m.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (localAreaToGlobal (c.node)));
         return;
     }
 
-    if (c.blockId != 0)
+    if (c.blockId != 0 && ! c.empty)
     {
+        auto* b = infoFor (c.blockId);
         // the lamp: bypass
-        if (juce::Rectangle<int> (c.node.getX(), c.node.getY(), 22, 22).contains (e.getPosition()))
+        if (juce::Rectangle<int> (c.node.getX(), c.node.getY(), 22, 22).contains (pos))
         {
-            for (auto& bi : chain)
-                if (bi.id == c.blockId && bi.role != BlockRole::pending)
-                {
-                    engine.setBlockBypass (t, bi.id, ! bi.bypass);
-                    changed();
-                }
+            if (b != nullptr && b->role != BlockRole::pending)
+            {
+                engine.setBlockBypass (t, b->id, ! b->bypass);
+                changed();
+            }
+            return;
+        }
+        // the MIDI badge: MIDI learn opens (or closes) underneath
+        if (c.hasBadge && c.badge.expanded (2).contains (pos))
+        {
+            downHandled = true;
+            const bool closing = learning && sel == Sel::block && selId == c.blockId;
+            if (learning) engine.mapper.cancelLearn();
+            learning = ! closing;
+            learnParam = -1;
+            sel = Sel::block;
+            selId = c.blockId;
+            rebuild();
+            return;
+        }
+        // LEVEL / MIX: drag along the line
+        if (c.hasSlider && c.slider.expanded (2, 2).contains (pos))
+        {
+            downHandled = true;
+            levelDragId = c.blockId;
+            setNodeValue (c, e.x);
             return;
         }
         dragId = c.blockId;
@@ -822,6 +1070,11 @@ void ChainEditor::mouseDown (const juce::MouseEvent& e)
 
 void ChainEditor::mouseDrag (const juce::MouseEvent& e)
 {
+    if (levelDragId != 0)
+    {
+        for (auto& c : cells) if (c.blockId == levelDragId) setNodeValue (c, e.x);
+        return;
+    }
     if (dragId == 0) return;
     if (! dragging && std::abs (e.x - dragX) < 6) return;
     dragging = true;
@@ -835,6 +1088,13 @@ void ChainEditor::mouseDrag (const juce::MouseEvent& e)
 
 void ChainEditor::mouseUp (const juce::MouseEvent& e)
 {
+    if (levelDragId != 0)
+    {
+        levelDragId = 0;
+        engine.saveSettings();
+        repaint();
+        return;
+    }
     if (dragging)
     {
         engine.moveBlock (t, dragId, dropIndex);
@@ -845,6 +1105,7 @@ void ChainEditor::mouseUp (const juce::MouseEvent& e)
         return;
     }
     dragId = 0;
+    if (downHandled) { downHandled = false; return; }
     if (e.mods.isPopupMenu()) return;
     auto i = cellAt (e.getPosition());
     if (i < 0) return;
@@ -862,8 +1123,17 @@ void ChainEditor::mouseUp (const juce::MouseEvent& e)
 void ChainEditor::mouseDoubleClick (const juce::MouseEvent& e)
 {
     auto i = cellAt (e.getPosition());
-    if (i >= 0 && cells[(size_t) i].blockId != 0)
-        editBlock (cells[(size_t) i].blockId);
+    if (i < 0) return;
+    auto& c = cells[(size_t) i];
+    if (c.blockId == 0 || c.empty) return;
+    if (c.cross.getDistanceFrom (e.getPosition()) <= crossR + 1) return;   // the second click of the × did its job
+    if (c.hasSlider && c.slider.expanded (2, 2).contains (e.getPosition()))
+    {
+        resetNodeValue (c);   // 0 dB, or 100%
+        return;
+    }
+    if (c.hasBadge && c.badge.expanded (2).contains (e.getPosition())) return;
+    editBlock (c.blockId);
 }
 
 void ChainEditor::editBlock (int blockId)
@@ -876,14 +1146,14 @@ bool ChainEditor::keyPressed (const juce::KeyPress& k)
 {
     if (k == juce::KeyPress::escapeKey)
     {
+        if (armedX != 0) { armedX = 0; repaint(); return true; }
         if (learning) { learning = false; engine.mapper.cancelLearn(); rebuild(); return true; }
         if (onClose) onClose();
         return true;
     }
     if ((k == juce::KeyPress::deleteKey || k == juce::KeyPress::backspaceKey) && sel == Sel::block && selId != 0)
     {
-        engine.removeBlock (t, selId);
-        changed();
+        crossClicked (selId);   // as its ×: twice to unload, once to take out an empty slot
         return true;
     }
     return false;

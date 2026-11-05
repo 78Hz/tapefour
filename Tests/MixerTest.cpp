@@ -1753,6 +1753,36 @@ int main()
                "learn: a plug-in parameter's mapping is saved with the deck and comes back", back, 1);
     }
 
+    // ---- Unloading a block leaves an empty slot: it keeps the place, passes through, saves, takes a load ----
+    {
+        Rig m;
+        auto& me = *m.engine;
+        me.clearChain (0);
+        me.insertBlock (0, -1, BuiltIn::createSynth (BuiltIn::epiano));
+        auto plate = me.insertBlock (0, -1, BuiltIn::createFx (BuiltIn::plate));
+        me.insertBlock (0, -1, BuiltIn::createFx (BuiltIn::spring));
+        auto slot = me.unloadBlock (0, plate);
+        auto c = me.getChain (0);
+        check (slot != 0 && c.size() == 3 && c[1].role == BlockRole::empty && c[1].id == slot && me.findBlock (0, plate) == nullptr,
+               "empty slot: unloading a block leaves an empty slot in its place", (double) c.size(), 3);
+        check (me.describeSource (0) == BuiltIn::synthName (BuiltIn::epiano).toUpperCase() && me.blockAbbreviations (0)[1] == "-",
+               "empty slot: the track's display skips it", 1, 1);
+        m.run (0.05);   // the audio thread runs past it
+
+        auto deck = me.createDeckState();
+        me.applyDeckState (*deck);
+        c = me.getChain (0);
+        check (c.size() == 3 && c[1].role == BlockRole::empty, "empty slot: saved with the deck and comes back in its place", (double) c.size(), 3);
+
+        auto loaded = me.replaceBlock (0, c[1].id, BuiltIn::createFx (BuiltIn::tapeEcho));
+        c = me.getChain (0);
+        check (loaded != 0 && c.size() == 3 && c[1].name == BuiltIn::fxName (BuiltIn::tapeEcho),
+               "empty slot: what is loaded into it goes there", (double) c.size(), 3);
+        auto empty2 = me.unloadBlock (0, c[1].id);
+        me.removeBlock (0, empty2);
+        check (me.getChain (0).size() == 2, "empty slot: its x takes the slot out of the chain", (double) me.getChain (0).size(), 2);
+    }
+
     // ---- Decks saved before chains still load ----
     {
         Rig m;
