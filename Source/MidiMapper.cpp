@@ -7,7 +7,9 @@ namespace
     const char* controlIds[] { "gain", "high", "mid", "freq", "low", "pan", "fader", "mute", "solo", "arm",
                                "masterFader", "phones", "pitch", "speed", "nr", "play", "stop", "rec", "rew", "ff", "rtz" };
     const char* modeIds[] { "absolute", "relTwos", "relOffset", "relSign", "toggle" };
-    const char* msgIds[] { "cc", "cc14", "note" };
+    const char* msgIds[] { "cc", "cc14", "note", "bend" };
+    /** Messages of one family can't share a number and channel: a note, a CC (7- or 14-bit), pitch bend. */
+    int family (MidiMapper::Msg m) { return m == MidiMapper::Msg::note ? 0 : m == MidiMapper::Msg::bend ? 2 : 1; }
 
     template <size_t N>
     int indexOf (const char* (&ids)[N], const juce::String& s, int fallback)
@@ -106,6 +108,7 @@ juce::String MidiMapper::describeMessage (const Mapping& m) const
         case Msg::cc:   s = "CC " + juce::String (m.number); break;
         case Msg::cc14: s = "CC " + juce::String (m.number) + "+" + juce::String (m.number + 32) + " 14-BIT"; break;
         case Msg::note: s = "NOTE " + juce::MidiMessage::getMidiNoteName (m.number, true, true, 3); break;
+        case Msg::bend: s = "PITCH BEND"; break;
     }
     if (m.channel != 1) s << " CH" << m.channel;
     return s;
@@ -130,6 +133,7 @@ juce::String MidiMapper::labelFor (const Target& t) const
                 case Msg::cc:   return "CC " + juce::String (m.number);
                 case Msg::cc14: return "CC " + juce::String (m.number) + "+";
                 case Msg::note: return juce::MidiMessage::getMidiNoteName (m.number, true, true, 3);
+                case Msg::bend: return "BEND" + (m.channel != 1 ? " " + juce::String (m.channel) : juce::String());
             }
         }
     return {};
@@ -144,7 +148,7 @@ void MidiMapper::addMapping (Mapping m)
                     {
                         return o.target == m.target
                                || (o.slot == m.slot && o.channel == m.channel && o.number == m.number
-                                   && (o.msg == Msg::note) == (m.msg == Msg::note));
+                                   && family (o.msg) == family (m.msg));
                     }), mappings.end());
     if (m.id == 0) m.id = nextId++;
     else nextId = std::max (nextId, m.id + 1);
@@ -187,10 +191,13 @@ void MidiMapper::poll()
     const auto now = juce::Time::getMillisecondCounterHiRes();
     if (juce::exactlyEqual (learnFirstMs, 0.0)) learnFirstMs = now;
 
-    const auto& first = learnSeen.front();
-    const bool isNote = (first.status & 0xf0) == 0x90;
-    // A button is known at once; a knob is watched for a moment to see what kind it is.
-    if (! isNote && learnSeen.size() < 4 && now - learnFirstMs < 300.0)
+    // A pitch-bend fader may come after a touch note (Mackie faders): the bend wins.
+    const auto bendAt = std::find_if (learnSeen.begin(), learnSeen.end(), [] (const Captured& e) { return (e.status & 0xf0) == 0xe0; });
+    const auto& first = bendAt != learnSeen.end() ? *bendAt : learnSeen.front();
+    const bool isNote = (first.status & 0xf0) == 0x90, isBend = (first.status & 0xf0) == 0xe0;
+    // A button is known almost at once (a moment, in case it's a fader's touch); a knob is
+    // watched for a moment to see what kind it is.
+    if (isNote ? now - learnFirstMs < 80.0 : (! isBend && learnSeen.size() < 4 && now - learnFirstMs < 300.0))
         return;
 
     Mapping m;
@@ -203,7 +210,13 @@ void MidiMapper::poll()
     m.paramName = learnParamName;
     const bool switchLike = ! learnTarget.plugin && (isSwitch (learnTarget.control) || isCommand (learnTarget.control));
 
-    if (isNote)
+    if (isBend)
+    {
+        m.msg = Msg::bend;
+        m.number = 0;
+        m.mode = switchLike ? Mode::toggle : Mode::absolute;
+    }
+    else if (isNote)
     {
         m.msg = Msg::note;
         m.number = first.d1;
@@ -439,10 +452,11 @@ void MidiMapper::process (int slot, juce::MidiBuffer& buffer, Sink& sink) noexce
         {
             const int type = d[0] & 0xf0, ch = (d[0] & 0x0f) + 1;
             const bool isCc = type == 0xb0, isOn = type == 0x90 && d[2] > 0, isOff = type == 0x80 || (type == 0x90 && d[2] == 0);
+            const bool isBend = type == 0xe0;
 
-            if (learnNow && (isCc || isOn || isOff))
+            if (learnNow && (isCc || isOn || isOff || isBend))
             {
-                if (isCc || isOn)
+                if (isCc || isOn || isBend)
                 {
                     int s1, n1, s2, n2;
                     learnFifo.prepareToWrite (1, s1, n1, s2, n2);
@@ -450,12 +464,20 @@ void MidiMapper::process (int slot, juce::MidiBuffer& buffer, Sink& sink) noexce
                 }
                 consumed = true;
             }
-            else if (isCc || isOn || isOff)
+            else if (isCc || isOn || isOff || isBend)
             {
                 for (auto& m : mappings)
                 {
                     if (m.slot != slot || m.channel != ch) continue;
-                    if (m.msg == Msg::note)
+                    if (m.msg == Msg::bend)
+                    {
+                        if (isBend)
+                        {
+                            apply (m, (d[2] << 7) | d[1], 16383, sink);
+                            consumed = ! m.passThrough;
+                        }
+                    }
+                    else if (m.msg == Msg::note)
                     {
                         if ((isOn || isOff) && d[1] == m.number)
                         {

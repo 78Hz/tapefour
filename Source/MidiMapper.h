@@ -11,7 +11,8 @@ namespace tf
     A mapped message is used by its mapping and not passed on to the instruments,
     unless the mapping says "also plays". Knobs pick up (they only take over once
     they pass the control's current position); endless encoders are recognised when
-    learned and move the control relatively; 14-bit CC pairs are combined.
+    learned and move the control relatively; 14-bit CC pairs are combined; pitch bend
+    (what Mackie Control faders send, one channel a fader) is a 14-bit fader.
     Transport buttons that send MIDI Machine Control are followed without learning.
 */
 class MidiMapper
@@ -38,7 +39,7 @@ public:
         }
     };
 
-    enum class Msg { cc, cc14, note };
+    enum class Msg { cc, cc14, note, bend };   // bend: pitch bend, 14-bit (Mackie-style faders)
     enum class Mode { absolute, relTwos, relOffset, relSign, toggle };
 
     struct Mapping

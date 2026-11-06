@@ -1717,6 +1717,23 @@ int main()
         me.injectMidi (juce::MidiMessage::noteOff (1, 36), knobs); m.run (0.05);
         check (me.track[1].mute.load(), "learn: a pad toggles track 2's mute", me.track[1].mute.load(), 1);
 
+        // A Mackie-style fader: a touch note, then pitch bend on its strip's channel.
+        auto bend = [&] (int ch, int v) { me.injectMidi (juce::MidiMessage::pitchWheel (ch, v), knobs); };
+        MidiMapper::Target fader2; fader2.control = MidiMapper::Control::fader; fader2.track = 1;
+        const bool bendLearned = learn (fader2, [&] { me.injectMidi (juce::MidiMessage::noteOn (2, 105, (juce::uint8) 127), knobs); for (int v : { 4000, 4100, 4200 }) bend (2, v); });
+        bool isBend = false;
+        for (auto& mp : me.mapper.getMappings()) if (mp.target == fader2) isBend = mp.msg == MidiMapper::Msg::bend && mp.channel == 2;
+        check (bendLearned && isBend, "learn: a fader sending pitch bend (Mackie) is learned as pitch bend on its channel, not its touch note", isBend, 1);
+        me.track[1].fader = 0.5f;
+        bend (2, 3000); m.run (0.05);
+        bend (2, 12000); m.run (0.05);
+        bend (2, 9830); m.run (0.05);
+        check (std::abs (me.track[1].fader.load() - 9830.0f / 16383.0f) < 1e-3f, "learn: the pitch-bend fader moves track 2's fader, 14-bit, after pickup", me.track[1].fader.load(), 9830.0 / 16383.0);
+        const auto before = me.track[0].fader.load();
+        bend (3, 16000); m.run (0.05);
+        check (std::abs (me.track[1].fader.load() - 9830.0f / 16383.0f) < 1e-3f && juce::exactlyEqual (me.track[0].fader.load(), before),
+               "learn: pitch bend on another channel moves nothing", me.track[1].fader.load(), 9830.0 / 16383.0);
+
         // MMC transport buttons need no learning.
         const juce::uint8 play[] { 0xf0, 0x7f, 0x7f, 0x06, 0x02, 0xf7 };
         me.remoteCommand = 0;

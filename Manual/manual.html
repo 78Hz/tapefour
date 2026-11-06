@@ -1009,6 +1009,7 @@ td:first-child { font-weight: 600; }
   <li><strong>Pickup.</strong> A knob or fader only takes over once it passes the control's current position, so nothing jumps when you first touch it. Until then the status display tells you which way to turn it. Pickup can be turned off per mapping in the list.</li>
   <li><strong>Endless encoders</strong> are recognised while learning (the common relative formats) and nudge the control up and down, with no pickup needed.</li>
   <li><strong>14-bit controllers</strong> that send a CC pair (0–31 with 32–63) are combined for fine resolution.</li>
+  <li><strong>Pitch bend</strong> can be learned too: the faders of a Mackie Control surface (a mixer in its DAW control mode, for example) send it, one MIDI channel a fader, so each fader learns as pitch bend on its own channel, at 14-bit resolution. A fader that also sends a "touch" note is learned as the fader, not the note. These faders aren't motorised, so pickup is on.</li>
   <li><strong>Buttons and pads</strong> learned onto a switch (mute, solo, arm, tape speed, noise reduction) toggle it each press, and onto a transport key press that key.</li>
   <li><strong>A mapped control is kept for its job.</strong> Its messages don't also reach the track's instruments, so a knob mapped to a fader doesn't sweep a synth's filter at the same time. Tick <strong>Also plays</strong> in the list to pass them on as well.</li>
 </ul>
