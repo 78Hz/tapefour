@@ -231,7 +231,7 @@ td:first-child { font-weight: 600; }
     <tr><td>LADSPA</td><td>Linux</td><td>The standard LADSPA folders. LADSPA plug-ins are effects only.</td></tr>
   </tbody>
 </table>
-<p>Many plug-ins come in several formats. The list in a track's chain shows each plug-in once, in the best format you have: CLAP, then VST3, then Audio Units, LV2 and LADSPA. A deck you saved keeps the format it was made with. TAPE·FOUR also has five built-in instruments, <strong>TF Transistor</strong> (an organ), <strong>TF Electric Piano</strong>, <strong>TF Phrase Sampler</strong>, <strong>TF N5</strong> (a synthesizer) and <strong>TF FM Drums</strong> (a drum machine), three built-in effects, <strong>TF Plate</strong>, <strong>TF Spring Reverb</strong> and <strong>TF Tape Echo</strong>, and a step sequencer, <strong>TF Step</strong>, so you can start without any plug-ins.</p>
+<p>Many plug-ins come in several formats. The list in a track's chain shows each plug-in once, in the best format you have: CLAP, then VST3, then Audio Units, LV2 and LADSPA. A deck you saved keeps the format it was made with. TAPE·FOUR also has five built-in instruments, <strong>TF Transistor</strong> (an organ), <strong>TF Electric Piano</strong>, <strong>TF Phrase Sampler</strong>, <strong>TF N5</strong> (a synthesizer) and <strong>TF FM Drums</strong> (a drum machine), three built-in effects, <strong>TF Plate</strong>, <strong>TF Spring Reverb</strong> and <strong>TF Tape Echo</strong>, a step sequencer, <strong>TF Step</strong>, and an editor for the Dreadbox Nymphes synthesizer, <strong>TF Nymphes</strong>, so you can start without any plug-ins.</p>
 <figure class="narrow"><img src="images/setup_inst.png" alt="Setup, Plug-ins tab"><figcaption><b>Setup → Plug-ins.</b> Scan once; the list is remembered.</figcaption></figure>
 <h2>Colours</h2>
 <p>In <strong>Setup → Display</strong>, choose the deck's colour theme. It changes at once and is remembered.</p>
@@ -577,6 +577,7 @@ td:first-child { font-weight: 600; }
     <tr><td>TF Spring Reverb</td><td>Audio effect</td><td>The boingy, dripping reverb of a guitar amp's spring tank, physically modelled: three real tanks, and the valve that drives them. It has its own window (below).</td></tr>
     <tr><td>TF Tape Echo</td><td>Audio effect</td><td>A tape delay whose repeats darken and wobble as they fade. Time, feedback, tone and wow.</td></tr>
     <tr><td>TF Step</td><td>MIDI effect</td><td>A 16-step sequencer with no tempo: each step has its own time, from 10 ms to 10 s, and a note (or a rest), a gate, a velocity and a tie. It plays whatever comes after it in the chain: a hardware synth through an external instrument block, or any instrument. It has its own window (below).</td></tr>
+    <tr><td>TF Nymphes</td><td>MIDI effect</td><td>An editor for a Dreadbox Nymphes (a six-voice analogue synthesizer): every control as its own knob, the envelopes and LFOs drawn, the modulation matrix as a grid, and MPE. It sends MIDI controllers to the synth; notes pass through. It has its own window (below).</td></tr>
   </tbody>
 </table>
 
@@ -734,6 +735,35 @@ td:first-child { font-weight: 600; }
   <li><strong>Nothing left hanging.</strong> Stopping it, bypassing or removing it, or its track's chain stopping (the track disarmed with the window closed) sends all-notes-off to whatever it was playing.</li>
   <li>Its notes go out on channel 1; an external instrument block sends them on its own channel. It's saved with the deck, and as presets, in <span class="lcd">Documents/TapeFour/Presets/Step</span>.</li>
 </ul>
+
+<h2>The Nymphes editor</h2>
+<p><strong>TF Nymphes</strong> is a window of knobs for a <strong>Dreadbox Nymphes</strong>. The synth has a few knobs and a menu for everything else; here every one of its settings has a knob of its own, laid out in the synth's own sections, and each sends the MIDI controller that Dreadbox's chart gives it (Nymphes manual v2.0) when you move it. It makes no sound itself: it's a MIDI effect, so put it in front of an <strong>external instrument</strong> block set to the Nymphes' MIDI output and channel, and bring the synth's audio back on an input as usual. Notes from the keyboard pass straight through.</p>
+<figure><img src="images/nymphes_window.png" alt="TF Nymphes' window"><figcaption><b>TF Nymphes.</b> A sound being edited with MPE on: three notes playing, each with its own bend, pressure and slide. The mod wheel, velocity and pressure all open the filter.</figcaption></figure>
+<table>
+  <thead><tr><th>Section</th><th>What's in it</th></tr></thead>
+  <tbody>
+    <tr><td>PLAY MODE</td><td>Along the top: <span class="ctl">POLY</span>, the two unison modes, <span class="ctl">TRI</span>, <span class="ctl">DUO</span> and <span class="ctl">MONO</span>, and <span class="ctl">LEGATO</span>. The line underneath shows the last controller sent, and its value.</td></tr>
+    <tr><td>OSCILLATOR</td><td>The wave (it morphs from saw through square to triangle, drawn above), pulse width, level, sub, noise, detune, chord, glide, and how much LFO 1 and the filter envelope move the pitch.</td></tr>
+    <tr><td>FILTER</td><td>The low-pass filter's cutoff, resonance, envelope amount, key tracking and LFO 1 amount, and the high-pass filter after it. The curve is a picture of the settings, not a measurement.</td></tr>
+    <tr><td>REVERB and AMP</td><td>The reverb's size, decay, filter and mix, and the amp's level.</td></tr>
+    <tr><td>FILTER EG and AMP EG</td><td>The two envelopes, drawn: drag the peak for the attack, the corner for the decay and sustain, the end for the release, or use the knobs beside them.</td></tr>
+    <tr><td>LFO 1 and LFO 2</td><td>Rate, wave, delay and fade, drawn as they'll move; <span class="ctl">TYPE</span> (<span class="ctl">BPM</span>, <span class="ctl">LOW</span>, <span class="ctl">HIGH</span> or <span class="ctl">TRACK</span>) and <span class="ctl">KEY SYNC</span>. LFO 1 is each voice's own; LFO 2 is one for all voices and a source in the matrix.</td></tr>
+    <tr><td>MPE</td><td>Whether notes come in as MPE (see below), the pitch-bend range, and <span class="lcd">PLAYING NOW</span>: each voice's note, bend, pressure and slide.</td></tr>
+    <tr><td>MODULATION</td><td>The synth's matrix: four sources (LFO 2, the mod wheel, velocity and pressure) down the side, 36 destinations across. Drag up or down in a cell for its depth; double-click it to unset it; click a source's name to clear its row.</td></tr>
+  </tbody>
+</table>
+<p>Drag a knob up or down, use the wheel for single steps, double-click it for its starting value. Every knob is also a parameter, so it can be learned to a hardware controller with the block's MIDI badge.</p>
+<h3>Keeping the editor and the synth together</h3>
+<p>The Nymphes can't tell the editor what sound it has, so the editor is in charge: when it opens with a deck or a preset, it sends everything, and <span class="ctl">SEND ALL</span> does it by hand (after you've changed the sound on the synth, say). Until you move something, a new TF Nymphes sends nothing, so the synth keeps the sound it has.</p>
+<p>With <span class="ctl">KEEP IN STEP</span> on, controllers arriving from the track's keyboard, or from the synth if its MIDI out comes back into the deck, move the knobs, and go on to the synth only if they're new to it, so the synth's own echo doesn't go round in a loop.</p>
+<h3>MPE</h3>
+<p>The Nymphes plays MPE: each note on a channel of its own, with its own pitch bend, pressure and slide. Turn it on in the window (<span class="ctl">ON: LOWER ZONE</span>) and on the synth too (MENU 7, holding SHIFT), set the external instrument block's channel to <span class="ctl">AS PLAYED</span>, and set the synth's pitch-wheel range to match <span class="ctl">BEND</span>. The editor then sends its controllers on channel 1, the zone's master channel, and an MPE set-up message with <span class="ctl">SEND ALL</span>. Slide is controller 74, which is also the Nymphes' cutoff, so each note gets its own cutoff. In the matrix, a dot over a destination marks the ones the synth moves per note.</p>
+<h3>Things to try on your synth</h3>
+<ul>
+  <li><strong>Depths.</strong> The manual doesn't say whether a matrix depth of 0 or of 64 means none. <span class="ctl">0 = NONE</span> and <span class="ctl">64 = NONE</span> choose which the editor sends for an unset cell; pick the one your synth agrees with.</li>
+  <li><strong>Cells struck through</strong> don't exist on the synth (LFO 2 reaches only the oscillator, filter and envelopes). <strong>Dashed cells</strong> are in Dreadbox's controller chart but not in the manual's list of destinations; try them.</li>
+</ul>
+<p>Presets keep the sound, the matrix and the MPE settings, in <span class="lcd">Documents/TapeFour/Presets/Nymphes</span>.</p>
 
 <h2>The spring reverb</h2>
 <p><strong>TF Spring Reverb</strong> is a spring reverb tank, the kind inside guitar amplifiers: a sound drives one end of a few long springs, and a pickup at the other end hears what arrives. Double-click it in a chain for its window. Its <span class="ctl">MIX</span> is on the chain, as for the other effects.</p>

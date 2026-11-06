@@ -253,7 +253,7 @@ public:
 namespace BuiltIn
 {
     enum Synth { transistor = 0, epiano = 1, sampler = 2, n5 = 3, fmDrums = 4, numSynths };
-    enum Fx { plate = 0, spring = 1, tapeEcho = 2, stepSeq = 3, numFx };   // stepSeq: a MIDI effect
+    enum Fx { plate = 0, spring = 1, tapeEcho = 2, stepSeq = 3, nymphes = 4, numFx };   // stepSeq, nymphes: MIDI effects
 
     juce::String synthName (int which);
     juce::String fxName (int which);

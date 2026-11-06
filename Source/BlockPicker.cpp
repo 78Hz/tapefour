@@ -110,7 +110,7 @@ void BlockPicker::gather (const juce::String& current)
     for (int k = 0; k < BuiltIn::numFx; ++k)
     {
         Item it; it.name = BuiltIn::fxName (k); it.kind = Kind::fx; it.index = k;
-        const bool midi = k == BuiltIn::stepSeq;
+        const bool midi = k == BuiltIn::stepSeq || k == BuiltIn::nymphes;
         it.sub = midi ? "MIDI FX" : "AUDIO FX";
         it.category = midi ? midiFx : audioFx;
         add (it);

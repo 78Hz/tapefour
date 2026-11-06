@@ -9,6 +9,7 @@
 #include "../Source/N5Panel.h"
 #include "../Source/FmDrumsPanel.h"
 #include "../Source/StepPanel.h"
+#include "../Source/NymphesPanel.h"
 #include "../Source/DeckLookAndFeel.h"
 
 #include <algorithm>
@@ -195,6 +196,29 @@ int main()
         panel.setSize (832, 510);
         const int clicks = clickEverything (panel, 0);
         check (clicks >= 20, "TF STEP: every button clicked", clicks, clicks);
+    }
+
+    // ---------------------------------------------------------------- TF NYMPHES
+    {
+        nym::Processor p;
+        {
+            NymphesPanel panel (p);
+            panel.setSize (NymphesPanel::panelWidth, NymphesPanel::panelHeight);
+            juce::MessageManager::getInstance()->runDispatchLoopUntil (5);
+            const bool mono = clickLabel (panel, "MONO", 0) && p.value (nym::playMode) == 5;
+            const bool mpe = clickLabel (panel, "ON: LOWER ZONE", 0) && p.isMpe();
+            const bool centred = clickLabel (panel, "64 = NONE", 0) && p.depthsCentred();
+            const bool keep = clickLabel (panel, "KEEP IN STEP", 0) && ! p.keepsInStep();
+            check (mono && mpe && centred && keep, "TF NYMPHES: PLAY MODE, MPE, the depths' zero and KEEP IN STEP do what they say", mono + mpe + centred + keep, 4);
+            int outside = 0;
+            for (auto* c : panel.getChildren())
+                if (c->isVisible() && ! panel.getLocalBounds().contains (c->getBounds())) ++outside;
+            check (outside == 0, "TF NYMPHES: everything inside the window", outside, 0);
+        }
+        NymphesPanel panel (p);
+        panel.setSize (NymphesPanel::panelWidth, NymphesPanel::panelHeight);
+        const int clicks = clickEverything (panel, 0);
+        check (clicks >= 20, "TF NYMPHES: every button clicked", clicks, clicks);
     }
 
     std::printf ("\n%s (%d failed)\n", failures == 0 ? "ALL PASSED" : "FAILURES", failures);

@@ -10,6 +10,7 @@
 #include "N5Panel.h"
 #include "FmDrumsPanel.h"
 #include "StepPanel.h"
+#include "NymphesPanel.h"
 
 namespace tf
 {
@@ -271,6 +272,15 @@ public:
                 return std::unique_ptr<juce::Component> (std::move (e));
             }, 560);
         };
+        tf::nym::Processor::editorFactory = [] (tf::nym::Processor& p) -> juce::AudioProcessorEditor*
+        {
+            return new tf::InstrumentEditor (p, p, "TF NYMPHES", [&p] (tf::InstrumentEditor::Say say)
+            {
+                auto e = std::make_unique<tf::NymphesPanel> (p);
+                e->onMessage = say;
+                return std::unique_ptr<juce::Component> (std::move (e));
+            }, tf::NymphesPanel::panelHeight + 56, tf::NymphesPanel::panelWidth + 28);
+        };
         tf::n5::Processor::editorFactory = [] (tf::n5::Processor& p) -> juce::AudioProcessorEditor*
         {
             return new tf::InstrumentEditor (p, p, "TF N5", [&p] (tf::InstrumentEditor::Say say)
@@ -335,6 +345,50 @@ public:
                 ok = os != nullptr && png.writeImageToStream (img, *os);
             }
             p.setPlaying (false);
+            setApplicationReturnValue (ok ? 0 : 1);
+            quit();
+            return;
+        }
+        if (commandLine.contains ("--render-nymphes"))
+        {
+            // for the manual: TF NYMPHES' window, a sound set, three MPE notes playing
+            auto args = juce::StringArray::fromTokens (commandLine, true);
+            auto folder = juce::File::getCurrentWorkingDirectory().getChildFile (args[args.indexOf ("--render-nymphes") + 1].unquoted());
+            folder.createDirectory();
+            tf::nym::Processor p;
+            using namespace tf::nym;
+            const std::pair<int, int> sound[] { { oscWave, 40 }, { oscSub, 70 }, { oscDetune, 20 }, { lpfCutoff, 70 }, { lpfRes, 60 }, { lpfEg, 80 },
+                                                { fegA, 10 }, { fegD, 50 }, { fegS, 40 }, { fegR, 60 }, { aegA, 30 }, { aegD, 70 }, { aegS, 90 }, { aegR, 50 },
+                                                { revMix, 45 }, { revDecay, 80 }, { lfo1Wave, 0 }, { lfo1Delay, 30 }, { lfo1Fade, 40 }, { lfo2Wave, 95 } };
+            for (auto [c, v] : sound) p.setValue (c, v);
+            auto dest = [] (int cc) { for (int d = 0; d < numDests; ++d) if (destCc (d) == cc) return d; return 0; };
+            p.setDepth (1, dest (42), 90);
+            p.setDepth (2, dest (42), 50);
+            p.setDepth (3, dest (42), 70);
+            p.setDepth (0, dest (31), 30);
+            p.setMpe (true);
+            juce::AudioBuffer<float> b (2, 512);
+            juce::MidiBuffer m;
+            const int notes[] { 48, 55, 64 };
+            for (int i = 0; i < 3; ++i)
+            {
+                m.addEvent (juce::MidiMessage::noteOn (2 + i, notes[i], (juce::uint8) 100), i);
+                m.addEvent (juce::MidiMessage::pitchWheel (2 + i, 8192 + (i - 1) * 1200), i);
+                m.addEvent (juce::MidiMessage::channelPressureChange (2 + i, 40 + i * 30), i);
+                m.addEvent (juce::MidiMessage::controllerEvent (2 + i, 74, 90 - i * 25), i);
+            }
+            p.processBlock (b, m);
+            std::unique_ptr<juce::AudioProcessorEditor> ed (p.createEditor());
+            bool ok = ed != nullptr;
+            if (ok)
+            {
+                const auto img = ed->createComponentSnapshot (ed->getLocalBounds(), true, 2.0f);
+                juce::PNGImageFormat png;
+                auto f = folder.getChildFile ("nymphes_window.png");
+                f.deleteFile();
+                std::unique_ptr<juce::OutputStream> os (f.createOutputStream());
+                ok = os != nullptr && png.writeImageToStream (img, *os);
+            }
             setApplicationReturnValue (ok ? 0 : 1);
             quit();
             return;
