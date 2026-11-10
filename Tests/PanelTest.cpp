@@ -10,6 +10,7 @@
 #include "../Source/FmDrumsPanel.h"
 #include "../Source/StepPanel.h"
 #include "../Source/NymphesPanel.h"
+#include "../Source/TapeEchoPanel.h"
 #include "../Source/DeckLookAndFeel.h"
 
 #include <algorithm>
@@ -196,6 +197,32 @@ int main()
         panel.setSize (832, 510);
         const int clicks = clickEverything (panel, 0);
         check (clicks >= 20, "TF STEP: every button clicked", clicks, clicks);
+    }
+
+    // ---------------------------------------------------------------- TF TAPE ECHO
+    {
+        echo::Processor p;
+        {
+            TapeEchoPanel panel (p);
+            panel.setSize (TapeEchoPanel::panelWidth, TapeEchoPanel::panelHeight);
+            juce::MessageManager::getInstance()->runDispatchLoopUntil (5);
+            const bool erase = clickLabel (panel, "ERASE", 0) && p.get ("erase") < 0.5f;
+            const bool hold = clickLabel (panel, "HOLD", 0) && p.get ("hold") > 0.5f;
+            const bool note = clickLabel (panel, "1/4", 0) && p.noteValue() == 5;
+            const bool loop = clickLabel (panel, "60 S", 0) && p.loopNominal() == 60.0;
+            p.setHeadPos (0, 0.2);
+            const bool placed = clickLabel (panel, "STRAIGHT 1:2:3", 0) && std::abs (p.headPos (2) - 0.6) < 1e-3;
+            check (erase && hold && note && loop && placed, "TF TAPE ECHO: ERASE, HOLD, the note value, the loop's length and PLACE do what they say",
+                   erase + hold + note + loop + placed, 5);
+            int outside = 0;
+            for (auto* c : panel.getChildren())
+                if (c->isVisible() && ! panel.getLocalBounds().contains (c->getBounds())) ++outside;
+            check (outside == 0, "TF TAPE ECHO: everything inside the window", outside, 0);
+        }
+        TapeEchoPanel panel (p);
+        panel.setSize (TapeEchoPanel::panelWidth, TapeEchoPanel::panelHeight);
+        const int clicks = clickEverything (panel, 0);
+        check (clicks >= 15, "TF TAPE ECHO: every button clicked", clicks, clicks);
     }
 
     // ---------------------------------------------------------------- TF NYMPHES

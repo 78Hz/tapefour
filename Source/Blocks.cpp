@@ -7,6 +7,7 @@
 #include "FmDrums.h"
 #include "StepSeq.h"
 #include "Nymphes.h"
+#include "TapeEcho.h"
 
 namespace tf
 {
@@ -186,69 +187,6 @@ private:
     int prePos = 0;
 };
 
-/** A tape echo: the repeats darken and saturate, and the tape wobbles a little. */
-class TapeEchoFx : public FxProcessor
-{
-public:
-    TapeEchoFx()
-    {
-        time = param ("time", "Time", 60.0f, 800.0f, 340.0f, "ms");
-        feedback = param ("feedback", "Feedback", 0.0f, 0.95f, 0.45f);
-        tone = param ("tone", "Tone", 1000.0f, 8000.0f, 3200.0f, "Hz");
-        wow = param ("wow", "Wow", 0.0f, 1.0f, 0.3f);
-    }
-    const juce::String getName() const override { return BuiltIn::fxName (BuiltIn::tapeEcho); }
-
-    void prepareToPlay (double rate, int) override
-    {
-        sr = rate;
-        line.assign ((size_t) (rate * 1.0) + 8, 0.0f);
-        pos = 0;
-        lp = 0.0f;
-        smoothTime = time->get() * 0.001 * rate;
-        phase = 0.0;
-    }
-
-    using juce::AudioProcessor::processBlock;   // the double-precision overload stays the base one
-    void processBlock (juce::AudioBuffer<float>& b, juce::MidiBuffer&) override
-    {
-        const int n = b.getNumSamples();
-        const auto len = (int) line.size();
-        const auto target = juce::jlimit (8.0, (double) len - 8.0, time->get() * 0.001 * sr);
-        const auto fb = feedback->get();
-        const auto lpC = (float) std::exp (-juce::MathConstants<double>::twoPi * tone->get() / sr);
-        const auto depth = wow->get() * 0.0025 * sr;      // up to 2.5 ms of wobble
-        const auto inc = juce::MathConstants<double>::twoPi * 0.7 / sr;
-        auto* l = b.getWritePointer (0);
-        auto* r = b.getWritePointer (1);
-        for (int i = 0; i < n; ++i)
-        {
-            // Turning TIME moves the head, as on a real echo: the repeats bend in pitch.
-            smoothTime += (target - smoothTime) * 0.0004;
-            phase += inc;
-            if (phase > juce::MathConstants<double>::twoPi) phase -= juce::MathConstants<double>::twoPi;
-            auto d = smoothTime + depth * (1.0 + std::sin (phase)) * 0.5;
-            auto rp = (double) pos - d;
-            while (rp < 0) rp += len;
-            auto i0 = (int) rp;
-            auto f = (float) (rp - i0);
-            auto y = line[(size_t) i0] + (line[(size_t) ((i0 + 1) % len)] - line[(size_t) i0]) * f;
-
-            lp = y * (1.0f - lpC) + lp * lpC;
-            const auto in = 0.5f * (l[i] + r[i]);
-            line[(size_t) pos] = std::tanh (in + fb * 1.05f * lp);
-            pos = (pos + 1) % len;
-            l[i] = r[i] = y;
-        }
-    }
-
-private:
-    juce::AudioParameterFloat *time, *feedback, *tone, *wow;
-    std::vector<float> line;
-    int pos = 0;
-    float lp = 0.0f;
-    double smoothTime = 0.0, phase = 0.0;
-};
 } // namespace
 
 //==============================================================================
@@ -589,7 +527,7 @@ std::unique_ptr<Block> BuiltIn::createFx (int which)
     which = juce::jlimit (0, numFx - 1, which);
     std::unique_ptr<juce::AudioProcessor> p;
     if (which == spring)        p = std::make_unique<spring::Processor>();
-    else if (which == tapeEcho) p = std::make_unique<TapeEchoFx>();
+    else if (which == tapeEcho) p = std::make_unique<echo::Processor>();
     else if (which == stepSeq)  return std::make_unique<ProcessorBlock> (std::make_unique<step::Processor>(), ProcessorBlock::Kind::builtInFx, which);
     else if (which == nymphes)  return std::make_unique<ProcessorBlock> (std::make_unique<nym::Processor>(), ProcessorBlock::Kind::builtInFx, which);
     else                        p = std::make_unique<PlateFx>();

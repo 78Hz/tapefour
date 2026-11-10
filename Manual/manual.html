@@ -576,7 +576,7 @@ td:first-child { font-weight: 600; }
     <tr><td>TF FM Drums</td><td>Instrument</td><td>A six-track FM drum machine in the style of the Elektron Model:Cycles: kick, snare, metal, perc, tone and chord machines, each with a few controls kept to their musical range, a 64-step sequencer with per-step locks, and a delay and reverb. It keeps its own tempo. It has its own window (below).</td></tr>
     <tr><td>TF Plate</td><td>Audio effect</td><td>A smooth, dense plate reverb with pre-delay. Size, damping and pre-delay.</td></tr>
     <tr><td>TF Spring Reverb</td><td>Audio effect</td><td>The boingy, dripping reverb of a guitar amp's spring tank, physically modelled: three real tanks, and the valve that drives them. It has its own window (below).</td></tr>
-    <tr><td>TF Tape Echo</td><td>Audio effect</td><td>A tape delay whose repeats darken and wobble as they fade. Time, feedback, tone and wow.</td></tr>
+    <tr><td>TF Tape Echo</td><td>Audio effect</td><td>A cassette loop delay: an endless cassette past a record head and three playback heads you place anywhere on the loop. Its repeats darken, wobble and hiss as cassette tape does. It has its own window (below).</td></tr>
     <tr><td>TF Step</td><td>MIDI effect</td><td>A 16-step sequencer with no tempo: each step has its own time, from 10 ms to 10 s, and a note (or a rest), a gate, a velocity and a tie. It plays whatever comes after it in the chain: a hardware synth through an external instrument block, or any instrument. It has its own window (below).</td></tr>
     <tr><td>TF Nymphes</td><td>MIDI effect</td><td>An editor for a Dreadbox Nymphes (a six-voice analogue synthesizer): every control as its own knob, the envelopes and LFOs drawn, the modulation matrix as a grid, and MPE. It sends MIDI controllers to the synth; notes pass through. It has its own window (below).</td></tr>
   </tbody>
@@ -780,6 +780,41 @@ td:first-child { font-weight: 600; }
   </tbody>
 </table>
 <p>The window's picture shows what a click turns into, pitch upwards and time across. Like a real tank, it plays in mono.</p>
+
+<h2>The tape echo</h2>
+<p><strong>TF Tape Echo</strong> is a cassette loop delay. An endless cassette runs past an erase head, a record head and three playback heads. Each head plays back what was recorded as long ago as the tape takes to reach it, so where a head sits is its delay. It runs at cassette speed, 1⅞ ips, through the same tape modelling as the deck. The repeats are dark, wobbly and hissy from the first one, and each time round they lose a little more treble. The block's MIX sets how much of the echo you hear with the dry sound.</p>
+<figure><img src="images/echo_window.png" alt="TF Tape Echo's window"><figcaption><b>TF Tape Echo.</b> Heads 1 and 2 are dashed because they're too close together to exist on a real machine. Head 3 is 6.30 s along the 20 s loop, beyond the strip. The picture at the bottom is what's recorded around the loop.</figcaption></figure>
+<h3>The tape path</h3>
+<p>The thin bar at the top is the whole loop: the record head (R) at the left, the heads along it, and the erase head (E) just before the record head comes round again. The strip below is a stretch of it to work on:</p>
+<ul>
+  <li><strong>Drag a head</strong> along the tape to move it. A head can go anywhere on the loop, up to its full length.</li>
+  <li><strong>The mouse wheel</strong> zooms in or out around the pointer. <strong>Drag the tape</strong> to scroll along it. <strong>Click the bar</strong> to jump there.</li>
+  <li><strong>Double-click a head</strong> to switch it on or off. <strong>Double-click its time</strong> to type the time in milliseconds.</li>
+  <li><span class="ctl">SNAP</span> (on to begin with) puts heads 2 and 3 on note values of the tempo, from 32nds to bars as you zoom out. Head 1 moves freely, because head 1 sets the tempo.</li>
+  <li><strong>A dashed head</strong> is closer than 5 mm of tape to another head or to the record head. A real machine couldn't have two heads there, but it works here.</li>
+  <li><strong>The shaded stretch</strong> before the record head has just been wiped by the erase head. A head placed there plays nothing, unless ERASE is off.</li>
+</ul>
+<table>
+  <thead><tr><th>Control</th><th>What it does</th></tr></thead>
+  <tbody>
+    <tr><td>RATE</td><td>The motor speed, 25% to 200% of 1⅞ ips. It changes every head's delay at once, and the repeats bend in pitch while you turn it, as on a real machine. Slower is longer and darker.</td></tr>
+    <tr><td>BPM, − +</td><td>The tempo head 1 makes, shown to a hundredth as on the SU-10. − and + move it 0.01 BPM a press (by moving the motor); held, they repeat, ever faster.</td></tr>
+    <tr><td>HEAD 1 IS</td><td>Which note value head 1 counts as for the BPM: 1/16 to a dotted 1/4.</td></tr>
+    <tr><td>INTENSITY</td><td>How much of the repeats goes round again. Past 100% it runs away, and the tape's saturation keeps it from getting out of hand.</td></tr>
+    <tr><td>BASS, TREBLE</td><td>The tone of the repeats, and so of what goes round again.</td></tr>
+    <tr><td>SPREAD</td><td>Pans heads 1 to 3 from left to right. At 0 they're all in the middle.</td></tr>
+    <tr><td>PLACE</td><td>Puts heads 2 and 3 at 1:2:3, 1:1.5:2 or 1:1.33:1.67 of head 1, to drag from there.</td></tr>
+    <tr><td>NORMAL, CHROME, METAL</td><td>The loop cassette, as the deck's SD, XR and MX: how hard it can be recorded, how much treble it keeps and how much it hisses.</td></tr>
+    <tr><td>AGE</td><td>A new tape to a tired one: less treble, more hiss, and dropouts. Dropouts are places on the loop, so the same ones come round every turn.</td></tr>
+    <tr><td>WOW+FLUT</td><td>The motor and the tape path, steady to unsteady.</td></tr>
+    <tr><td>DRIVE</td><td>How hard the loop is recorded, shown on <span class="lcd">REC LEVEL</span>. Past 0 VU the tape saturates.</td></tr>
+    <tr><td>LENGTH</td><td>10, 20, 30 or 60 s of tape (at 1⅞ ips). A slower RATE makes the loop last longer.</td></tr>
+    <tr><td>ERASE</td><td>Off: nothing is wiped, so what's on the loop comes round again a turn later, a little quieter, under whatever is new. This is sound on sound.</td></tr>
+    <tr><td>SPLICE TICK</td><td>The join in the loop, heard as it passes a head, once a turn.</td></tr>
+    <tr><td>HOLD</td><td>Stops recording onto the loop, and stops erasing. What's on it keeps going round. Press it again to record.</td></tr>
+  </tbody>
+</table>
+<p>An echo saved with a deck from before the cassette loop comes back as one head at its old time, with its feedback, tone and wow. Presets are kept in <span class="lcd">Documents/TapeFour/Presets/Tape Echo</span>.</p>
 
 <h2>Hardware synths</h2>
 <figure><img src="images/chain_external.png" alt="An external instrument block selected"><figcaption><b>An external instrument</b>, on a USB MIDI interface.</figcaption></figure>

@@ -11,6 +11,7 @@
 #include "FmDrumsPanel.h"
 #include "StepPanel.h"
 #include "NymphesPanel.h"
+#include "TapeEchoPanel.h"
 
 namespace tf
 {
@@ -272,6 +273,15 @@ public:
                 return std::unique_ptr<juce::Component> (std::move (e));
             }, 560);
         };
+        tf::echo::Processor::editorFactory = [] (tf::echo::Processor& p) -> juce::AudioProcessorEditor*
+        {
+            return new tf::InstrumentEditor (p, p, "TF TAPE ECHO", [&p] (tf::InstrumentEditor::Say say)
+            {
+                auto e = std::make_unique<tf::TapeEchoPanel> (p);
+                e->onMessage = say;
+                return std::unique_ptr<juce::Component> (std::move (e));
+            }, tf::TapeEchoPanel::panelHeight + 56, tf::TapeEchoPanel::panelWidth + 28);
+        };
         tf::nym::Processor::editorFactory = [] (tf::nym::Processor& p) -> juce::AudioProcessorEditor*
         {
             return new tf::InstrumentEditor (p, p, "TF NYMPHES", [&p] (tf::InstrumentEditor::Say say)
@@ -345,6 +355,50 @@ public:
                 ok = os != nullptr && png.writeImageToStream (img, *os);
             }
             p.setPlaying (false);
+            setApplicationReturnValue (ok ? 0 : 1);
+            quit();
+            return;
+        }
+        if (commandLine.contains ("--render-echo"))
+        {
+            // for the manual: TF TAPE ECHO's window, a phrase gone round the loop a few times
+            auto args = juce::StringArray::fromTokens (commandLine, true);
+            auto folder = juce::File::getCurrentWorkingDirectory().getChildFile (args[args.indexOf ("--render-echo") + 1].unquoted());
+            folder.createDirectory();
+            tf::echo::Processor p;
+            p.setHeadOn (1, true);
+            p.setHeadPos (1, 0.2625);
+            p.setHeadPos (2, 6.3);
+            p.set ("intensity", 0.62f);
+            p.set ("treble", -3.0f);
+            p.prepareToPlay (48000.0, 512);
+            juce::AudioBuffer<float> b (2, 512);
+            juce::MidiBuffer m;
+            juce::Random rnd (3);
+            for (int k = 0; k < 48000 * 21 / 512; ++k)
+            {
+                b.clear();
+                if ((k / 20) % 6 == 0)   // bursts of a chord, now and then
+                    for (int i = 0; i < 512; ++i)
+                    {
+                        const double t = (k * 512 + i) / 48000.0;
+                        const float v = 0.25f * (float) (std::sin (t * 2 * 3.14159 * 220.0) + std::sin (t * 2 * 3.14159 * 277.0) + 0.5 * std::sin (t * 2 * 3.14159 * 330.0));
+                        b.setSample (0, i, v);
+                        b.setSample (1, i, v);
+                    }
+                p.processBlock (b, m);
+            }
+            std::unique_ptr<juce::AudioProcessorEditor> ed (p.createEditor());
+            bool ok = ed != nullptr;
+            if (ok)
+            {
+                const auto img = ed->createComponentSnapshot (ed->getLocalBounds(), true, 2.0f);
+                juce::PNGImageFormat png;
+                auto f = folder.getChildFile ("echo_window.png");
+                f.deleteFile();
+                std::unique_ptr<juce::OutputStream> os (f.createOutputStream());
+                ok = os != nullptr && png.writeImageToStream (img, *os);
+            }
             setApplicationReturnValue (ok ? 0 : 1);
             quit();
             return;
