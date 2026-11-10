@@ -383,6 +383,15 @@ juce::String MidiHub::outputLabel (int slot) const
     return (o.alias.isNotEmpty() ? o.alias : o.name).toUpperCase();
 }
 
+void MidiHub::sendNow (int slot, const juce::MidiMessage& m)
+{
+    if (! outputExists (slot)) return;
+    if (sendNowTap) sendNowTap (slot, m);
+    auto& o = *out[slot];
+    const juce::ScopedLock sl (o.lock);
+    if (o.device != nullptr) o.device->sendMessageNow (m);
+}
+
 void MidiHub::allNotesOffNow (int slot)
 {
     if (! outputExists (slot)) return;

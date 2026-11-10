@@ -137,13 +137,57 @@ public:
         mmc.setTooltip ("Play, stop, record, rewind and fast-forward buttons that send MIDI Machine Control move the tape, with no learning needed");
         addAndMakeVisible (mmc);
 
+        // ---- Mackie Control ----
+        for (auto* c : { &surfaceIn, &surfaceOut })
+        {
+            c->onChange = [this]
+            {
+                auto slotOf = [] (juce::ComboBox& box, const std::vector<int>& slots)
+                { const int i = box.getSelectedItemIndex() - 1; return juce::isPositiveAndBelow (i, (int) slots.size()) ? slots[(size_t) i] : -1; };
+                const int in = slotOf (surfaceIn, surfaceInSlots), out = slotOf (surfaceOut, surfaceOutSlots);
+                juce::MessageManager::callAsync ([&eng = engine, in, out] { eng.setMackie (in, out); });
+            };
+            addAndMakeVisible (c);
+        }
+        style (surfaceInLabel, Pal::muted, 15.0f);
+        style (surfaceOutLabel, Pal::muted, 15.0f);
+        style (monitor, Pal::lcdText, 15.0f);
+        style (monitorLabel, Pal::muted, 15.0f);
+        style (mackieNote, Pal::faint, 15.0f);
+        mackieNote.setJustificationType (juce::Justification::topLeft);
+        mackieNote.setText ("Strips 1-4 are tracks 1-4 (fader, pan, REC arms, SOLO, MUTE); the master fader is the master; the transport keys "
+                            "move the tape. Strips 5-8 and the jog dial are free: learn them to anything. On a TASCAM Model 12: MENU > DAW CONTROLLER, "
+                            "MCU - Reaper, and set the computer's return to TO MAIN (SYSTEM > USB AUDIO) so every input still records.",
+                            juce::dontSendNotification);
+        for (auto* c : std::initializer_list<juce::Component*> { &surfaceInLabel, &surfaceOutLabel, &monitor, &monitorLabel, &mackieNote })
+            addAndMakeVisible (c);
+        const MidiMapper::Control marks[] { MidiMapper::Control::markAdd, MidiMapper::Control::markPrev, MidiMapper::Control::markNext };
+        for (int i = 0; i < 3; ++i)
+        {
+            markKeys[i].setTooltip ("Learn which key on the surface does this (press this, then the key)");
+            markKeys[i].onClick = [this, c = marks[i]]
+            {
+                MidiMapper::Target t;
+                t.control = c;
+                engine.mapper.beginLearn (t);
+                refreshMarkKeys();
+            };
+            style (markLabels[i], Pal::muted, 15.0f);
+            addAndMakeVisible (markKeys[i]);
+            addAndMakeVisible (markLabels[i]);
+        }
+        markLabels[0].setText ("ADD MARK", juce::dontSendNotification);
+        markLabels[1].setText ("PREVIOUS", juce::dontSendNotification);
+        markLabels[2].setText ("NEXT", juce::dontSendNotification);
+
         rebuild();
-        startTimer (1000);
+        startTimer (200);
     }
 
     int preferredHeight() const
     {
         return 12 + 34 + 26 + (int) inRows.size() * 36 + 40 + 34 + 26 + std::max (1, (int) outRows.size()) * 36 + 40
+               + 34 + 36 * 3 + 36 + 60 + 24
                + 34 + 36 + 26 + std::max (1, (int) mapRows.size()) * 34 + 40 + 34 + 36 + 70 + 12;
     }
     std::function<void()> onPreferredHeightChanged;
@@ -214,6 +258,30 @@ public:
             noOutputs.setBounds (r.removeFromTop (32).withTrimmedLeft (60));
         r.removeFromTop (10);
 
+        r.removeFromTop (14);
+        heading ("MACKIE CONTROL SURFACE");
+        {
+            auto line = r.removeFromTop (32);
+            surfaceInLabel.setBounds (line.removeFromLeft (110));
+            surfaceIn.setBounds (line.removeFromLeft (300).reduced (0, 2));
+            line.removeFromLeft (24);
+            surfaceOutLabel.setBounds (line.removeFromLeft (80));
+            surfaceOut.setBounds (line.removeFromLeft (300).reduced (0, 2));
+            r.removeFromTop (4);
+            line = r.removeFromTop (32);
+            monitorLabel.setBounds (line.removeFromLeft (110));
+            monitor.setBounds (line);
+            r.removeFromTop (4);
+            line = r.removeFromTop (32);
+            for (int i = 0; i < 3; ++i)
+            {
+                markLabels[i].setBounds (line.removeFromLeft (i == 0 ? 110 : 86));
+                markKeys[i].setBounds (line.removeFromLeft (120).reduced (0, 2));
+                line.removeFromLeft (24);
+            }
+            r.removeFromTop (4);
+            mackieNote.setBounds (r.removeFromTop (60).withTrimmedLeft (0));
+        }
         r.removeFromTop (14);
         heading ("MIDI CONTROL");
         mmc.setBounds (r.removeFromTop (32));
@@ -291,11 +359,31 @@ private:
         for (auto& i : engine.getMidiInputs())  sig << "i" << i.slot << i.id << (int) i.available;
         for (auto& o : engine.getMidiOutputs()) sig << "o" << o.slot << o.id << (int) o.available;
         for (auto& m : engine.mapper.getMappings()) sig << "m" << m.id << (int) m.pickup << (int) m.passThrough << m.paramName;
+        sig << "k" << engine.mapper.mackieInput() << ":" << engine.mapper.mackieOutput() << ":" << engine.mapper.changes.load();
         return sig;
+    }
+
+    void refreshMarkKeys()
+    {
+        const MidiMapper::Control marks[] { MidiMapper::Control::markAdd, MidiMapper::Control::markPrev, MidiMapper::Control::markNext };
+        const auto learning = engine.mapper.isLearning() ? engine.mapper.getLearnTarget() : MidiMapper::Target {};
+        for (int i = 0; i < 3; ++i)
+        {
+            MidiMapper::Target t;
+            t.control = marks[i];
+            const bool now = engine.mapper.isLearning() && learning == t;
+            const auto key = engine.mapper.labelFor (t);
+            markKeys[i].setButtonText (now ? juce::String ("PRESS THE KEY") : key.isNotEmpty() ? "NOTE " + key : juce::String ("LEARN"));
+        }
     }
 
     void timerCallback() override
     {
+        // The surface's monitor and the mark keys, five times a second.
+        monitor.setText (MidiMapper::describeMackieMessage (engine.mapper.mackieLast.load()), juce::dontSendNotification);
+        refreshMarkKeys();
+        if (++ticks % 5 != 0) return;
+
         // Pick up controllers and synths plugged in while the window is open,
         // but never pull the rows out from under someone typing.
         if (auto* f = juce::Component::getCurrentlyFocusedComponent(); f != nullptr && isParentOf (f))
@@ -387,6 +475,29 @@ private:
                 addAndMakeVisible (c);
             outRows.push_back (std::move (row));
         }
+        // the surface's ports
+        surfaceIn.clear (juce::dontSendNotification);
+        surfaceOut.clear (juce::dontSendNotification);
+        surfaceInSlots.clear();
+        surfaceOutSlots.clear();
+        surfaceIn.addItem ("None", 1);
+        surfaceOut.addItem ("None", 1);
+        for (auto& d : engine.getMidiInputs())
+        {
+            if (d.slot == MidiHub::computerKeyboard) continue;
+            surfaceInSlots.push_back (d.slot);
+            surfaceIn.addItem (d.name + (d.available ? juce::String() : juce::String (" (not connected)")), (int) surfaceInSlots.size() + 1);
+            if (d.slot == engine.mapper.mackieInput()) surfaceIn.setSelectedId ((int) surfaceInSlots.size() + 1, juce::dontSendNotification);
+        }
+        for (auto& d : engine.getMidiOutputs())
+        {
+            surfaceOutSlots.push_back (d.slot);
+            surfaceOut.addItem (d.name + (d.available ? juce::String() : juce::String (" (not connected)")), (int) surfaceOutSlots.size() + 1);
+            if (d.slot == engine.mapper.mackieOutput()) surfaceOut.setSelectedId ((int) surfaceOutSlots.size() + 1, juce::dontSendNotification);
+        }
+        if (engine.mapper.mackieInput() < 0) surfaceIn.setSelectedId (1, juce::dontSendNotification);
+        if (engine.mapper.mackieOutput() < 0) surfaceOut.setSelectedId (1, juce::dontSendNotification);
+
         mapRows.clear();
         for (auto& m : engine.mapper.getMappings())
         {
@@ -455,6 +566,12 @@ private:
     juce::ToggleButton recall { "Recall the deck with each tape" };
     std::vector<Heading> headings, columns;
     juce::String lastSignature;
+    int ticks = 0;
+    juce::ComboBox surfaceIn, surfaceOut;
+    std::vector<int> surfaceInSlots, surfaceOutSlots;
+    juce::Label surfaceInLabel { {}, "SURFACE IN" }, surfaceOutLabel { {}, "OUT" }, monitorLabel { {}, "LAST KEY" }, monitor, mackieNote;
+    juce::TextButton markKeys[3];
+    juce::Label markLabels[3];
 };
 
 //==============================================================================

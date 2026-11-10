@@ -439,6 +439,8 @@ void DeckComponent::timerCallback()
     auto pos = tape != nullptr ? tape->position.load() : 0.0;
 
     cassette.update (tape, pos);
+    followLocate (mode);
+    engine.updateMackie ((int) mode);
 
     if (engine.tapeEngine.takeEndOfTapeFlag()) say ("END OF TAPE", 4.0);
     if (engine.tapeEngine.takeNoArmFlag())     say ("ARM A TRACK FIRST");
@@ -1430,6 +1432,7 @@ void DeckComponent::openInlay()
         inlayThumb.repaint();
     };
     // Centre the card itself; the close button hangs off to its right.
+    openCard = card.get();
     showOverlay (std::move (card), juce::Rectangle<int> (InlayCard::totalW, InlayCard::cardH + 14)
                                        .withCentre ({ designWidth / 2 + (InlayCard::gap + InlayCard::closeW) / 2, designHeight / 2 }));
     overlay->cardShadow = false;

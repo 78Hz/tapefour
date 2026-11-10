@@ -1748,6 +1748,125 @@ int main()
         check (m.engine->mapper.getMappings().size() == count, "learn: deck mappings come back after a restart", (double) m.engine->mapper.getMappings().size(), (double) count);
     }
 
+    // ---- Mackie Control (a TASCAM Model 12 in MCU - Reaper) ----
+    {
+        Rig m;
+        auto& me = *m.engine;
+        auto surface = me.addVirtualMidiInput ("Model 12 DAW Control");
+        auto lights = me.addVirtualMidiOutput ("Model 12 DAW Control out");
+        me.setMackie (surface, lights);
+        auto send = [&] (const juce::MidiMessage& msg) { me.injectMidi (msg, surface); m.run (0.03); };
+        auto press = [&] (int note) { send (juce::MidiMessage::noteOn (1, note, (juce::uint8) 127)); send (juce::MidiMessage::noteOn (1, note, (juce::uint8) 0)); };
+
+        // Fader 3 is track 3's: pitch bend on channel 3, 14-bit, with pickup.
+        me.track[2].fader = 0.5f;
+        send (juce::MidiMessage::pitchWheel (3, 2000));
+        check (std::abs (me.track[2].fader.load() - 0.5f) < 1e-4f, "Mackie: a fader away from track 3's doesn't make it jump", me.track[2].fader.load(), 0.5);
+        send (juce::MidiMessage::pitchWheel (3, 12000));
+        send (juce::MidiMessage::pitchWheel (3, 11000));
+        check (std::abs (me.track[2].fader.load() - 11000.0f / 16383.0f) < 1e-3f, "Mackie: once past it, fader 3 moves track 3's fader", me.track[2].fader.load(), 11000.0 / 16383.0);
+        me.masterFader = 0.3f;
+        send (juce::MidiMessage::pitchWheel (9, 4900));
+        send (juce::MidiMessage::pitchWheel (9, 5000));
+        check (std::abs (me.masterFader.load() - 5000.0f / 16383.0f) < 1e-3f, "Mackie: the master fader (channel 9) is the master", me.masterFader.load(), 5000.0 / 16383.0);
+
+        // Pan: V-pot steps (sign and magnitude); a pot sending positions is taken as one.
+        me.track[0].pan = 0.0f;
+        for (int i = 0; i < 5; ++i) send (juce::MidiMessage::controllerEvent (1, 0x10, 0x41));
+        check (me.track[0].pan.load() < -0.05f, "Mackie: V-pot 1 turned left pans track 1 left", me.track[0].pan.load(), -0.1);
+        me.track[1].pan = 0.0f;
+        send (juce::MidiMessage::controllerEvent (1, 0x11, 64));   // a position: the middle
+        send (juce::MidiMessage::controllerEvent (1, 0x11, 30));    // (picked up as it passes the middle)
+        send (juce::MidiMessage::controllerEvent (1, 0x11, 127));
+        check (me.track[1].pan.load() > 0.9f, "Mackie: a pan pot sending positions moves track 2's pan to where it is", me.track[1].pan.load(), 1.0);
+
+        // REC, SOLO, MUTE; the transport.
+        press (0x00 + 1);
+        press (0x08 + 3);
+        press (0x10 + 0);
+        check (me.track[1].armed.load() && me.track[3].solo.load() && me.track[0].mute.load(), "Mackie: REC 2 arms track 2, SOLO 4 solos track 4, MUTE 1 mutes track 1", 1, 1);
+        me.remoteCommand = 0;
+        press (0x5e);
+        check (me.remoteCommand.load() == (int) MidiMapper::Control::play + 1, "Mackie: PLAY plays", me.remoteCommand.load(), (int) MidiMapper::Control::play + 1);
+        me.remoteCommand = 0;
+        press (MidiMapper::mcuMarker);
+        check (me.remoteCommand.load() == (int) MidiMapper::Control::markAdd + 1, "Mackie: MARKER adds a mark", me.remoteCommand.load(), (int) MidiMapper::Control::markAdd + 1);
+
+        // Nothing from the surface plays the tracks; strip 5 is free to learn.
+        auto counter = std::make_unique<CcCounter>();
+        auto* counted = counter.get();
+        me.insertBlock (0, -1, std::make_unique<ProcessorBlock> (std::move (counter), ProcessorBlock::Kind::hosted));
+        me.track[0].armed = true;
+        send (juce::MidiMessage::controllerEvent (1, 0x14, 1));
+        send (juce::MidiMessage::controllerEvent (1, 0x3c, 1));
+        check (counted->ccs.load() == 0, "Mackie: the surface's own MIDI (V-pot 5, the jog dial) doesn't reach the instruments", counted->ccs.load(), 0);
+        MidiMapper::Target phones; phones.control = MidiMapper::Control::phones;
+        me.mapper.beginLearn (phones);
+        m.run (0.02);
+        send (juce::MidiMessage::pitchWheel (5, 3000));
+        send (juce::MidiMessage::pitchWheel (5, 3100));
+        for (int i = 0; i < 40 && me.mapper.isLearning(); ++i) { juce::Thread::sleep (10); m.run (0.01); me.mapper.poll(); }
+        me.phones = 0.18f;
+        send (juce::MidiMessage::pitchWheel (5, 3000));
+        send (juce::MidiMessage::pitchWheel (5, 9000));
+        check (std::abs (me.phones.load() - 9000.0f / 16383.0f) < 1e-3f, "Mackie: fader 5 learned to the phones level", me.phones.load(), 9000.0 / 16383.0);
+        check (me.mapper.getMappings().size() == 1, "Mackie: its own mappings aren't listed or saved, only what's learned", (double) me.mapper.getMappings().size(), 1);
+
+        // A learned key takes over from the built-in one (the MARKER keys may be other notes on a surface).
+        MidiMapper::Target next; next.control = MidiMapper::Control::markNext;
+        me.mapper.beginLearn (next);
+        m.run (0.02);
+        send (juce::MidiMessage::noteOn (1, 0x57, (juce::uint8) 127));
+        for (int i = 0; i < 40 && me.mapper.isLearning(); ++i) { juce::Thread::sleep (10); m.run (0.01); me.mapper.poll(); }
+        send (juce::MidiMessage::noteOn (1, 0x57, (juce::uint8) 0));
+        me.remoteCommand = 0;
+        press (0x57);
+        const bool learnedNext = me.remoteCommand.load() == (int) MidiMapper::Control::markNext + 1;
+        me.remoteCommand = 0;
+        press (MidiMapper::mcuRight);
+        check (learnedNext && me.remoteCommand.load() == 0, "Mackie: NEXT MARK learned to another key; the old one is free", learnedNext, 1);
+
+        // The lights: REC, SOLO, MUTE and the transport as the deck is.
+        std::map<int, int> lit;
+        me.midi.sendNowTap = [&] (int slot, const juce::MidiMessage& msg) { if (slot == lights && msg.isNoteOnOrOff()) lit[msg.getNoteNumber()] = msg.getVelocity(); };
+        me.updateMackie ((int) Mode::stop);
+        check (lit[0x00 + 1] == 127 && lit[0x08 + 3] == 127 && lit[0x10 + 0] == 127 && lit[0x10 + 1] == 0 && lit[MidiMapper::mcuStop] == 127 && lit[MidiMapper::mcuPlay] == 0,
+               "Mackie: the surface's keys light as the deck is (REC 2, SOLO 4, MUTE 1, STOP)", (double) lit.size(), 17);
+        lit.clear();
+        me.updateMackie ((int) Mode::stop);
+        check (lit.empty(), "Mackie: only changes are sent", (double) lit.size(), 0);
+        me.updateMackie ((int) Mode::play);
+        check (lit.size() == 2 && lit[MidiMapper::mcuPlay] == 127 && lit[MidiMapper::mcuStop] == 0, "Mackie: playing lights PLAY, unlights STOP", (double) lit.size(), 2);
+        me.midi.sendNowTap = nullptr;
+
+        // The choice of surface is kept.
+        me.saveSettings();
+        m.engine.reset();
+        m.engine = std::make_unique<AudioEngine> (*m.props);
+        check (m.engine->mapper.mackieInput() == surface && m.engine->mapper.mackieOutput() == lights && m.engine->mapper.getMappings (true).size() > 20,
+               "Mackie: the surface comes back after a restart", m.engine->mapper.mackieInput(), surface);
+    }
+
+    // ---- The inlay's marks ----
+    {
+        juce::StringArray sheet;
+        Inlay::addMark (sheet, 300, false, "chorus");
+        Inlay::addMark (sheet, 120, false, "verse");
+        sheet.set (Inlay::songName (4), "written by hand");
+        const int at = Inlay::addMark (sheet, 200, false, "mark");
+        check (at == 1 && sheet[Inlay::songCounter (0)] == "120" && sheet[Inlay::songCounter (1)] == "200" && sheet[Inlay::songCounter (2)] == "300"
+               && sheet[Inlay::songName (2)] == "chorus" && sheet[Inlay::songName (5)] == "written by hand",
+               "marks: written on the song list in counter order; what's written by hand stays (moved down a row)", at, 1);
+        check (Inlay::addMark (sheet, 200, false, "x") == -2, "marks: the same number isn't written twice", 0, 0);
+        check (Inlay::findMark (sheet, 250.0, -1) == 200 && Inlay::findMark (sheet, 200.4, -1) == 120 && Inlay::findMark (sheet, 250.0, +1) == 300
+               && Inlay::findMark (sheet, 350.0, +1) == -1,
+               "marks: previous (a mark just passed doesn't count) and next", Inlay::findMark (sheet, 200.4, -1), 120);
+        Inlay::addMark (sheet, 125, true, "rt");
+        check (Inlay::parseCounter ("2:05") == 125 && sheet.contains ("2:05"), "marks: a real-time counter's marks are minutes and seconds", Inlay::parseCounter ("2:05"), 125);
+        for (int v = 400; v < 410; ++v) Inlay::addMark (sheet, v, false, "m");
+        check (Inlay::addMark (sheet, 500, false, "m") == -1, "marks: a full song list says so", 0, 0);
+    }
+
     // ---- Plug-in parameter mappings travel with the deck ----
     {
         Rig m;

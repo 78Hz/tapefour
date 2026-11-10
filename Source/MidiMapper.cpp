@@ -5,7 +5,8 @@ namespace tf
 namespace
 {
     const char* controlIds[] { "gain", "high", "mid", "freq", "low", "pan", "fader", "mute", "solo", "arm",
-                               "masterFader", "phones", "pitch", "speed", "nr", "play", "stop", "rec", "rew", "ff", "rtz" };
+                               "masterFader", "phones", "pitch", "speed", "nr", "play", "stop", "rec", "rew", "ff", "rtz",
+                               "markAdd", "markPrev", "markNext" };
     const char* modeIds[] { "absolute", "relTwos", "relOffset", "relSign", "toggle" };
     const char* msgIds[] { "cc", "cc14", "note", "bend" };
     /** Messages of one family can't share a number and channel: a note, a CC (7- or 14-bit), pitch bend. */
@@ -44,6 +45,9 @@ juce::String MidiMapper::controlName (Control c)
         case Control::rew: return "REW";
         case Control::ff: return "F.FWD";
         case Control::rtz: return "RTZ";
+        case Control::markAdd: return "ADD MARK";
+        case Control::markPrev: return "PREVIOUS MARK";
+        case Control::markNext: return "NEXT MARK";
         case Control::numControls: default: break;
     }
     return {};
@@ -56,10 +60,119 @@ MidiMapper::MidiMapper (MidiHub& h) : hub (h)
 }
 
 //==============================================================================
-std::vector<MidiMapper::Mapping> MidiMapper::getMappings() const
+std::vector<MidiMapper::Mapping> MidiMapper::getMappings (bool withBuiltIn) const
 {
     const juce::SpinLock::ScopedLockType sl (lock);
-    return mappings;
+    std::vector<Mapping> v;
+    for (auto& m : mappings) if (withBuiltIn || ! m.builtIn) v.push_back (m);
+    return v;
+}
+
+//==============================================================================
+void MidiMapper::setMackie (int inputSlot, int outputSlot)
+{
+    ++changes;
+    mackieChosen = true;
+    mackieIn = inputSlot;
+    mackieOut = outputSlot;
+    const juce::SpinLock::ScopedLockType sl (lock);
+    rebuildMackieLocked();
+}
+
+void MidiMapper::rebuildMackieLocked()
+{
+    mappings.erase (std::remove_if (mappings.begin(), mappings.end(), [] (const Mapping& m) { return m.builtIn; }), mappings.end());
+    const int slot = mackieIn.load();
+    if (slot < 0) return;
+
+    auto add = [&] (Msg msg, int channel, int number, Control control, int track, Mode mode)
+    {
+        Mapping m;
+        m.builtIn = true;
+        m.slot = slot;
+        m.channel = channel;
+        m.msg = msg;
+        m.number = number;
+        m.mode = mode;
+        m.target.control = control;
+        m.target.track = track;
+        m.pickup = mode == Mode::absolute;   // the Model 12's faders aren't motorised
+        m.autoAbsolute = msg == Msg::cc;
+        // A learned mapping on the same message, or to the same control, wins.
+        for (auto& o : mappings)
+            if (! o.builtIn && (o.target == m.target || (o.slot == slot && o.channel == channel && o.number == number && family (o.msg) == family (msg))))
+                return;
+        m.id = nextId++;
+        if (mappings.size() < mappings.capacity()) mappings.push_back (m);
+    };
+    for (int t = 0; t < numTracks; ++t)
+    {
+        add (Msg::bend, t + 1, 0, Control::fader, t, Mode::absolute);
+        add (Msg::cc, 1, mcuVpot + t, Control::pan, t, Mode::relSign);
+        add (Msg::note, 1, mcuRec + t, Control::arm, t, Mode::toggle);
+        add (Msg::note, 1, mcuSolo + t, Control::solo, t, Mode::toggle);
+        add (Msg::note, 1, mcuMute + t, Control::mute, t, Mode::toggle);
+    }
+    add (Msg::bend, mcuMasterChannel, 0, Control::masterFader, -1, Mode::absolute);
+    add (Msg::note, 1, mcuRew, Control::rew, -1, Mode::toggle);
+    add (Msg::note, 1, mcuFf, Control::ff, -1, Mode::toggle);
+    add (Msg::note, 1, mcuStop, Control::stop, -1, Mode::toggle);
+    add (Msg::note, 1, mcuPlay, Control::play, -1, Mode::toggle);
+    add (Msg::note, 1, mcuRecord, Control::rec, -1, Mode::toggle);
+    add (Msg::note, 1, mcuMarker, Control::markAdd, -1, Mode::toggle);
+    add (Msg::note, 1, mcuLeft, Control::markPrev, -1, Mode::toggle);
+    add (Msg::note, 1, mcuRight, Control::markNext, -1, Mode::toggle);
+}
+
+juce::String MidiMapper::describeMackieMessage (int packed)
+{
+    if (packed < 0) return "-";
+    const int status = (packed >> 16) & 0xff, d1 = (packed >> 8) & 0xff, d2 = packed & 0xff;
+    const int type = status & 0xf0, ch = (status & 0x0f) + 1;
+    const juce::String chText = ch != 1 ? " CH" + juce::String (ch) : juce::String();
+    if (type == 0xe0)
+    {
+        const int v = (d2 << 7) | d1;
+        return "PITCH BEND CH" + juce::String (ch) + " " + juce::String (v) + (ch <= 8 ? " (FADER " + juce::String (ch) + ")" : ch == mcuMasterChannel ? juce::String (" (MASTER)") : juce::String());
+    }
+    if (type == 0xb0)
+    {
+        juce::String what;
+        if (d1 >= 0x10 && d1 <= 0x17) what = " (V-POT " + juce::String (d1 - 0x0f) + ")";
+        if (d1 == 0x3c) what = " (JOG)";
+        return "CC " + juce::String (d1) + " = " + juce::String (d2) + chText + what;
+    }
+    if (type == 0x90 || type == 0x80)
+    {
+        juce::String what;
+        if (d1 <= 0x07) what = "REC " + juce::String (d1 + 1);
+        else if (d1 <= 0x0f) what = "SOLO " + juce::String (d1 - 7);
+        else if (d1 <= 0x17) what = "MUTE " + juce::String (d1 - 15);
+        else if (d1 <= 0x1f) what = "SELECT " + juce::String (d1 - 23);
+        else if (d1 <= 0x27) what = "V-POT PUSH " + juce::String (d1 - 31);
+        else if (d1 == 0x2e) what = "BANK LEFT";
+        else if (d1 == 0x2f) what = "BANK RIGHT";
+        else if (d1 == 0x30) what = "CHANNEL LEFT";
+        else if (d1 == 0x31) what = "CHANNEL RIGHT";
+        else if (d1 >= 0x36 && d1 <= 0x3d) what = "F" + juce::String (d1 - 0x35);
+        else if (d1 == mcuMarker) what = "MARKER";
+        else if (d1 == 0x55) what = "NUDGE";
+        else if (d1 == 0x56) what = "CYCLE";
+        else if (d1 == mcuRew) what = "REWIND";
+        else if (d1 == mcuFf) what = "FAST FWD";
+        else if (d1 == mcuStop) what = "STOP";
+        else if (d1 == mcuPlay) what = "PLAY";
+        else if (d1 == mcuRecord) what = "RECORD";
+        else if (d1 == 0x60) what = "UP";
+        else if (d1 == 0x61) what = "DOWN";
+        else if (d1 == mcuLeft) what = "LEFT";
+        else if (d1 == mcuRight) what = "RIGHT";
+        else if (d1 >= 0x68 && d1 <= 0x6f) what = "FADER " + juce::String (d1 - 0x67) + " TOUCH";
+        else if (d1 == 0x70) what = "MASTER TOUCH";
+        const bool down = type == 0x90 && d2 > 0;
+        return "NOTE " + juce::String (d1) + (down ? " DOWN" : " UP") + chText + (what.isNotEmpty() ? " (" + what + ")" : juce::String());
+    }
+    return juce::String::toHexString (status);
 }
 
 void MidiMapper::remove (int id)
@@ -67,13 +180,15 @@ void MidiMapper::remove (int id)
     ++changes;
     const juce::SpinLock::ScopedLockType sl (lock);
     mappings.erase (std::remove_if (mappings.begin(), mappings.end(), [id] (const Mapping& m) { return m.id == id; }), mappings.end());
+    rebuildMackieLocked();
 }
 
 void MidiMapper::removeForTarget (const Target& t)
 {
     ++changes;
     const juce::SpinLock::ScopedLockType sl (lock);
-    mappings.erase (std::remove_if (mappings.begin(), mappings.end(), [&t] (const Mapping& m) { return m.target == t; }), mappings.end());
+    mappings.erase (std::remove_if (mappings.begin(), mappings.end(), [&t] (const Mapping& m) { return m.target == t && ! m.builtIn; }), mappings.end());
+    rebuildMackieLocked();
 }
 
 void MidiMapper::forgetBlock (int track, int blockId)
@@ -244,6 +359,8 @@ void MidiMapper::poll()
             else if ((v >= 1 && v <= 3) || (v >= 125 && v <= 127))       m.mode = Mode::relTwos;
             else if (v >= 65 && v <= 67)                                m.mode = Mode::relSign;
         }
+        // Mackie V-pots and the jog dial: sign and magnitude, whichever way they were first turned.
+        if (m.slot == mackieIn.load() && (m.mode == Mode::relTwos || m.mode == Mode::relOffset)) m.mode = Mode::relSign;
         if (m.mode != Mode::absolute) m.pickup = false;
     }
 
@@ -297,9 +414,17 @@ std::unique_ptr<juce::XmlElement> MidiMapper::createDeckState() const
 {
     auto x = std::make_unique<juce::XmlElement> ("MIDI_MAPS");
     x->setAttribute ("mmc", followMmc.load());
+    if (mackieChosen)
+    {
+        auto* mx = x->createNewChildElement ("MACKIE");
+        mx->setAttribute ("inId", hub.inputId (mackieIn.load()));
+        mx->setAttribute ("inName", hub.inputName (mackieIn.load()));
+        mx->setAttribute ("outId", hub.outputId (mackieOut.load()));
+        mx->setAttribute ("outName", hub.outputName (mackieOut.load()));
+    }
     const juce::SpinLock::ScopedLockType sl (lock);
     for (auto& m : mappings)
-        if (! m.target.plugin)
+        if (! m.target.plugin && ! m.builtIn)
             x->addChildElement (mappingXml (m).release());
     return x;
 }
@@ -312,6 +437,13 @@ void MidiMapper::restoreDeckState (const juce::XmlElement* maps)
     }
     if (maps == nullptr) return;
     followMmc = maps->getBoolAttribute ("mmc", true);
+    if (auto* mx = maps->getChildByName ("MACKIE"))
+    {
+        mackieChosen = true;
+        const auto inId = mx->getStringAttribute ("inId"), outId = mx->getStringAttribute ("outId");
+        mackieIn = inId.isEmpty() ? -1 : hub.findOrCreateInput (inId, mx->getStringAttribute ("inName"));
+        mackieOut = outId.isEmpty() ? -1 : hub.findOrCreateOutput (outId, mx->getStringAttribute ("outName"));
+    }
     for (auto* x : maps->getChildWithTagNameIterator ("MAP"))
     {
         Mapping m;
@@ -322,6 +454,8 @@ void MidiMapper::restoreDeckState (const juce::XmlElement* maps)
         m.target.track = isPerTrack (m.target.control) ? juce::jlimit (0, numTracks - 1, x->getIntAttribute ("track")) : -1;
         addMapping (m);
     }
+    const juce::SpinLock::ScopedLockType sl (lock);
+    rebuildMackieLocked();
 }
 
 void MidiMapper::writeBlockMappings (juce::XmlElement& block, int track, int blockId) const
@@ -369,6 +503,13 @@ void MidiMapper::apply (Mapping& m, int value, int range, Sink& sink) noexcept
         return;
     }
 
+    // A Mackie V-pot sends steps of 1-15; a pot sending larger numbers is sending where it is.
+    if (m.autoAbsolute && m.mode == Mode::relSign && range == 127 && (value & 63) > 15)
+    {
+        m.mode = Mode::absolute;
+        m.pickup = true;
+    }
+
     const auto current = sink.getValue (m.target, m.param);
     float v;
     if (m.mode == Mode::absolute)
@@ -406,6 +547,34 @@ void MidiMapper::apply (Mapping& m, int value, int range, Sink& sink) noexcept
     sink.setValue (m.target, m.param, v);
     m.lastSet = v;
     m.lastIn = v;
+}
+
+bool MidiMapper::matches (Mapping& m, int slot, int ch, const juce::uint8* d, Sink& sink) noexcept
+{
+    if (m.slot != slot || m.channel != ch) return false;
+    const int type = d[0] & 0xf0;
+    const bool isCc = type == 0xb0, isOn = type == 0x90 && d[2] > 0, isOff = type == 0x80 || (type == 0x90 && d[2] == 0);
+    switch (m.msg)
+    {
+        case Msg::bend:
+            if (type != 0xe0) return false;
+            apply (m, (d[2] << 7) | d[1], 16383, sink);
+            return true;
+        case Msg::note:
+            if (! (isOn || isOff) || d[1] != m.number) return false;
+            apply (m, isOn ? 127 : 0, 127, sink);
+            return true;
+        case Msg::cc:
+            if (! isCc || d[1] != m.number) return false;
+            apply (m, d[2], 127, sink);
+            return true;
+        case Msg::cc14:
+            if (! isCc) return false;
+            if (d[1] == m.number) { m.msb = d[2]; apply (m, m.msb * 128, 16383, sink); return true; }
+            if (d[1] == m.number + 32) { apply (m, m.msb * 128 + d[2], 16383, sink); return true; }
+            return false;
+    }
+    return false;
 }
 
 void MidiMapper::process (int slot, juce::MidiBuffer& buffer, Sink& sink) noexcept
@@ -466,47 +635,25 @@ void MidiMapper::process (int slot, juce::MidiBuffer& buffer, Sink& sink) noexce
             }
             else if (isCc || isOn || isOff || isBend)
             {
-                for (auto& m : mappings)
-                {
-                    if (m.slot != slot || m.channel != ch) continue;
-                    if (m.msg == Msg::bend)
-                    {
-                        if (isBend)
+                // Learned mappings first; Mackie Control's own only if none of them took it.
+                bool taken = false;
+                for (int pass = 0; pass < 2 && ! taken; ++pass)
+                    for (auto& m : mappings)
+                        if (m.builtIn == (pass == 1) && matches (m, slot, ch, d, sink))
                         {
-                            apply (m, (d[2] << 7) | d[1], 16383, sink);
-                            consumed = ! m.passThrough;
+                            taken = true;
+                            consumed = consumed || ! m.passThrough;
                         }
-                    }
-                    else if (m.msg == Msg::note)
-                    {
-                        if ((isOn || isOff) && d[1] == m.number)
-                        {
-                            apply (m, isOn ? 127 : 0, 127, sink);
-                            consumed = ! m.passThrough;
-                        }
-                    }
-                    else if (isCc)
-                    {
-                        if (m.msg == Msg::cc && d[1] == m.number)
-                        {
-                            apply (m, d[2], 127, sink);
-                            consumed = ! m.passThrough;
-                        }
-                        else if (m.msg == Msg::cc14 && d[1] == m.number)
-                        {
-                            m.msb = d[2];
-                            apply (m, m.msb * 128, 16383, sink);
-                            consumed = ! m.passThrough;
-                        }
-                        else if (m.msg == Msg::cc14 && d[1] == m.number + 32)
-                        {
-                            apply (m, m.msb * 128 + d[2], 16383, sink);
-                            consumed = ! m.passThrough;
-                        }
-                    }
-                }
+            }
+            if (slot == mackieIn.load())
+            {
+                // The surface's own MIDI is for the surface: none of it plays the tracks.
+                mackieLast = (d[0] << 16) | (d[1] << 8) | d[2];
+                consumed = true;
             }
         }
+        else if (slot == mackieIn.load())
+            consumed = true;
 
         if (consumed) removed = true;
         else          scratch.addEvent (d, meta.numBytes, meta.samplePosition);

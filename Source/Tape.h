@@ -13,6 +13,66 @@ namespace Inlay
     inline int songCounter (int i) { return songsStart + i * 2; }
     inline int songName (int i)    { return songsStart + i * 2 + 1; }
     inline int trackNote (int t)   { return tracksStart + t; }
+
+    /** A counter number written on the inlay: "145", or "2:05" (a real-time counter); -1 if none. */
+    inline int parseCounter (const juce::String& s)
+    {
+        auto t = s.trim();
+        if (t.isEmpty() || ! t.containsOnly ("0123456789:")) return -1;
+        if (t.contains (":")) return t.upToFirstOccurrenceOf (":", false, false).getIntValue() * 60 + t.fromFirstOccurrenceOf (":", false, false).getIntValue();
+        return t.getIntValue();
+    }
+    inline juce::String counterText (int value, bool realtime)
+    {
+        return realtime ? juce::String (value / 60) + ":" + juce::String (value % 60).paddedLeft ('0', 2)
+                        : juce::String (value).paddedLeft ('0', 3);
+    }
+    /** Writes a mark (a counter number and a note) on the song list, in counter order. Returns its
+        row, -1 if every row is written on, -2 if that number is already there. */
+    inline int addMark (juce::StringArray& sheet, int value, bool realtime, const juce::String& note)
+    {
+        while (sheet.size() < numFields) sheet.add ({});
+        struct Row { juce::String counter, name; };
+        std::vector<Row> rows;
+        for (int i = 0; i < numSongs; ++i) rows.push_back ({ sheet[songCounter (i)], sheet[songName (i)] });
+        for (auto& r : rows) if (parseCounter (r.counter) == value) return -2;
+        int emptyRow = -1;
+        for (int i = numSongs - 1; i >= 0; --i)
+            if (rows[(size_t) i].counter.trim().isEmpty() && rows[(size_t) i].name.trim().isEmpty()) { emptyRow = i; break; }
+        if (emptyRow < 0) return -1;
+        rows.erase (rows.begin() + emptyRow);
+        // Before the first number that's later; else after the last row written on.
+        int at = -1;
+        for (int i = 0; i < (int) rows.size() && at < 0; ++i)
+            if (parseCounter (rows[(size_t) i].counter) > value) at = i;
+        if (at < 0)
+        {
+            at = 0;
+            for (int i = 0; i < (int) rows.size(); ++i)
+                if (rows[(size_t) i].counter.trim().isNotEmpty() || rows[(size_t) i].name.trim().isNotEmpty()) at = i + 1;
+        }
+        rows.insert (rows.begin() + at, { counterText (value, realtime), note });
+        for (int i = 0; i < numSongs; ++i)
+        {
+            sheet.set (songCounter (i), rows[(size_t) i].counter);
+            sheet.set (songName (i), rows[(size_t) i].name);
+        }
+        return at;
+    }
+    /** The mark to wind to from the counter reading now: the one before (dir < 0; a mark just passed
+        doesn't count, so pressing again steps back) or after; -1 if none. Its row in *row. */
+    inline int findMark (const juce::StringArray& sheet, double now, int dir, int* row = nullptr)
+    {
+        int best = -1, bestRow = -1;
+        for (int i = 0; i < numSongs; ++i)
+        {
+            const int v = parseCounter (sheet[songCounter (i)]);
+            if (v < 0) continue;
+            if (dir < 0 ? (v < now - 1.0 && v > best) : (v > now + 0.5 && (best < 0 || v < best))) { best = v; bestRow = i; }
+        }
+        if (row != nullptr) *row = bestRow;
+        return best;
+    }
 }
 
 /** The id TAPE-FOUR's own machine writes into the cassettes it records (docs/formats/deck-v1.md). */

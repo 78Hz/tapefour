@@ -180,9 +180,65 @@ void DeckComponent::remoteControl (MidiMapper::Control c)
         case C::rew:  transport (Cmd::rew); break;
         case C::ff:   transport (Cmd::ff); break;
         case C::rtz:  transport (Cmd::rtz); break;
+        case C::markAdd:  addMark(); break;
+        case C::markPrev: locateMark (-1); break;
+        case C::markNext: locateMark (+1); break;
         case C::gain: case C::high: case C::mid: case C::freq: case C::low: case C::pan: case C::fader:
         case C::mute: case C::solo: case C::arm: case C::masterFader: case C::phones: case C::pitch:
         case C::speed: case C::nr: case C::numControls: break;   // not transport
     }
+}
+
+//==============================================================================
+void DeckComponent::addMark()
+{
+    auto* t = engine.getTape();
+    if (t == nullptr) { say ("NO TAPE - PRESS EJECT"); return; }
+    const bool realtime = engine.tapeEngine.machine.counterRealtime.load();
+    const double v = engine.tapeEngine.getCounter();
+    // What the counter shows: the wheels roll round below 000 to 999.
+    const int value = realtime ? (int) std::floor (std::abs (v)) : (((int) std::floor (v) % 1000) + 1000) % 1000;
+    const auto text = Inlay::counterText (value, realtime);
+    const int row = Inlay::addMark (t->trackSheet, value, realtime, "mark");
+    if (row == -2) { say ("MARK " + text + " IS ON THE INLAY ALREADY"); return; }
+    if (row < 0)   { say ("THE INLAY'S SONG LIST IS FULL", 3.0); return; }
+    t->markMetaChanged();
+    if (openCard != nullptr) openCard->reloadSongs();
+    inlayThumb.repaint();
+    say ("MARK " + text + " WRITTEN ON THE INLAY", 2.5);
+}
+
+void DeckComponent::locateMark (int dir)
+{
+    auto* t = engine.getTape();
+    if (t == nullptr) { say ("NO TAPE - PRESS EJECT"); return; }
+    int row = -1;
+    const int target = Inlay::findMark (t->trackSheet, engine.tapeEngine.getCounter(), dir, &row);
+    if (target < 0) { say (dir < 0 ? "NO MARK BEFORE HERE ON THE INLAY" : "NO MARK AFTER HERE ON THE INLAY"); return; }
+    const bool realtime = engine.tapeEngine.machine.counterRealtime.load();
+    locateName = Inlay::counterText (target, realtime);
+    if (auto name = t->trackSheet[Inlay::songName (row)].trim(); name.isNotEmpty()) locateName << " " << name.toUpperCase();
+    transport (dir < 0 ? TapeEngine::Command::rew : TapeEngine::Command::ff);
+    locateTarget = target;
+    locateDir = dir;
+    locateFrames = 0;
+    say ("WINDING TO " + locateName, 30.0);
+}
+
+void DeckComponent::followLocate (Mode mode)
+{
+    if (locateTarget < 0) return;
+    ++locateFrames;
+    const double v = engine.tapeEngine.getCounter();
+    const bool winding = mode == (locateDir < 0 ? Mode::rew : Mode::ff);
+    // Stop where the counter reads the mark (it shows whole numbers, rounded down).
+    if (winding && (locateDir > 0 ? v >= locateTarget + 0.05 : v <= locateTarget + 0.7))
+    {
+        locateTarget = -1;
+        transport (TapeEngine::Command::stop);
+        say ("AT " + locateName, 2.5);
+    }
+    else if (! winding && locateFrames > 6)
+        locateTarget = -1;   // stopped, played or the tape ran out: the locate is over
 }
 } // namespace tf

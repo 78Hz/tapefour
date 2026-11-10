@@ -210,6 +210,13 @@ public:
     bool isMidiPortMpe (int port) const;
     std::vector<MidiOutputInfo> getMidiOutputs();
     void setMidiOutputActive (int slot, bool active);
+
+    // ---- Mackie Control (MidiMapper::setMackie) ----
+    /** The control surface's ports (-1: none); opens them and keeps the choice. */
+    void setMackie (int inputSlot, int outputSlot);
+    /** A few times a second (message thread): finds a surface named for DAW control if none was ever
+        chosen, and lights its keys as the deck is (REC, SOLO, MUTE of tracks 1-4, the transport). */
+    void updateMackie (int transportMode);
     void setMidiOutputAlias (int slot, const juce::String& alias);
     juce::String midiOutputLabel (int slot) const { return midi.outputLabel (slot); }
 
@@ -275,6 +282,8 @@ private:
     void restoreTrackChain (int t, const juce::XmlElement& chainXml);
     void migrateOldTrack (int t, const juce::XmlElement& x);
     bool isMidiSlotInUse (int slot, bool output) const;
+    std::array<int, 128> mackieLeds;
+    int mackieLedsOut = -1, mackieTicks = 0;
     void allocateBuffers (int size);
     void prepareBlock (Block&);
     int insertBlockWithId (int t, int index, std::unique_ptr<Block> block, int id);

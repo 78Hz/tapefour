@@ -55,6 +55,9 @@ public:
     int inputBendRange (int slot) const { return juce::isPositiveAndBelow (slot, maxPorts) ? in[slot]->bendRange.load() : 48; }
     bool isOutputActive (int slot) const { return juce::isPositiveAndBelow (slot, maxPorts) && out[slot]->active.load(); }
     bool anyMpeInput() const;
+    /** Sends one message to an output straight away (a control surface's lights). Message thread. */
+    void sendNow (int slot, const juce::MidiMessage& m);
+    std::function<void (int slot, const juce::MidiMessage&)> sendNowTap;   // test hook: sees what sendNow sends
     /** Silences a synth on an output straight away (when its block goes or is bypassed). */
     void allNotesOffNow (int slot);
     void sampleRateChanged (double sampleRate);

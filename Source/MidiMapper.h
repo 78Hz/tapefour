@@ -23,6 +23,7 @@ public:
         gain, high, mid, freq, low, pan, fader, mute, solo, arm,      // per track
         masterFader, phones, pitch, speed, nr,                        // deck
         play, stop, rec, rew, ff, rtz,                                // transport
+        markAdd, markPrev, markNext,                                  // the inlay's counter marks
         numControls
     };
 
@@ -60,6 +61,8 @@ public:
         bool pickedUp = false, held = false;
         float lastIn = -1.0f, lastSet = -1.0f;
         int msb = 0;
+        bool builtIn = false;          // Mackie Control's own (not saved, not listed; a learned mapping wins)
+        bool autoAbsolute = false;     // a Mackie V-pot that turns out to send positions, not steps
     };
 
     /** What a mapping acts on; the engine implements it (audio thread). */
@@ -73,14 +76,15 @@ public:
     };
 
     static bool isSwitch (Control c)  { return c == Control::mute || c == Control::solo || c == Control::arm || c == Control::speed || c == Control::nr; }
-    static bool isCommand (Control c) { return c >= Control::play && c <= Control::rtz; }
+    static bool isCommand (Control c) { return c >= Control::play && c <= Control::markNext; }
     static bool isPerTrack (Control c) { return c <= Control::arm; }
     static juce::String controlName (Control c);
 
     explicit MidiMapper (MidiHub& hub);
 
     // ---- message thread ----
-    std::vector<Mapping> getMappings() const;
+    /** The learned mappings (and with builtIn, Mackie Control's too). */
+    std::vector<Mapping> getMappings (bool withBuiltIn = false) const;
     void remove (int id);
     void removeForTarget (const Target&);
     /** A block is going: its mappings go first, so nothing points at it. */
@@ -104,6 +108,23 @@ public:
 
     std::atomic<bool> followMmc { true };
 
+    /** Mackie Control (a control surface in MCU mode; laid out for the TASCAM Model 12's "MCU - Reaper"):
+        strips 1-4 are tracks 1-4 (fader: pitch bend; pan: V-pot; REC, SOLO, MUTE), the master fader is
+        the master, the transport keys are the transport, MARKER/F-keys add and find the inlay's marks.
+        Everything else on the surface (strips 5-8, the jog dial...) is left for MIDI learn, and nothing
+        from it reaches the tracks as notes. A learned mapping takes over from the built-in one. */
+    void setMackie (int inputSlot, int outputSlot);
+    int mackieInput() const noexcept  { return mackieIn.load(); }
+    int mackieOutput() const noexcept { return mackieOut.load(); }
+    /** Whether the ports were ever chosen (by the user or found): if not, a port named for DAW control is taken. */
+    bool mackieChosen = false;
+    /** The last message from the surface: (status << 16) | (d1 << 8) | d2, or -1. For Setup's monitor. */
+    std::atomic<int> mackieLast { -1 };
+    static juce::String describeMackieMessage (int packed);
+    // The MCU notes and controls TF-4 answers to.
+    enum : int { mcuRec = 0x00, mcuSolo = 0x08, mcuMute = 0x10, mcuVpot = 0x10, mcuMarker = 0x54, mcuRew = 0x5b, mcuFf = 0x5c,
+                 mcuStop = 0x5d, mcuPlay = 0x5e, mcuRecord = 0x5f, mcuLeft = 0x62, mcuRight = 0x63, mcuMasterChannel = 9 };
+
     /** Deck mappings, kept with the settings. */
     std::unique_ptr<juce::XmlElement> createDeckState() const;
     void restoreDeckState (const juce::XmlElement* maps);
@@ -124,7 +145,11 @@ private:
     std::unique_ptr<juce::XmlElement> mappingXml (const Mapping& m) const;
     bool readMapping (const juce::XmlElement& x, Mapping& m);
 
+    void rebuildMackieLocked();
+    bool matches (Mapping& m, int slot, int ch, const juce::uint8* d, Sink& sink) noexcept;
+
     MidiHub& hub;
+    std::atomic<int> mackieIn { -1 }, mackieOut { -1 };
     juce::SpinLock lock;              // the audio thread only ever tries it
     std::vector<Mapping> mappings;
     int nextId = 1;

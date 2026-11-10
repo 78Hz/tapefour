@@ -37,7 +37,7 @@ InlayCard::InlayCard (Tape& t) : tape (t)
     for (int i = 0; i < Inlay::numSongs; ++i)
     {
         counters[i] = makeEditor (Inlay::songCounter (i), lf.mono (17.0f), Pal::ink);
-        counters[i]->setInputRestrictions (3, "0123456789");
+        counters[i]->setInputRestrictions (5, "0123456789:");   // 145, or 2:05 on a real-time counter
         songs[i] = makeEditor (Inlay::songName (i), lf.hand (26.0f), Pal::ink);
     }
     for (int k = 0; k < numTracks; ++k)
@@ -83,6 +83,15 @@ juce::TextEditor* InlayCard::makeEditor (int field, juce::Font font, juce::Colou
     ed->onTextChange = [this, ed, field] { store (field, ed->getText()); };
     addAndMakeVisible (ed);
     return ed;
+}
+
+void InlayCard::reloadSongs()
+{
+    for (int i = 0; i < Inlay::numSongs; ++i)
+    {
+        counters[i]->setText (tape.trackSheet[Inlay::songCounter (i)], false);
+        songs[i]->setText (tape.trackSheet[Inlay::songName (i)], false);
+    }
 }
 
 void InlayCard::store (int field, const juce::String& text)

@@ -363,6 +363,7 @@ td:first-child { font-weight: 600; }
 
 <h2>Label and inlay</h2>
 <p>Double-click the label on the cassette to write on it. Click the inlay beside the cassette to take the J-card out of its case and write on it: the title, up to eight songs with their counter numbers, a note for each track, whether you recorded with NR, the speed, and the date. Click outside the card, press <span class="key">Esc</span> or click <span class="ctl">X</span> to put it back. The title on the inlay and the label on the cassette are the same text, so changing one changes the other.</p>
+<p id="marks"><strong>Marks on the inlay.</strong> A controller's MARKER key (or any key learned to <strong>ADD MARK</strong>) writes the counter's reading on the song list, in counter order, with the note "mark" beside it. Change the note to the song's name. <strong>PREVIOUS</strong> and <strong>NEXT</strong> wind the tape to the mark before or after and stop where the counter reads it. Press <strong>PREVIOUS</strong> again just after a mark to go to the one before it. Marks are counter numbers, like the ones you write by hand, so they're only right while the counter is set as it was when you wrote them. Reset the counter at the start of the tape and they stay true.</p>
 <figure class="narrow" style="width: 40%"><img src="images/inlay.png" alt="The cassette inlay, opened"><figcaption><b>The inlay</b>, opened out: back flap, spine and front. Its colours follow the cassette type.</figcaption></figure>
 
 <!-- ======================================================= 5 TAPE TYPES -->
@@ -1016,6 +1017,26 @@ td:first-child { font-weight: 600; }
 
 <h2>MIDI Machine Control</h2>
 <p>Many keyboards and control surfaces have transport buttons that send MIDI Machine Control (MMC). With <strong>Follow transport buttons that send MIDI Machine Control</strong> ticked (the default), they play, stop, record, wind and return the tape with no learning needed. A button that sends a plain CC or note can be learned onto a transport key instead.</p>
+
+<h2>A Mackie Control surface</h2>
+<p>A mixer or controller in Mackie Control (MCU) mode works the deck with no learning. TF-4 is laid out for a <strong>TASCAM Model 12</strong> set to <strong>MCU - Reaper</strong>. Other MCU surfaces send the same messages, so most of it works on them too.</p>
+<table>
+  <thead><tr><th>On the surface</th><th>On the deck</th></tr></thead>
+  <tbody>
+    <tr><td>Strips 1–4: fader, pan, REC, SOLO, MUTE</td><td>Tracks 1–4: fader, pan, record arm, solo, mute</td></tr>
+    <tr><td>Master fader (the Model 12's FX fader)</td><td>The master fader</td></tr>
+    <tr><td>REW, F FWD, STOP, PLAY, REC</td><td>The transport</td></tr>
+    <tr><td>MARKER keys: set, previous, next</td><td>Write a mark on the inlay; wind to the mark before or after (see <a href="#marks">Marks on the inlay</a>)</td></tr>
+    <tr><td>Strips 5–8, the jog dial, the other keys</td><td>Nothing until you learn them: map them to anything, a plug-in's parameter included</td></tr>
+  </tbody>
+</table>
+<p>The surface's REC, SOLO and MUTE keys and its transport keys light as the deck is. Nothing the surface sends plays the tracks' instruments. Its faders aren't motorised, so a fader takes over only once it passes the deck's position, as with <strong>Pickup</strong>. Anything you learn onto the surface's controls takes over from the built-in mapping.</p>
+<p>Set it up in Setup → MIDI &amp; Deck, under <strong>Mackie Control surface</strong>. TF-4 picks a port named for DAW control by itself; otherwise choose the surface's MIDI in and out there. <span class="lcd">LAST KEY</span> shows the last message the surface sent, which is handy for checking what a key does. The MARKER keys are a guess at what the Model 12 sends; if they don't work, press <span class="ctl">LEARN</span> beside <strong>ADD MARK</strong>, <strong>PREVIOUS</strong> or <strong>NEXT</strong> and press the key.</p>
+<p>On the Model 12:</p>
+<ol>
+  <li>MENU › DAW CONTROLLER › MODE: <strong>MCU - Reaper</strong>.</li>
+  <li>SYSTEM › USB AUDIO › PC CH1/2: <strong>TO MAIN</strong>. Then every channel's input still goes to the computer while you hear TF-4 on the main mix, and all eight strips are free to work the deck.</li>
+</ol>
 
 <h2>The mappings list</h2>
 <p>Setup → MIDI &amp; Deck lists every mapping: which controller and message it's from, what it controls, how it moves (knob, 14-bit, encoder or press), and its <strong>Pickup</strong> and <strong>Also plays</strong> settings. <span class="ctl">✕</span> forgets one. Mappings to the deck are kept with your settings. Mappings to a plug-in's parameters are kept with that block, so they travel with the tape and come back when the deck is recalled.</p>

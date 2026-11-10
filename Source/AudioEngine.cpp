@@ -184,6 +184,7 @@ void AudioEngine::saveDeviceState()
 //==============================================================================
 bool AudioEngine::isMidiSlotInUse (int slot, bool output) const
 {
+    if (slot >= 0 && slot == (output ? mapper.mackieOutput() : mapper.mackieInput())) return true;
     for (int t = 0; t < numTracks; ++t)
     {
         if (! output && track[t].midiPort.load() == slot) return true;
@@ -193,6 +194,56 @@ bool AudioEngine::isMidiSlotInUse (int slot, bool output) const
                     return true;
     }
     return false;
+}
+
+void AudioEngine::setMackie (int inputSlot, int outputSlot)
+{
+    mapper.setMackie (inputSlot, outputSlot);
+    if (inputSlot >= 0) midi.setInputActive (inputSlot, true);
+    if (outputSlot >= 0) midi.setOutputActive (outputSlot, true);
+    mackieLedsOut = -1;   // light everything afresh
+    ++viewVersion;
+    saveSettings();
+}
+
+void AudioEngine::updateMackie (int transportMode)
+{
+    ++mackieTicks;
+    if (! mapper.mackieChosen && mackieTicks % 60 == 1)
+    {
+        // A surface in DAW control mode names its ports so (the Model 12: "... DAW Control ...").
+        int in = -1, out = -1;
+        midi.scanForNewDevices();
+        for (auto& d : midi.getInputs())  if (d.available && in < 0 && d.name.containsIgnoreCase ("DAW CONTROL")) in = d.slot;
+        for (auto& d : midi.getOutputs()) if (d.available && out < 0 && d.name.containsIgnoreCase ("DAW CONTROL")) out = d.slot;
+        if (in >= 0) setMackie (in, out);
+    }
+
+    const int out = mapper.mackieOutput();
+    if (out < 0 || ! midi.isOutputActive (out)) return;
+    // Everything again every few seconds: a surface switched on or into DAW mode later gets it.
+    if (mackieLedsOut != out || mackieTicks % 150 == 0) { mackieLeds.fill (-1); mackieLedsOut = out; }
+
+    auto led = [&] (int note, bool on)
+    {
+        const int v = on ? 127 : 0;
+        if (mackieLeds[(size_t) note] == v) return;
+        mackieLeds[(size_t) note] = v;
+        midi.sendNow (out, juce::MidiMessage::noteOn (1, note, (juce::uint8) v));
+    };
+    using M = MidiMapper;
+    for (int t = 0; t < numTracks; ++t)
+    {
+        led (M::mcuRec + t, track[t].armed.load());
+        led (M::mcuSolo + t, track[t].solo.load());
+        led (M::mcuMute + t, track[t].mute.load());
+    }
+    const auto mode = (Mode) transportMode;
+    led (M::mcuPlay, mode == Mode::play || mode == Mode::rec);
+    led (M::mcuRecord, mode == Mode::rec);
+    led (M::mcuStop, mode == Mode::stop);
+    led (M::mcuRew, mode == Mode::rew);
+    led (M::mcuFf, mode == Mode::ff);
 }
 
 std::vector<AudioEngine::MidiInputInfo> AudioEngine::getMidiInputs()
@@ -851,7 +902,7 @@ float AudioEngine::getValue (const MidiMapper::Target& target, juce::AudioProces
         case C::pitch: return (tapeEngine.params.pitch.load() + 12.0f) / 24.0f;
         // switches and transport keys have no position
         case C::mute: case C::solo: case C::arm: case C::speed: case C::nr:
-        case C::play: case C::stop: case C::rec: case C::rew: case C::ff: case C::rtz:
+        case C::play: case C::stop: case C::rec: case C::rew: case C::ff: case C::rtz: case C::markAdd: case C::markPrev: case C::markNext:
         case C::numControls: return 0.0f;
     }
     return 0.0f;
@@ -881,7 +932,7 @@ void AudioEngine::setValue (const MidiMapper::Target& target, juce::AudioProcess
         case C::phones: phones = v; break;
         case C::pitch: tapeEngine.params.pitch = v * 24.0f - 12.0f; break;
         case C::mute: case C::solo: case C::arm: case C::speed: case C::nr:
-        case C::play: case C::stop: case C::rec: case C::rew: case C::ff: case C::rtz:
+        case C::play: case C::stop: case C::rec: case C::rew: case C::ff: case C::rtz: case C::markAdd: case C::markPrev: case C::markNext:
         case C::numControls: break;   // these are toggled or pressed, not set
     }
 }
@@ -899,7 +950,7 @@ void AudioEngine::toggle (const MidiMapper::Target& target)
         case C::speed: tapeEngine.params.speedSel = tapeEngine.params.speedSel.load() == 2 ? 1 : 2; break;
         case C::gain: case C::high: case C::mid: case C::freq: case C::low: case C::pan: case C::fader:
         case C::masterFader: case C::phones: case C::pitch:
-        case C::play: case C::stop: case C::rec: case C::rew: case C::ff: case C::rtz:
+        case C::play: case C::stop: case C::rec: case C::rew: case C::ff: case C::rtz: case C::markAdd: case C::markPrev: case C::markNext:
         case C::numControls: break;   // knobs and transport keys don't toggle
     }
 }

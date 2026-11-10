@@ -102,6 +102,13 @@ private:
     void startLearning (const MidiMapper::Target&);
     juce::String targetName (const MidiMapper::Target&) const;
     void remoteControl (MidiMapper::Control c);
+    /** The inlay's marks: a counter number on its song list (from a controller's MARKER keys). */
+    void addMark();
+    void locateMark (int dir);
+    void followLocate (Mode mode);
+    int locateTarget = -1, locateDir = 0, locateFrames = 0;
+    juce::String locateName;
+    juce::Component::SafePointer<InlayCard> openCard;
     friend class LearnLayer;
     void openSetup (int tab);
 

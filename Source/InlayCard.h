@@ -17,6 +17,9 @@ public:
     std::function<void()> onClose;
     std::function<void (const juce::String& title)> onTitleChanged;
 
+    /** The song list again from the tape (a mark was added from a controller). */
+    void reloadSongs();
+
     void paint (juce::Graphics&) override;
     void resized() override;
 
