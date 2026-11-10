@@ -209,7 +209,7 @@ int main()
             const bool erase = clickLabel (panel, "ERASE", 0) && p.get ("erase") < 0.5f;
             const bool hold = clickLabel (panel, "HOLD", 0) && p.get ("hold") > 0.5f;
             const bool note = clickLabel (panel, "1/4", 0) && p.noteValue() == 5;
-            const bool loop = clickLabel (panel, "60 S", 0) && p.loopNominal() == 60.0;
+            const bool loop = clickLabel (panel, "60 S", 0) && juce::exactlyEqual (p.loopNominal(), 60.0);
             p.setHeadPos (0, 0.2);
             const bool placed = clickLabel (panel, "STRAIGHT 1:2:3", 0) && std::abs (p.headPos (2) - 0.6) < 1e-3;
             check (erase && hold && note && loop && placed, "TF TAPE ECHO: ERASE, HOLD, the note value, the loop's length and PLACE do what they say",

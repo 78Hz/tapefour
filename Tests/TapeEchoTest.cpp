@@ -243,7 +243,7 @@ int main()
         p.getStateInformation (mb);
         Processor q;
         q.setStateInformation (mb.getData(), (int) mb.getSize());
-        const bool same = std::abs (q.headPos (2) - 12.5) < 1e-3 && q.loopNominal() == 30.0 && q.get ("erase") < 0.5f
+        const bool same = std::abs (q.headPos (2) - 12.5) < 1e-3 && juce::exactlyEqual (q.loopNominal(), 30.0) && q.get ("erase") < 0.5f
                           && juce::roundToInt (q.get ("tape")) == 2 && std::abs (q.rate() - 0.7) < 1e-4;
         check (same, "state: the heads, the loop, the tape and the motor come back", same, 1);
 
