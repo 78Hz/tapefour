@@ -12,6 +12,7 @@
 #include "StepPanel.h"
 #include "NymphesPanel.h"
 #include "TapeEchoPanel.h"
+#include "PlatePanel.h"
 
 namespace tf
 {
@@ -273,6 +274,15 @@ public:
                 return std::unique_ptr<juce::Component> (std::move (e));
             }, 560);
         };
+        tf::plate::Processor::editorFactory = [] (tf::plate::Processor& p) -> juce::AudioProcessorEditor*
+        {
+            return new tf::InstrumentEditor (p, p, "TF PLATE", [&p] (tf::InstrumentEditor::Say say)
+            {
+                auto e = std::make_unique<tf::PlatePanel> (p);
+                e->onMessage = say;
+                return std::unique_ptr<juce::Component> (std::move (e));
+            }, tf::PlatePanel::panelHeight + 56, tf::PlatePanel::panelWidth + 28);
+        };
         tf::echo::Processor::editorFactory = [] (tf::echo::Processor& p) -> juce::AudioProcessorEditor*
         {
             return new tf::InstrumentEditor (p, p, "TF TAPE ECHO", [&p] (tf::InstrumentEditor::Say say)
@@ -355,6 +365,45 @@ public:
                 ok = os != nullptr && png.writeImageToStream (img, *os);
             }
             p.setPlaying (false);
+            setApplicationReturnValue (ok ? 0 : 1);
+            quit();
+            return;
+        }
+        if (commandLine.contains ("--render-plate"))
+        {
+            // for the manual: TF PLATE's window, the EMT 140 with its click drawn
+            auto args = juce::StringArray::fromTokens (commandLine, true);
+            auto folder = juce::File::getCurrentWorkingDirectory().getChildFile (args[args.indexOf ("--render-plate") + 1].unquoted());
+            folder.createDirectory();
+            tf::plate::Processor p;
+            p.prepareToPlay (48000.0, 512);
+            juce::AudioBuffer<float> b (2, 512);
+            juce::MidiBuffer m;
+            std::unique_ptr<juce::AudioProcessorEditor> ed (p.createEditor());
+            bool ok = ed != nullptr;
+            tf::PlatePanel* panel = nullptr;
+            std::function<void (juce::Component&)> find = [&] (juce::Component& c)
+            {
+                if (auto* pp = dynamic_cast<tf::PlatePanel*> (&c)) panel = pp;
+                for (auto* k : c.getChildren()) find (*k);
+            };
+            if (ok) find (*ed);
+            for (int k = 0; k < 140; ++k)   // a snare-ish hit now and then, and the tail it leaves
+            {
+                b.clear();
+                if (k % 45 == 0) for (int i = 0; i < 400; ++i) { const float v = 0.4f * (float) std::exp (-i / 80.0) * (float) ((i * 7919 % 200) / 100.0 - 1.0); b.setSample (0, i, v); b.setSample (1, i, v); }
+                p.processBlock (b, m);
+                if (panel != nullptr && k % 2 == 0) panel->waitForPicture();
+            }
+            if (ok)
+            {
+                const auto img = ed->createComponentSnapshot (ed->getLocalBounds(), true, 2.0f);
+                juce::PNGImageFormat png;
+                auto f = folder.getChildFile ("plate_window.png");
+                f.deleteFile();
+                std::unique_ptr<juce::OutputStream> os (f.createOutputStream());
+                ok = os != nullptr && png.writeImageToStream (img, *os);
+            }
             setApplicationReturnValue (ok ? 0 : 1);
             quit();
             return;

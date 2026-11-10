@@ -119,6 +119,64 @@ private:
 };
 
 
+/** A knob on a parameter: an arc; drag up or down, the wheel for fine steps, double-click its default. */
+class Knob : public juce::Component,
+             public juce::SettableTooltipClient
+{
+public:
+    Knob (juce::RangedAudioParameter& p, juce::String l, std::function<juce::String (float)> f, int r)
+        : param (p), label (std::move (l)), fmt (std::move (f)), radius (r) {}
+
+    void paint (juce::Graphics& g) override
+    {
+        const float v = param.getValue();
+        const auto c = juce::Point<float> ((float) getWidth() * 0.5f, (float) radius + 4.0f);
+        constexpr float a0 = juce::MathConstants<float>::pi * 0.75f, span = juce::MathConstants<float>::pi * 1.5f;
+        const float h = juce::MathConstants<float>::halfPi, am = a0 + span * v;
+        juce::Path arc;
+        arc.addCentredArc (c.x, c.y, (float) radius, (float) radius, 0.0f, a0 + h, a0 + span + h, true);
+        g.setColour (Pal::lcdRule);
+        g.strokePath (arc, juce::PathStrokeType (3.0f));
+        if (v > 0.0f)
+        {
+            juce::Path on;
+            on.addCentredArc (c.x, c.y, (float) radius, (float) radius, 0.0f, a0 + h, am + h, true);
+            g.setColour (Pal::lcdText);
+            g.strokePath (on, juce::PathStrokeType (3.0f));
+        }
+        g.setColour (Pal::lcdText);
+        g.drawLine (c.x + std::cos (am) * ((float) radius - 9.0f), c.y + std::sin (am) * ((float) radius - 9.0f),
+                    c.x + std::cos (am) * ((float) radius - 2.0f), c.y + std::sin (am) * ((float) radius - 2.0f), 2.0f);
+        const int y = 2 * radius + 8;
+        text (g, label, { 0, y, getWidth(), 13 }, Pal::lcdDim, 9.0f, juce::Justification::centred);
+        text (g, fmt (param.convertFrom0to1 (v)), { 0, y + 12, getWidth(), 14 }, Pal::lcdText, 10.0f, juce::Justification::centred);
+    }
+    void mouseDown (const juce::MouseEvent&) override { from = param.getValue(); param.beginChangeGesture(); }
+    void mouseUp (const juce::MouseEvent&) override { param.endChangeGesture(); }
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        param.setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, from - (float) e.getDistanceFromDragStartY() / 200.0f));
+        changed();
+    }
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& w) override
+    {
+        param.setValueNotifyingHost (juce::jlimit (0.0f, 1.0f, param.getValue() + (w.deltaY > 0 ? 0.005f : -0.005f)));
+        changed();
+    }
+    void mouseDoubleClick (const juce::MouseEvent&) override { param.setValueNotifyingHost (param.getDefaultValue()); changed(); }
+    /** Where it sits for a centre and radius. */
+    void place (int cx, int cy) { setBounds (cx - 45, cy - radius - 4, 90, 2 * radius + 36); }
+    std::function<void()> onChange;
+
+private:
+    void changed() { repaint(); if (onChange) onChange(); }
+    juce::RangedAudioParameter& param;
+    juce::String label;
+    std::function<juce::String (float)> fmt;
+    int radius;
+    float from = 0.0f;
+};
+
 /** A cents-from-equal chart for 12 notes: bars up and down from a centre line, the value beside each. */
 void paintCentsChart (juce::Graphics&, juce::Rectangle<int> area, const std::array<double, 12>& cents, double range);
 } // namespace tf::iw

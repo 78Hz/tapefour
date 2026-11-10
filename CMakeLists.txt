@@ -136,6 +136,7 @@ set(TAPEFOUR_ENGINE_SOURCES
     Source/StepSeq.cpp
     Source/Nymphes.cpp
     Source/TapeEcho.cpp
+    Source/Plate.cpp
     Source/SpringReverb.cpp
     Source/N5Model.cpp
     Source/N5Effects.cpp
@@ -173,6 +174,7 @@ target_sources(TapeFour PRIVATE
     Source/StepPanel.cpp
     Source/NymphesPanel.cpp
     Source/TapeEchoPanel.cpp
+    Source/PlatePanel.cpp
     Source/SpringPanel.cpp
     Source/N5Panel.cpp
     Source/InstrumentWidgets.cpp
@@ -333,9 +335,10 @@ if(TAPEFOUR_TESTS AND NOT TAPEFOUR_ONLY_PLAYER)
     tapefour_test(StepSeqTest Tests/StepSeqTest.cpp Source/StepSeq.cpp Source/InstrumentPresets.cpp)
     tapefour_test(NymphesTest Tests/NymphesTest.cpp Source/Nymphes.cpp Source/InstrumentPresets.cpp)
     tapefour_test(TapeEchoTest Tests/TapeEchoTest.cpp Source/TapeEcho.cpp Source/InstrumentPresets.cpp)
+    tapefour_test(PlateTest Tests/PlateTest.cpp Source/Plate.cpp Source/InstrumentPresets.cpp)
     tapefour_test(PanelTest Tests/PanelTest.cpp Source/FmDrumsPanel.cpp Source/FmDrums.cpp Source/PhraseSamplerPanel.cpp Source/PhraseSampler.cpp Source/PhraseSamplerFront.cpp
                   Source/N5Panel.cpp Source/N5Model.cpp Source/N5Effects.cpp Source/N5Synth.cpp Source/SpringReverb.cpp
-                  Source/InstrumentPresets.cpp Source/InstrumentWidgets.cpp Source/DeckLookAndFeel.cpp Source/StepPanel.cpp Source/StepSeq.cpp Source/NymphesPanel.cpp Source/Nymphes.cpp Source/TapeEchoPanel.cpp Source/TapeEcho.cpp)
+                  Source/InstrumentPresets.cpp Source/InstrumentWidgets.cpp Source/DeckLookAndFeel.cpp Source/StepPanel.cpp Source/StepSeq.cpp Source/NymphesPanel.cpp Source/Nymphes.cpp Source/TapeEchoPanel.cpp Source/TapeEcho.cpp Source/PlatePanel.cpp Source/Plate.cpp)
     target_link_libraries(PanelTest PRIVATE TapeFourFonts)
     tapefour_test(N5Test Tests/N5Test.cpp Source/N5Model.cpp Source/N5Effects.cpp Source/N5Synth.cpp Source/SpringReverb.cpp Source/InstrumentPresets.cpp)
     tapefour_test(EngineTest Tests/EngineTest.cpp Source/Tape.cpp Source/TapeEngine.cpp Source/NoiseReduction.cpp)

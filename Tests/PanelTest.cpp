@@ -11,6 +11,7 @@
 #include "../Source/StepPanel.h"
 #include "../Source/NymphesPanel.h"
 #include "../Source/TapeEchoPanel.h"
+#include "../Source/PlatePanel.h"
 #include "../Source/DeckLookAndFeel.h"
 
 #include <algorithm>
@@ -197,6 +198,28 @@ int main()
         panel.setSize (832, 510);
         const int clicks = clickEverything (panel, 0);
         check (clicks >= 20, "TF STEP: every button clicked", clicks, clicks);
+    }
+
+    // ---------------------------------------------------------------- TF PLATE
+    {
+        plate::Processor p;
+        {
+            PlatePanel panel (p);
+            panel.setSize (PlatePanel::panelWidth, PlatePanel::panelHeight);
+            juce::MessageManager::getInstance()->runDispatchLoopUntil (5);
+            const bool gold = clickLabel (panel, "EMT 240 GOLD FOIL", 0) && p.plateIndex() == 1;
+            const bool mono = clickLabel (panel, "MONO", 0) && p.get ("stereo") < 0.5f;
+            const bool light = clickLabel (panel, "LIGHT", 0) && ! p.simulated();
+            check (gold && mono && light, "TF PLATE: the plate, the pickups and the engine do what they say", gold + mono + light, 3);
+            int outside = 0;
+            for (auto* c : panel.getChildren())
+                if (c->isVisible() && ! panel.getLocalBounds().contains (c->getBounds())) ++outside;
+            check (outside == 0, "TF PLATE: everything inside the window", outside, 0);
+        }
+        PlatePanel panel (p);
+        panel.setSize (PlatePanel::panelWidth, PlatePanel::panelHeight);
+        const int clicks = clickEverything (panel, 0);
+        check (clicks >= 7, "TF PLATE: every button clicked", clicks, clicks);
     }
 
     // ---------------------------------------------------------------- TF TAPE ECHO

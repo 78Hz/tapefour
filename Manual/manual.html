@@ -574,7 +574,7 @@ td:first-child { font-weight: 600; }
     <tr><td>TF Phrase Sampler</td><td>Instrument</td><td>A phrase sampler after the 1995 Yamaha SU10: 48 pads of samples in its small memory, as grainy as the original's, played from the mouse or MIDI, with the ribbon's filter, pitch, scratch and crossfade, and four songs. It samples its own track's input, the other tracks as you hear them, the mix, or a file. It has its own window (below).</td></tr>
     <tr><td>TF N5</td><td>Instrument</td><td>A synthesizer built from the Korg N5's owner's manual: one or two oscillators a note through its filter and amplifier, combinations of up to eight sounds, two effects units with 48 types, and an arpeggiator. It plays simple and hand-drawn waveforms in place of the N5's samples. It has its own window (below).</td></tr>
     <tr><td>TF FM Drums</td><td>Instrument</td><td>A six-track FM drum machine in the style of the Elektron Model:Cycles: kick, snare, metal, perc, tone and chord machines, each with a few controls kept to their musical range, a 64-step sequencer with per-step locks, and a delay and reverb. It keeps its own tempo. It has its own window (below).</td></tr>
-    <tr><td>TF Plate</td><td>Audio effect</td><td>A smooth, dense plate reverb with pre-delay. Size, damping and pre-delay.</td></tr>
+    <tr><td>TF Plate</td><td>Audio effect</td><td>A plate reverb: an EMT 140, an EMT 240 or a small steel plate, simulated from its physics or by a lighter network. It has its own window (below).</td></tr>
     <tr><td>TF Spring Reverb</td><td>Audio effect</td><td>The boingy, dripping reverb of a guitar amp's spring tank, physically modelled: three real tanks, and the valve that drives them. It has its own window (below).</td></tr>
     <tr><td>TF Tape Echo</td><td>Audio effect</td><td>A cassette loop delay: an endless cassette past a record head and three playback heads you place anywhere on the loop. Its repeats darken, wobble and hiss as cassette tape does. It has its own window (below).</td></tr>
     <tr><td>TF Step</td><td>MIDI effect</td><td>A 16-step sequencer with no tempo: each step has its own time, from 10 ms to 10 s, and a note (or a rest), a gate, a velocity and a tie. It plays whatever comes after it in the chain: a hardware synth through an external instrument block, or any instrument. It has its own window (below).</td></tr>
@@ -780,6 +780,24 @@ td:first-child { font-weight: 600; }
   </tbody>
 </table>
 <p>The window's picture shows what a click turns into, pitch upwards and time across. Like a real tank, it plays in mono.</p>
+
+<h2>The plate reverb</h2>
+<p><strong>TF Plate</strong> is a plate reverb, the studio kind: a large thin sheet of metal hung in a frame. A driver near its middle shakes it, pickups elsewhere on it hear it, and a damper held close to it sets how long it rings. Bending waves travel faster the higher they are, so a sound arrives bright and fills in. A plate also has as many resonances in every octave. Together these give the smooth, shimmering tail with no separate echoes. The block's MIX sets how much you hear with the dry sound.</p>
+<figure><img src="images/plate_window.png" alt="TF Plate's window"><figcaption><b>TF Plate.</b> The EMT 140 from above, with its two pickups. The picture of a click shows the highs starting first and dying away sooner than the lows.</figcaption></figure>
+<table>
+  <thead><tr><th>Control</th><th>What it does</th></tr></thead>
+  <tbody>
+    <tr><td>SIMULATED, LIGHT</td><td>SIMULATED computes the plate's own resonances, up to a few kHz (4000 of them on the EMT 140), from its size, its thickness and the metal. Above that, a network matched to them carries on. LIGHT is the network alone: a fraction of the processor, but tuned rather than computed.</td></tr>
+    <tr><td>EMT 140 STEEL, EMT 240 GOLD FOIL, SMALL STEEL</td><td>The 140: steel 2 × 1 m, 0.5 mm, the classic. The 240: a gold foil 29 × 27 cm, 18 µm, with more than twice the resonances, brighter and denser. Small steel: a cheaper 1 × 0.5 m plate.</td></tr>
+    <tr><td>DAMPING</td><td>Moves the damper towards the plate. The window shows the decay at 500 Hz, as EMT gave it: about 1 to 5 s on the 140, 0.7 to 5 s on the 240.</td></tr>
+    <tr><td>CONDITION</td><td>Slack and aged to tight and new. A slack plate's lows are looser; an aged one is duller and doesn't ring as long.</td></tr>
+    <tr><td>PRE-DELAY</td><td>A delay before the plate, up to 80 ms.</td></tr>
+    <tr><td>MONO, STEREO (140 ST)</td><td>One pickup, sent to both sides, or two at different places on the plate. <strong>Drag the pickups</strong> on the picture of the plate to move them.</td></tr>
+    <tr><td>WIDTH</td><td>How far apart the two pickups sound.</td></tr>
+    <tr><td>BASS, TREBLE</td><td>The recovery amplifier's trim.</td></tr>
+  </tbody>
+</table>
+<p>A plate saved with a deck from before the model comes back as the EMT 140, with its old size as the length of the decay and its pre-delay. The sources and which figures are EMT's are in <span class="lcd">docs/plate-reverb.md</span>. Presets are kept in <span class="lcd">Documents/TapeFour/Presets/Plate</span>.</p>
 
 <h2>The tape echo</h2>
 <p><strong>TF Tape Echo</strong> is a cassette loop delay. An endless cassette runs past an erase head, a record head and three playback heads. Each head plays back what was recorded as long ago as the tape takes to reach it, so where a head sits is its delay. It runs at cassette speed, 1⅞ ips, through the same tape modelling as the deck. The repeats are dark, wobbly and hissy from the first one, and each time round they lose a little more treble. The block's MIX sets how much of the echo you hear with the dry sound.</p>

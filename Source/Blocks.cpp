@@ -8,6 +8,7 @@
 #include "StepSeq.h"
 #include "Nymphes.h"
 #include "TapeEcho.h"
+#include "Plate.h"
 
 namespace tf
 {
@@ -77,117 +78,6 @@ void Block::readCommon (const juce::XmlElement& x)
     }
 }
 
-namespace
-{
-//==============================================================================
-/** Base for the built-in effects: stereo in and out, a few knobs, a generic editor. */
-class FxProcessor : public juce::AudioProcessor
-{
-public:
-    FxProcessor() : juce::AudioProcessor (BusesProperties().withInput ("In", juce::AudioChannelSet::stereo(), true)
-                                                           .withOutput ("Out", juce::AudioChannelSet::stereo(), true)) {}
-
-    double getTailLengthSeconds() const override { return 4.0; }
-    bool acceptsMidi() const override { return false; }
-    bool producesMidi() const override { return false; }
-    juce::AudioProcessorEditor* createEditor() override { return new juce::GenericAudioProcessorEditor (*this); }
-    bool hasEditor() const override { return true; }
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram (int) override {}
-    const juce::String getProgramName (int) override { return {}; }
-    void changeProgramName (int, const juce::String&) override {}
-    void releaseResources() override {}
-
-    void getStateInformation (juce::MemoryBlock& mb) override
-    {
-        juce::XmlElement x ("FX");
-        for (auto* p : getParameters())
-            if (auto* f = dynamic_cast<juce::AudioParameterFloat*> (p))
-                x.setAttribute (f->paramID, (double) f->get());
-        copyXmlToBinary (x, mb);
-    }
-
-    void setStateInformation (const void* data, int size) override
-    {
-        if (auto x = getXmlFromBinary (data, size))
-            for (auto* p : getParameters())
-                if (auto* f = dynamic_cast<juce::AudioParameterFloat*> (p))
-                    if (x->hasAttribute (f->paramID))
-                        *f = (float) x->getDoubleAttribute (f->paramID);
-    }
-
-protected:
-    juce::AudioParameterFloat* param (const juce::String& id, const juce::String& name, float lo, float hi, float def, const juce::String& unit = {})
-    {
-        auto* p = new juce::AudioParameterFloat (juce::ParameterID { id, 1 }, name, juce::NormalisableRange<float> (lo, hi), def,
-                                                 juce::AudioParameterFloatAttributes().withLabel (unit));
-        addParameter (p);
-        return p;
-    }
-    double sr = 48000.0;
-};
-
-/** A plate: dense and smooth, with a little pre-delay. */
-class PlateFx : public FxProcessor
-{
-public:
-    PlateFx()
-    {
-        size = param ("size", "Size", 0.0f, 1.0f, 0.62f);
-        damping = param ("damping", "Damping", 0.0f, 1.0f, 0.45f);
-        predelay = param ("predelay", "Pre-delay", 0.0f, 80.0f, 12.0f, "ms");
-    }
-    const juce::String getName() const override { return BuiltIn::fxName (BuiltIn::plate); }
-
-    void prepareToPlay (double rate, int) override
-    {
-        sr = rate;
-        reverb.setSampleRate (rate);
-        reverb.reset();
-        pre.setSize (2, (int) (rate * 0.1) + 8);
-        pre.clear();
-        prePos = 0;
-    }
-
-    using juce::AudioProcessor::processBlock;   // the double-precision overload stays the base one
-    void processBlock (juce::AudioBuffer<float>& b, juce::MidiBuffer&) override
-    {
-        juce::Reverb::Parameters p;
-        p.roomSize = 0.55f + 0.44f * size->get();
-        p.damping = damping->get();
-        p.width = 1.0f;
-        p.wetLevel = 0.5f;
-        p.dryLevel = 0.0f;
-        reverb.setParameters (p);
-
-        const int n = b.getNumSamples();
-        const int d = juce::jlimit (0, pre.getNumSamples() - 1, (int) (predelay->get() * 0.001 * sr));
-        auto* l = b.getWritePointer (0);
-        auto* r = b.getWritePointer (1);
-        auto* pl = pre.getWritePointer (0);
-        auto* pr = pre.getWritePointer (1);
-        const int len = pre.getNumSamples();
-        for (int i = 0; i < n; ++i)
-        {
-            pl[prePos] = l[i];
-            pr[prePos] = r[i];
-            auto rd = (prePos - d + len) % len;
-            l[i] = pl[rd];
-            r[i] = pr[rd];
-            prePos = (prePos + 1) % len;
-        }
-        reverb.processStereo (l, r, n);
-    }
-
-private:
-    juce::AudioParameterFloat *size, *damping, *predelay;
-    juce::Reverb reverb;
-    juce::AudioBuffer<float> pre;
-    int prePos = 0;
-};
-
-} // namespace
 
 //==============================================================================
 ProcessorBlock::ProcessorBlock (std::unique_ptr<juce::AudioProcessor> p, Kind k, int index)
@@ -530,7 +420,7 @@ std::unique_ptr<Block> BuiltIn::createFx (int which)
     else if (which == tapeEcho) p = std::make_unique<echo::Processor>();
     else if (which == stepSeq)  return std::make_unique<ProcessorBlock> (std::make_unique<step::Processor>(), ProcessorBlock::Kind::builtInFx, which);
     else if (which == nymphes)  return std::make_unique<ProcessorBlock> (std::make_unique<nym::Processor>(), ProcessorBlock::Kind::builtInFx, which);
-    else                        p = std::make_unique<PlateFx>();
+    else                        p = std::make_unique<plate::Processor>();
     auto b = std::make_unique<ProcessorBlock> (std::move (p), ProcessorBlock::Kind::builtInFx, which);
     b->mix = which == tapeEcho ? 0.35f : 0.3f;   // send-like by default
     return b;
