@@ -229,8 +229,6 @@ public:
 private:
     void run()
     {
-        int builtPlate = -1;
-        double builtCondition = -1.0, builtRate = 0.0;
         for (;;)
         {
             {
@@ -241,13 +239,21 @@ private:
             delete owner.retired.exchange (nullptr);
             const int p = owner.wantPlate.load();
             const double c = owner.wantCondition.load(), r = owner.wantRate.load();
-            if (p == builtPlate && std::abs (c - builtCondition) < 0.004 && juce::exactlyEqual (r, builtRate)) continue;
-            if (owner.incoming.load() != nullptr) continue;   // the last one isn't taken yet
+            int seen = 0;
+            {
+                std::lock_guard<std::mutex> g (owner.publishLock);
+                if (owner.havePlate < 0) continue;   // not prepared yet
+                if (p == owner.havePlate && std::abs (c - owner.haveCondition) < 0.004 && juce::exactlyEqual (r, owner.haveRate)) continue;
+                if (owner.incoming.load() != nullptr) continue;   // the last one isn't taken yet
+                seen = owner.prepares;
+            }
             auto made = std::make_unique<Modes>();
             made->build (p, c, r, modeBudget);
-            builtPlate = p;
-            builtCondition = c;
-            builtRate = r;
+            std::lock_guard<std::mutex> g (owner.publishLock);
+            if (owner.prepares != seen) continue;   // prepared again meanwhile: these are stale
+            owner.havePlate = p;
+            owner.haveCondition = c;
+            owner.haveRate = r;
             owner.incoming = made.release();
         }
     }
@@ -350,7 +356,15 @@ void Processor::prepareToPlay (double rate, int block)
     // The first modes now (so the plate rings from the first block); changes later on the builder.
     auto first = std::make_unique<Modes>();
     first->build (plateIndex(), pCondition->get(), rate, modeBudget);
-    delete incoming.exchange (nullptr);
+    {
+        // so the builder neither builds these again nor hands over something built before now
+        std::lock_guard<std::mutex> g (publishLock);
+        ++prepares;
+        havePlate = plateIndex();
+        haveCondition = (double) pCondition->get();
+        haveRate = rate;
+        delete incoming.exchange (nullptr);
+    }
     modes = std::move (first);
     fading.reset();
     fadeLeft = 0;
@@ -446,6 +460,7 @@ void Processor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer
         {
             fading = std::move (modes);
             modes.reset (incoming.exchange (nullptr));
+            ++handoverCount;
             fadeLeft = fadeLength;
             lastDecay = -1.0;
             for (auto& v : lastPick) v = -1.0f;

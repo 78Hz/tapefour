@@ -66,7 +66,7 @@ double arrival (const std::vector<float>& x)
 }
 
 struct Run { std::vector<float> l, r; };
-Run run (Processor& p, double seconds, bool clickIn = true)
+Run run (Processor& p, double seconds, bool clickIn = true, bool paced = false)
 {
     Run out;
     juce::AudioBuffer<float> b (2, 512);
@@ -79,6 +79,10 @@ Run run (Processor& p, double seconds, bool clickIn = true)
         b.clear();
         if (clickIn && at == 0) { b.setSample (0, 0, 1.0f); b.setSample (1, 0, 1.0f); }
         p.processBlock (b, m);
+        // a pause once the click is in, so anything the builder hands over lands while it rings
+        // (it once built the plate a second time after prepareToPlay, and the crossfade to those
+        // silent modes cut the ring off)
+        if (paced && at == 0) std::this_thread::sleep_for (std::chrono::milliseconds (250));
         for (int i = 0; i < n; ++i) { out.l.push_back (b.getSample (0, i)); out.r.push_back (b.getSample (1, i)); }
     }
     return out;
@@ -112,8 +116,10 @@ int main()
         p.set ("damping", 0.5f);
         p.prepareToPlay (sr, 512);
         const double want = p.decay500();
-        auto out = run (p, want * 1.2);
+        auto out = run (p, want * 1.2, true, true);
         const double got = t60 (band (out.l, 400.0, 630.0));
+        if (sim)
+            check (p.handovers() == 0, "prepared, it plays the modes it built: the builder doesn't build them again", p.handovers(), 0);
         check (std::abs (got - want) / want < 0.3, sim ? "SIMULATED: the decay at 500 Hz is what DAMPING says" : "LIGHT: the decay at 500 Hz is what DAMPING says", got, want);
         const double high = t60 (band (out.l, 5000.0, 8000.0));
         check (high > 0.0 && high < got * 0.8, sim ? "SIMULATED: highs die away sooner" : "LIGHT: highs die away sooner", high, got * 0.6);
@@ -124,7 +130,7 @@ int main()
             q.set ("condition", 1.0f);
             q.set ("damping", 0.95f);
             q.prepareToPlay (sr, 512);
-            auto damped = run (q, 2.0);
+            auto damped = run (q, 2.0, true, true);
             const double shorter = t60 (band (damped.l, 400.0, 630.0));
             check (shorter < got * 0.6, "more damping (the damper nearer): a shorter decay", shorter, q.decay500());
         }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Common.h"
+#include <mutex>
 #include "InstrumentPresets.h"
 
 /*
@@ -99,6 +100,8 @@ public:
     double decay500() const;
     double damperMm() const;
     int modesInUse() const { return modesShown.load(); }
+    /** How many times new modes have taken over from the builder (for the tests). */
+    int handovers() const { return handoverCount.load(); }
     double modesTopHz() const { return topShown.load(); }
     /** The response to a click (mono, at the first pickup), for the window's picture or a test. */
     static std::vector<float> click (int plate, bool simulated, double decay, double condition, double sampleRate, double seconds,
@@ -161,11 +164,17 @@ private:
     int prePos = 0;
     Biquad hpL, hpR, bassL, bassR, trebleL, trebleR, topL, topR, top2L, top2R;
     float lastBass = 99.0f, lastTreble = 99.0f, lastTop = -1.0f, levelHold = 0.0f;
-    std::atomic<int> modesShown { 0 };
+    std::atomic<int> modesShown { 0 }, handoverCount { 0 };
     std::atomic<double> topShown { 0.0 };
     std::atomic<float> level { 0.0f };
     std::atomic<int> wantPlate { 0 };
     std::atomic<double> wantCondition { 0.7 }, wantRate { 48000.0 };
+    // What the modes in hand (or on their way) were built for, whoever built them: prepareToPlay
+    // or the builder. Under publishLock (never taken on the audio thread), with a count of prepares
+    // so a build that was overtaken by one is thrown away rather than crossfaded in.
+    std::mutex publishLock;
+    int havePlate = -1, prepares = 0;
+    double haveCondition = -1.0, haveRate = 0.0;
     std::unique_ptr<Builder> builder;
 };
 
