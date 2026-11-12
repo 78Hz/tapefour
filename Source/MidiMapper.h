@@ -41,7 +41,9 @@ public:
     };
 
     enum class Msg { cc, cc14, note, bend };   // bend: pitch bend, 14-bit (Mackie-style faders)
-    enum class Mode { absolute, relTwos, relOffset, relSign, toggle };
+    // signedPosition: where a pot is, as a direction and a distance from its middle (bit 6 set: left
+    // of it), the way a TASCAM Model 12's PAN knobs send it in Mackie Control mode
+    enum class Mode { absolute, relTwos, relOffset, relSign, toggle, signedPosition };
 
     struct Mapping
     {
@@ -62,7 +64,7 @@ public:
         float lastIn = -1.0f, lastSet = -1.0f;
         int msb = 0;
         bool builtIn = false;          // Mackie Control's own (not saved, not listed; a learned mapping wins)
-        bool autoAbsolute = false;     // a Mackie V-pot that turns out to send positions, not steps
+        bool autoPosition = false;     // a Mackie V-pot that turns out to send where it is, not steps
     };
 
     /** What a mapping acts on; the engine implements it (audio thread). */
@@ -114,6 +116,9 @@ public:
         Everything else on the surface (strips 5-8, the jog dial...) is left for MIDI learn, and nothing
         from it reaches the tracks as notes. A learned mapping takes over from the built-in one. */
     void setMackie (int inputSlot, int outputSlot);
+    /** Its V-pots are pots that send where they are, not steps (a TASCAM Model 12, 16 or 24: told by its port's name). */
+    bool mackiePotsSendPositions() const noexcept { return mackiePositions.load(); }
+    static bool potsSendPositions (const juce::String& portName);
     int mackieInput() const noexcept  { return mackieIn.load(); }
     int mackieOutput() const noexcept { return mackieOut.load(); }
     /** Whether the ports were ever chosen (by the user or found): if not, a port named for DAW control is taken. */
@@ -150,6 +155,7 @@ private:
 
     MidiHub& hub;
     std::atomic<int> mackieIn { -1 }, mackieOut { -1 };
+    std::atomic<bool> mackiePositions { false };
     juce::SpinLock lock;              // the audio thread only ever tries it
     std::vector<Mapping> mappings;
     int nextId = 1;

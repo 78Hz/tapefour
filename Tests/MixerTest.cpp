@@ -1770,15 +1770,33 @@ int main()
         send (juce::MidiMessage::pitchWheel (9, 5000));
         check (std::abs (me.masterFader.load() - 5000.0f / 16383.0f) < 1e-3f, "Mackie: the master fader (channel 9) is the master", me.masterFader.load(), 5000.0 / 16383.0);
 
-        // Pan: V-pot steps (sign and magnitude); a pot sending positions is taken as one.
+        // Pan: the Model 12's PAN knobs send where they are, as a direction and a distance from the
+        // middle (127 hard left ... 65, then 1 ... 63 hard right), with pickup.
+        check (me.mapper.mackiePotsSendPositions(), "Mackie: a Model 12 (DAW Control port): its V-pots are pots that send where they are", me.mapper.mackiePotsSendPositions(), 1);
         me.track[0].pan = 0.0f;
-        for (int i = 0; i < 5; ++i) send (juce::MidiMessage::controllerEvent (1, 0x10, 0x41));
-        check (me.track[0].pan.load() < -0.05f, "Mackie: V-pot 1 turned left pans track 1 left", me.track[0].pan.load(), -0.1);
-        me.track[1].pan = 0.0f;
-        send (juce::MidiMessage::controllerEvent (1, 0x11, 64));   // a position: the middle
-        send (juce::MidiMessage::controllerEvent (1, 0x11, 30));    // (picked up as it passes the middle)
-        send (juce::MidiMessage::controllerEvent (1, 0x11, 127));
-        check (me.track[1].pan.load() > 0.9f, "Mackie: a pan pot sending positions moves track 2's pan to where it is", me.track[1].pan.load(), 1.0);
+        send (juce::MidiMessage::controllerEvent (1, 0x10, 127));
+        check (std::abs (me.track[0].pan.load()) < 1e-4f, "Mackie: PAN 1 hard left while track 1 is in the middle: no jump", me.track[0].pan.load(), 0.0);
+        bool steady = true;
+        float was = -2.0f;
+        auto sweepTo = [&] (int value)
+        {
+            send (juce::MidiMessage::controllerEvent (1, 0x10, (juce::uint8) value));
+            const float now = me.track[0].pan.load();
+            if (now < was - 1e-4f) steady = false;
+            was = now;
+        };
+        for (int v = 120; v >= 65; v -= 5) sweepTo (v);    // left of the middle, coming back to it (picked up)
+        was = me.track[0].pan.load();
+        steady = true;
+        for (int v = 1; v <= 30; v += 3) sweepTo (v);       // over the middle and on to the right
+        check (steady && std::abs (me.track[0].pan.load() - 28.0f / 63.0f) < 0.02f, "Mackie: PAN 1 turned left to right moves track 1's pan steadily with it, over the middle",
+               me.track[0].pan.load(), 28.0 / 63.0);
+        sweepTo (63);
+        check (me.track[0].pan.load() > 0.99f, "Mackie: PAN 1 hard right (63) is hard right", me.track[0].pan.load(), 1.0);
+        for (int v = 1; v <= 63; v += 6) sweepTo (v);       // (back past the middle, and on round)
+        for (int v = 65; v <= 127; v += 6) sweepTo (v);
+        sweepTo (127);
+        check (me.track[0].pan.load() < -0.99f, "Mackie: PAN 1 hard left (127) is hard left", me.track[0].pan.load(), -1.0);
 
         // REC, SOLO, MUTE; the transport.
         press (0x00 + 1);
@@ -1812,6 +1830,16 @@ int main()
         check (std::abs (me.phones.load() - 9000.0f / 16383.0f) < 1e-3f, "Mackie: fader 5 learned to the phones level", me.phones.load(), 9000.0 / 16383.0);
         check (me.mapper.getMappings().size() == 1, "Mackie: its own mappings aren't listed or saved, only what's learned", (double) me.mapper.getMappings().size(), 1);
 
+        // PAN 5 learned (to the pitch, say): where the knob is, as PAN 1-4.
+        MidiMapper::Target pitch; pitch.control = MidiMapper::Control::pitch;
+        me.mapper.beginLearn (pitch);
+        m.run (0.02);
+        for (int v : { 1, 2, 3, 4 }) send (juce::MidiMessage::controllerEvent (1, 0x14, (juce::uint8) v));
+        for (int i = 0; i < 40 && me.mapper.isLearning(); ++i) { juce::Thread::sleep (10); m.run (0.01); me.mapper.poll(); }
+        bool pan5 = false;
+        for (auto& g : me.mapper.getMappings()) pan5 = pan5 || (g.target.control == MidiMapper::Control::pitch && g.mode == MidiMapper::Mode::signedPosition);
+        check (pan5, "Mackie: a Model 12's PAN 5 learned is read as where the knob is", pan5, 1);
+
         // A learned key takes over from the built-in one (the MARKER keys may be other notes on a surface).
         MidiMapper::Target next; next.control = MidiMapper::Control::markNext;
         me.mapper.beginLearn (next);
@@ -1843,8 +1871,29 @@ int main()
         me.saveSettings();
         m.engine.reset();
         m.engine = std::make_unique<AudioEngine> (*m.props);
-        check (m.engine->mapper.mackieInput() == surface && m.engine->mapper.mackieOutput() == lights && m.engine->mapper.getMappings (true).size() > 20,
+        check (m.engine->mapper.mackieInput() == surface && m.engine->mapper.mackieOutput() == lights && m.engine->mapper.getMappings (true).size() > 20
+               && m.engine->mapper.mackiePotsSendPositions(),
                "Mackie: the surface comes back after a restart", m.engine->mapper.mackieInput(), surface);
+    }
+
+    // ---- Mackie Control: a surface with endless V-pots (steps), not a Model 12 ----
+    {
+        Rig m;
+        auto& me = *m.engine;
+        auto surface = me.addVirtualMidiInput ("MCU Pro");
+        me.setMackie (surface, -1);
+        auto send = [&] (const juce::MidiMessage& msg) { me.injectMidi (msg, surface); m.run (0.03); };
+        check (! me.mapper.mackiePotsSendPositions(), "Mackie: another surface's V-pots are taken as steps", me.mapper.mackiePotsSendPositions(), 0);
+        me.track[0].pan = 0.0f;
+        for (int i = 0; i < 5; ++i) send (juce::MidiMessage::controllerEvent (1, 0x10, 0x41));
+        check (me.track[0].pan.load() < -0.05f, "Mackie: V-pot 1 turned left (steps) pans track 1 left", me.track[0].pan.load(), -0.1);
+        // one that sends more than a step ever is is sending where it is: from then on, read so
+        me.track[1].pan = 0.0f;
+        send (juce::MidiMessage::controllerEvent (1, 0x11, 100));   // left (picked up as it passes the middle)
+        send (juce::MidiMessage::controllerEvent (1, 0x11, 66));
+        send (juce::MidiMessage::controllerEvent (1, 0x11, 2));
+        send (juce::MidiMessage::controllerEvent (1, 0x11, 40));
+        check (std::abs (me.track[1].pan.load() - 40.0f / 63.0f) < 0.02f, "Mackie: a V-pot found to send where it is moves track 2's pan to it", me.track[1].pan.load(), 40.0 / 63.0);
     }
 
     // ---- The inlay's marks ----

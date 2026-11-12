@@ -507,13 +507,13 @@ private:
             row->message.setText (engine.mapper.describeMessage (m), juce::dontSendNotification);
             row->target.setText (engine.mapper.describeTarget (m), juce::dontSendNotification);
             using Mo = MidiMapper::Mode;
-            row->mode.setText (m.mode == Mo::toggle ? "PRESS" : m.mode == Mo::absolute ? (m.msg == MidiMapper::Msg::cc14 || m.msg == MidiMapper::Msg::bend ? "14-BIT" : "KNOB") : "ENCODER",
+            row->mode.setText (m.mode == Mo::toggle ? "PRESS" : m.mode == Mo::absolute || m.mode == Mo::signedPosition ? (m.msg == MidiMapper::Msg::cc14 || m.msg == MidiMapper::Msg::bend ? "14-BIT" : "KNOB") : "ENCODER",
                                juce::dontSendNotification);
             style (row->from, Pal::muted, 15.0f);
             style (row->message, Pal::lcdText, 15.0f);
             style (row->target, Pal::cream, 15.0f);
             style (row->mode, Pal::muted, 15.0f);
-            const bool knob = m.mode == Mo::absolute;
+            const bool knob = m.mode == Mo::absolute || m.mode == Mo::signedPosition;
             row->pickup.setToggleState (m.pickup, juce::dontSendNotification);
             row->pickup.setEnabled (knob);
             row->pickup.setTooltip ("The knob only takes over once it passes the control's current position, so nothing jumps");

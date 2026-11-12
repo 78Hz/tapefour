@@ -7,7 +7,7 @@ namespace
     const char* controlIds[] { "gain", "high", "mid", "freq", "low", "pan", "fader", "mute", "solo", "arm",
                                "masterFader", "phones", "pitch", "speed", "nr", "play", "stop", "rec", "rew", "ff", "rtz",
                                "markAdd", "markPrev", "markNext" };
-    const char* modeIds[] { "absolute", "relTwos", "relOffset", "relSign", "toggle" };
+    const char* modeIds[] { "absolute", "relTwos", "relOffset", "relSign", "toggle", "signedPosition" };
     const char* msgIds[] { "cc", "cc14", "note", "bend" };
     /** Messages of one family can't share a number and channel: a note, a CC (7- or 14-bit), pitch bend. */
     int family (MidiMapper::Msg m) { return m == MidiMapper::Msg::note ? 0 : m == MidiMapper::Msg::bend ? 2 : 1; }
@@ -69,10 +69,18 @@ std::vector<MidiMapper::Mapping> MidiMapper::getMappings (bool withBuiltIn) cons
 }
 
 //==============================================================================
+bool MidiMapper::potsSendPositions (const juce::String& portName)
+{
+    for (auto* s : { "DAW CONTROL", "MODEL 12", "MODEL 16", "MODEL 24" })
+        if (portName.containsIgnoreCase (s)) return true;
+    return false;
+}
+
 void MidiMapper::setMackie (int inputSlot, int outputSlot)
 {
     ++changes;
     mackieChosen = true;
+    mackiePositions = inputSlot >= 0 && potsSendPositions (hub.inputName (inputSlot));
     mackieIn = inputSlot;
     mackieOut = outputSlot;
     const juce::SpinLock::ScopedLockType sl (lock);
@@ -96,8 +104,8 @@ void MidiMapper::rebuildMackieLocked()
         m.mode = mode;
         m.target.control = control;
         m.target.track = track;
-        m.pickup = mode == Mode::absolute;   // the Model 12's faders aren't motorised
-        m.autoAbsolute = msg == Msg::cc;
+        m.pickup = mode == Mode::absolute || mode == Mode::signedPosition;   // the Model 12's faders and pots aren't motorised
+        m.autoPosition = msg == Msg::cc && mode == Mode::relSign;
         // A learned mapping on the same message, or to the same control, wins.
         for (auto& o : mappings)
             if (! o.builtIn && (o.target == m.target || (o.slot == slot && o.channel == channel && o.number == number && family (o.msg) == family (msg))))
@@ -108,7 +116,7 @@ void MidiMapper::rebuildMackieLocked()
     for (int t = 0; t < numTracks; ++t)
     {
         add (Msg::bend, t + 1, 0, Control::fader, t, Mode::absolute);
-        add (Msg::cc, 1, mcuVpot + t, Control::pan, t, Mode::relSign);
+        add (Msg::cc, 1, mcuVpot + t, Control::pan, t, mackiePositions.load() ? Mode::signedPosition : Mode::relSign);
         add (Msg::note, 1, mcuRec + t, Control::arm, t, Mode::toggle);
         add (Msg::note, 1, mcuSolo + t, Control::solo, t, Mode::toggle);
         add (Msg::note, 1, mcuMute + t, Control::mute, t, Mode::toggle);
@@ -361,6 +369,9 @@ void MidiMapper::poll()
         }
         // Mackie V-pots and the jog dial: sign and magnitude, whichever way they were first turned.
         if (m.slot == mackieIn.load() && (m.mode == Mode::relTwos || m.mode == Mode::relOffset)) m.mode = Mode::relSign;
+        // A Model 12's PAN knobs on strips 5-8: where the knob is, as the built-in ones on 1-4.
+        if (! switchLike && m.slot == mackieIn.load() && mackiePositions.load() && m.msg == Msg::cc && m.number >= mcuVpot && m.number < mcuVpot + 8)
+            m.mode = Mode::signedPosition;
         if (m.mode != Mode::absolute) m.pickup = false;
     }
 
@@ -443,6 +454,7 @@ void MidiMapper::restoreDeckState (const juce::XmlElement* maps)
         const auto inId = mx->getStringAttribute ("inId"), outId = mx->getStringAttribute ("outId");
         mackieIn = inId.isEmpty() ? -1 : hub.findOrCreateInput (inId, mx->getStringAttribute ("inName"));
         mackieOut = outId.isEmpty() ? -1 : hub.findOrCreateOutput (outId, mx->getStringAttribute ("outName"));
+        mackiePositions = potsSendPositions (mx->getStringAttribute ("inName"));
     }
     for (auto* x : maps->getChildWithTagNameIterator ("MAP"))
     {
@@ -503,18 +515,23 @@ void MidiMapper::apply (Mapping& m, int value, int range, Sink& sink) noexcept
         return;
     }
 
-    // A Mackie V-pot sends steps of 1-15; a pot sending larger numbers is sending where it is.
-    if (m.autoAbsolute && m.mode == Mode::relSign && range == 127 && (value & 63) > 15)
+    // A Mackie V-pot sends steps of 1-15; a pot sending larger numbers is sending where it is
+    // (in the same form: a direction and a distance from the middle).
+    if (m.autoPosition && m.mode == Mode::relSign && range == 127 && (value & 63) > 15)
     {
-        m.mode = Mode::absolute;
+        m.mode = Mode::signedPosition;
         m.pickup = true;
+        m.pickedUp = false;
+        m.lastIn = m.lastSet = -1.0f;
     }
 
     const auto current = sink.getValue (m.target, m.param);
     float v;
-    if (m.mode == Mode::absolute)
+    if (m.mode == Mode::absolute || m.mode == Mode::signedPosition)
     {
         v = (float) value / (float) range;
+        if (m.mode == Mode::signedPosition)   // 65-127 left of the middle (127 hard left), 1-63 right of it
+            v = 0.5f + ((value & 64) ? -1.0f : 1.0f) * (float) (value & 63) / 126.0f;
         if (m.pickup)
         {
             // Someone moved the control another way since we last set it: pick up again.
